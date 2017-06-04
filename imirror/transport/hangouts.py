@@ -39,6 +39,47 @@ class HangoutsUser(imirror.User):
         return cls(id, real_name=real_name, avatar=avatar, raw=user)
 
 
+class HangoutsSegment(imirror.RichText.Segment):
+    """
+    Transport-friendly representation of Hangouts message formatting.
+    """
+
+    @classmethod
+    def from_segment(cls, segment):
+        """
+        Convert a :class:`hangups.ChatMessageSegment` into a :class:`.RichText.Segment`.
+
+        Args:
+            segment (hangups.ChatMessageSegment):
+                Hangups message segment from the conversation event.
+
+        Returns:
+            .HangoutsSegment:
+                Parsed segment object.
+        """
+        # RichText.Segment is modelled on hangups, so not much to do here.
+        return cls(segment.text, bold=segment.is_bold, italic=segment.is_italic,
+                   underline=segment.is_underline, strike=segment.is_strikethrough,
+                   link=segment.link_target)
+
+    @classmethod
+    def to_segment(cls, segment):
+        """
+        Convert a :class:`.RichText.Segment` back into a :class:`hangups.ChatMessageSegment`.
+
+        Args:
+            segment (.RichText.Segment)
+                Message segment created by another transport.
+
+        Returns:
+            hangups.ChatMessageSegment:
+                Unparsed segment object.
+        """
+        return hangups.ChatMessageSegment(segment.text, is_bold=segment.bold,
+                                          is_italic=segment.italic, is_underline=segment.underline,
+                                          is_strikethrough=segment.strike, link_target=segment.link)
+
+
 class HangoutsMessage(imirror.Message):
     """
     Message originating from Hangouts.
@@ -61,7 +102,8 @@ class HangoutsMessage(imirror.Message):
         """
         id = event.id_
         channel = hangouts.host.resolve_channel(hangouts, event.conversation_id)
-        text = event.text
+        segments = (HangoutsSegment.from_segment(segment) for segment in event.segments)
+        text = imirror.RichText(segments)
         user = HangoutsUser.from_user(hangouts, hangouts.users.get_user(event.user_id))
         action = False
         if any(a.type == 4 for a in event._event.chat_message.annotation):
@@ -72,10 +114,11 @@ class HangoutsMessage(imirror.Message):
                 # We don't have a clear-cut first name, so try to match parts of names.
                 # Try the full name first, then split successive words off the end.
                 parts = user.real_name.split()
+                start = text[0].text
                 for pos in range(len(parts), 0, -1):
                     sub_name = " ".join(parts[:pos])
-                    if text.startswith(sub_name):
-                        text = text[len(sub_name) + 1:]
+                    if start.startswith(sub_name):
+                        text[0].text = start[len(sub_name) + 1:]
                         break
                 else:
                     # Couldn't match the user's name to the message text.
@@ -129,13 +172,17 @@ class HangoutsTransport(imirror.Transport):
         await super().send(channel, msg)
         conv = self.convs.get(channel.source)
         name = msg.user.real_name or msg.user.username
-        if msg.action:
-            segments = [hangups.ChatMessageSegment("{} ".format(name), is_bold=True,
-                                                   is_italic=True),
-                        hangups.ChatMessageSegment(msg.text, is_italic=True)]
+        if isinstance(msg.text, imirror.RichText):
+            segments = [HangoutsSegment.to_segment(segment) for segment in msg.text]
         else:
-            segments = [hangups.ChatMessageSegment("{}: ".format(name), is_bold=True),
-                        hangups.ChatMessageSegment(msg.text)]
+            # Unformatted text received, make a plain segment out of it.
+            segments = [hangups.ChatMessageSegment(msg.text)]
+        if msg.action:
+            segments.insert(0, hangups.ChatMessageSegment("{} ".format(name), is_bold=True))
+            for segment in segments:
+                segment.is_italic = True
+        else:
+            segments.insert(0, hangups.ChatMessageSegment("{}: ".format(name), is_bold=True))
         content = [seg.serialize() for seg in segments]
         request = hangouts_pb2.SendChatMessageRequest(
                       request_header=self.client.get_request_header(),

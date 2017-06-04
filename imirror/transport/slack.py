@@ -169,7 +169,8 @@ class SlackTransport(imirror.Transport):
             data = {"channel": channel.source,
                     "username": msg.user.username or msg.user.real_name,
                     "icon_url": msg.user.avatar,
-                    "text": msg.text}
+                    # TODO: Handle rich text.
+                    "text": str(msg.text)}
             # Block event processing whilst we wait for the message to go through. Processing will
             # resume once the caller yields or returns.
             resp = await self.session.post("https://slack.com/api/chat.postMessage",

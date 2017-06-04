@@ -28,6 +28,54 @@ class User(Base):
         self.raw = raw
 
 
+class RichText(list, Base):
+    """
+    Common standard for formatted message text, akin to Hangouts' message segments.
+
+    This is a specialised subclass of :class:`list`, designed to hold instances of
+    :class:`.RichText.Segment`.
+    """
+
+    class Segment(Base):
+        """
+        Substring of message text with consistent formatting.
+
+        Attributes:
+            text (str):
+                Plain segment text.
+            bold (bool):
+                Whether this segment should be formatted bold.
+            italic (bool):
+                Whether this segment should be emphasised.
+            underline (bool):
+                Whether this segment should be underlined.
+            strike (bool):
+                Whether this segment should be struck through.
+            link (str):
+                Anchor URL if this segment represents a clickable link.
+        """
+
+        def __init__(self, text, bold=False, italic=False, underline=False, strike=False,
+                     link=None):
+            self.text = text
+            self.bold = bold
+            self.italic = italic
+            self.underline = underline
+            self.strike = strike
+            self.link = link
+
+        def __str__(self):
+            # Fallback implementation: just return the segment text without formatting.
+            return self.text
+
+    def __str__(self):
+        # Fallback implementation: just return the message text without formatting.
+        return "".join(str(segment) for segment in self)
+
+    def __repr__(self):
+        return "{}({})".format(self.__class__.__name__, super().__repr__())
+
+
 class Message(Base):
     """
     Base message object, understood by all transports.
