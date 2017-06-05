@@ -1,4 +1,5 @@
 import asyncio
+from collections import defaultdict
 from datetime import datetime
 import logging
 import re
@@ -42,6 +43,95 @@ class SlackUser(imirror.User):
         real_name = member["profile"].get("real_name")
         avatar = member["profile"].get("image_512")
         return cls(id, username=username, real_name=real_name, avatar=avatar, raw=member)
+
+
+class SlackRichText(imirror.RichText):
+    """
+    Wrapper for Slack-specific parsing of formatting.
+    """
+
+    tags = {"*": "bold", "_": "italic", "~": "strike", "`": "code", "```": "pre"}
+    # A rather complicated expression to match formatting tags according to the following rules:
+    # 1) Outside of formatting may not be adjacent to alphanumeric or other formatting characters.
+    # 2) Inside of formatting may not be adjacent to whitespace or the current formatting character.
+    # 3) Formatting characters may be escaped with a backslash.
+    # This still isn't perfect, but provides a good approximation outside of edge cases.
+    # Slack only has limited documentation: https://get.slack.help/hc/en-us/articles/202288908
+    _outside_chars = r"0-9a-z*_~"
+    _tag_chars = r"*_~`"
+    _inside_chars = r"\s\1"
+    _format_regex = re.compile(r"(?<![{0}\\])(```|[{1}])(?![{2}])(.+?)(?<![{2}\\])\1(?![{0}])"
+                               .format(_outside_chars, _tag_chars, _inside_chars))
+
+    @classmethod
+    def from_mrkdwn(cls, text):
+        """
+        Convert a string of Slack's Mrkdwn into a :class:`.RichText`.
+
+        Args:
+            text (str):
+                Slack-style formatted text.
+
+        Returns:
+            .SlackRichText:
+                Parsed rich text container.
+        """
+        changes = defaultdict(dict)
+        while True:
+            match = cls._format_regex.search(text)
+            if not match:
+                break
+            start = match.start()
+            end = match.end()
+            tag = match.group(1)
+            # Strip the tag characters from the message.
+            text = text[:start] + match.group(2) + text[end:]
+            end -= 2 * len(tag)
+            # Record the range where the format is applied.
+            field = cls.tags[tag]
+            changes[start][field] = True
+            changes[end][field] = False
+        segments = []
+        points = list(changes.keys())
+        # Iterate through text in change start/end pairs.
+        for start, end in zip([0] + points, points + [len(text)]):
+            if start == end:
+                # Zero-length segment at the start or end, ignore it.
+                continue
+            segments.append(SlackSegment(text[start:end], **changes[start]))
+        return cls(segments)
+
+
+class SlackSegment(imirror.RichText.Segment):
+    """
+    Transport-friendly representation of Slack message formatting.
+    """
+
+    @classmethod
+    def to_mrkdwn(cls, segment):
+        """
+        Convert a :class:`.RichText.Segment` back into a Mrkdwn string.
+
+        Args:
+            segment (.RichText.Segment)
+                Message segment created by another transport.
+
+        Returns:
+            str:
+                Unparsed segment string.
+        """
+        text = segment.text
+        if segment.bold:
+            text = "*{}*".format(text)
+        if segment.italic:
+            text = "_{}_".format(text)
+        if segment.strike:
+            text = "~{}~".format(text)
+        if segment.code:
+            text = "`{}`".format(text)
+        if segment.pre:
+            text = "```{}```".format(text)
+        return text
 
 
 class SlackMessage(imirror.Message):
@@ -97,6 +187,7 @@ class SlackMessage(imirror.Message):
             # Own username at the start of the message, assume it's an action.
             action = True
             text = re.sub(r"^<@{}|.*?> ".format(user.id), "", text)
+        text = SlackRichText.from_mrkdwn(text)
         return cls(id, channel, at=at, original=original, text=text, user=user, action=action,
                    deleted=deleted, reply_to=reply_to, joined=joined, left=left, raw=event)
 
@@ -166,11 +257,14 @@ class SlackTransport(imirror.Transport):
         await super().send(channel, msg)
         log.debug("Sending message")
         with (await self.lock):
+            if isinstance(msg.text, imirror.RichText):
+                text = "".join(SlackSegment.to_mrkdwn(segment) for segment in msg.text)
+            else:
+                text = msg.text
             data = {"channel": channel.source,
                     "username": msg.user.username or msg.user.real_name,
                     "icon_url": msg.user.avatar,
-                    # TODO: Handle rich text.
-                    "text": str(msg.text)}
+                    "text": text}
             # Block event processing whilst we wait for the message to go through. Processing will
             # resume once the caller yields or returns.
             resp = await self.session.post("https://slack.com/api/chat.postMessage",

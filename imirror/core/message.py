@@ -51,17 +51,23 @@ class RichText(list, Base):
                 Whether this segment should be underlined.
             strike (bool):
                 Whether this segment should be struck through.
+            code (bool):
+                Whether this segment should be monospaced.
+            pre (bool):
+                Whether this segment should be preformatted.
             link (str):
                 Anchor URL if this segment represents a clickable link.
         """
 
         def __init__(self, text, bold=False, italic=False, underline=False, strike=False,
-                     link=None):
+                     code=False, pre=False, link=None):
             self.text = text
             self.bold = bold
             self.italic = italic
             self.underline = underline
             self.strike = strike
+            self.code = code
+            self.pre = pre
             self.link = link
 
         def __str__(self):
