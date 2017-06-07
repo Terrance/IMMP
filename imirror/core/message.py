@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import datetime
 
 from .util import Base
@@ -73,6 +74,16 @@ class RichText(list, Base):
         def __str__(self):
             # Fallback implementation: just return the segment text without formatting.
             return self.text
+
+    def clone(self):
+        """
+        Make a copy of this message text and all its segments.
+
+        Returns:
+            .RichText:
+                Cloned message text instance.
+        """
+        return deepcopy(self)
 
     def __str__(self):
         # Fallback implementation: just return the message text without formatting.
