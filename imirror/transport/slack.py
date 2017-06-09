@@ -21,7 +21,15 @@ class SlackAPIError(imirror.TransportError):
 class SlackUser(imirror.User):
     """
     User present in Slack.
+
+    Attributes:
+        bot_id (str):
+            Reference to the Slack integration app for a bot user.
     """
+
+    def __init__(self, id, username=None, real_name=None, avatar=None, bot_id=None, raw=None):
+        super().__init__(id, username=username, real_name=real_name, avatar=avatar, raw=raw)
+        self.bot_id = bot_id
 
     @classmethod
     def from_member(cls, slack, member):
@@ -38,11 +46,14 @@ class SlackUser(imirror.User):
             .SlackUser:
                 Parsed user object.
         """
-        id = member["id"]
-        username = member["name"]
-        real_name = member["profile"].get("real_name")
-        avatar = member["profile"].get("image_512")
-        return cls(id, username=username, real_name=real_name, avatar=avatar, raw=member)
+        id = member.get("id")
+        username = member.get("name")
+        profile = member.get("profile", {})
+        real_name = profile.get("real_name")
+        avatar = profile.get("image_512")
+        bot_id = profile.get("bot_id")
+        return cls(id, username=username, real_name=real_name, avatar=avatar, bot_id=bot_id,
+                   raw=member)
 
 
 class SlackRichText(imirror.RichText):
@@ -219,26 +230,26 @@ class SlackTransport(imirror.Transport):
         await super().connect()
         self.session = aiohttp.ClientSession()
         log.debug("Requesting RTM session")
-        resp = await self.session.post("https://slack.com/api/rtm.start",
-                                       data={"token": self.token})
-        json = await resp.json()
-        if not json["ok"]:
-            raise SlackAPIError(json["error"])
+        async with self.session.post("https://slack.com/api/rtm.start",
+                                     data={"token": self.token}) as resp:
+            json = await resp.json()
+        if not json.get("ok"):
+            raise SlackAPIError(json.get("error"))
         # Cache useful information about users and channels, to save on queries later.
-        self.team = json["team"]
-        self.users = {u["id"]: SlackUser.from_member(self, u) for u in json["users"]}
+        self.team = json.get("team")
+        self.users = {u.get("id"): SlackUser.from_member(self, u) for u in json.get("users", [])}
         log.debug("Users ({}): {}".format(len(self.users), ", ".join(self.users.keys())))
-        self.channels = {c["id"]: c for c in json["channels"] + json["groups"]}
+        self.channels = {c.get("id"): c for c in json.get("channels", []) + json.get("groups", [])}
         log.debug("Channels ({}): {}".format(len(self.channels), ", ".join(self.channels.keys())))
-        self.directs = {c["id"]: c for c in json["ims"]}
+        self.directs = {c.get("id"): c for c in json.get("ims", [])}
         log.debug("Directs ({}): {}".format(len(self.directs), ", ".join(self.directs.keys())))
-        self.bots = {b["id"]: b for b in json["bots"] if not b["deleted"]}
+        self.bots = {b.get("id"): b for b in json.get("bots", []) if not b.get("deleted")}
         log.debug("Bots ({}): {}".format(len(self.bots), ", ".join(self.bots.keys())))
         # Create a map of bot IDs to users, as the bot cache doesn't contain references to them.
         self.bot2user = {}
         for user in self.users.values():
-            if user.raw.get("profile", {}).get("bot_id"):
-                self.bot2user[user.raw["profile"]["bot_id"]] = user.id
+            if user.bot_id:
+                self.bot2user[user.bot_id] = user.id
         self.socket = await self.session.ws_connect(json["url"])
         log.debug("Connected to websocket")
 
@@ -270,9 +281,9 @@ class SlackTransport(imirror.Transport):
             resp = await self.session.post("https://slack.com/api/chat.postMessage",
                                            data=dict(data, token=self.token))
             json = await resp.json()
-        if not json["ok"]:
-            raise SlackAPIError(json["error"])
-        return json["ts"]
+        if not json.get("ok"):
+            raise SlackAPIError(json.get("error"))
+        return json.get("ts")
 
     async def receive(self):
         await super().receive()
@@ -285,15 +296,17 @@ class SlackTransport(imirror.Transport):
                 log.warn("Received strange message with no type")
                 continue
             log.debug("Received a '{}' event".format(event["type"]))
+            user = event.get("user", {})
+            channel = event.get("channel", {})
             if event["type"] in ("team_join", "user_change"):
                 # A user appeared or changed, update our cache.
-                self.users[event["user"]["id"]] = event["user"]
+                self.users[user.get("id")] = user
             elif event["type"] in ("channel_joined", "group_joined"):
                 # A group or channel appeared, add to our cache.
-                self.channels[event["channel"]["id"]] = event["channel"]
+                self.channels[channel.get("id")] = channel
             elif event["type"] == "im_created":
                 # A DM appeared, add to our cache.
-                self.directs[event["channel"]["id"]] = event["channel"]
+                self.directs[channel.get("id")] = channel
             elif event["type"] == "message":
                 # A new message arrived, push it back to the host.
                 yield SlackMessage.from_event(self, event)

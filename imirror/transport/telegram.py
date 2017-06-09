@@ -71,8 +71,8 @@ class TelegramRichText(imirror.RichText):
                 continue
             start = entity.get("offset")
             end = start + entity.get("length")
-            changes[start][entity["type"]] = True
-            changes[end][entity["type"]] = False
+            changes[start][entity.get("type")] = True
+            changes[end][entity.get("type")] = False
         segments = []
         points = list(changes.keys())
         # Iterate through text in change start/end pairs.
