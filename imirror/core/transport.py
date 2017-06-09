@@ -7,6 +7,8 @@ class Transport(Base):
     Base of all transport classes, handles communication with an external network by converting
     outside data into standardised message objects, and pushing new messages into the network.
 
+    Instantiation may raise :class:`.ConfigError` if the provided configuration is invalid.
+
     Attributes:
         name (str):
             User-provided, unique name of the transport, used for config references.
@@ -19,14 +21,6 @@ class Transport(Base):
     """
 
     def __init__(self, name, config, host):
-        """
-        Process the user-provided configuration.  May raise :cls:`.ConfigError` if invalid.
-
-        Args:
-            name (str)
-            config (dict)
-            host (.Host)
-        """
         self.name = name
         self.config = config
         self.host = host
@@ -61,6 +55,10 @@ class Transport(Base):
     async def receive(self):
         """
         Generator of :class:`.Message` objects from the underlying network.
+
+        Yields:
+            .Message:
+                Messages received and processed by the transport.
         """
         if not self.connected:
             raise TransportError("Can't receive messages when not connected")

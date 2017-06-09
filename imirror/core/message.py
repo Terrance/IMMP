@@ -126,21 +126,6 @@ class Message(Base):
 
     def __init__(self, id, channel, at=None, original=None, text=None, user=None, action=False,
                  deleted=False, reply_to=None, joined=None, left=None, raw=None):
-        """
-        Populate the new message.
-
-        Args:
-            id (str)
-            channel (.Channel)
-            at (datetime.datetime)
-            original (str)
-            text (str)
-            user (.User)
-            action (bool)
-            deleted (bool)
-            reply_to (str)
-            raw
-        """
         self.channel = channel
         self.id = id
         self.at = at or datetime.now()

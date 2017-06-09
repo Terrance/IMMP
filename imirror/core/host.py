@@ -27,9 +27,6 @@ class Host(Base):
     """
 
     def __init__(self):
-        """
-        Create an empty host.
-        """
         self.transports = {}
         self.channels = {}
         self.receivers = {}
@@ -71,7 +68,7 @@ class Host(Base):
         try:
             transport = self.transports[name]
         except KeyError:
-            raise RuntimeError("Transport '{}' not registered to host".format(name))
+            raise RuntimeError("Transport '{}' not registered to host".format(name)) from None
         if transport.connected:
             raise RuntimeError("Transport '{}' still connected".format(name))
         del self.transports[name]
@@ -149,6 +146,19 @@ class Host(Base):
             raise RuntimeError("Receiver '{}' not registered to host".format(name)) from None
 
     def resolve_channel(self, transport, source):
+        """
+        Take a transport and channel name, and resolve it from the configured channels.
+
+        Args:
+            transport (.Transport):
+                Registered transport instance.
+            source (str):
+                Transport-specific channel identifier.
+
+        Returns:
+            .Channel:
+                Generated channel container object.
+        """
         for channel in self.channels.values():
             if channel.transport == transport and channel.source == source:
                 return channel

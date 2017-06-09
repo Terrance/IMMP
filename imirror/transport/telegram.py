@@ -24,7 +24,7 @@ class TelegramUser(imirror.User):
     @classmethod
     def from_sender(cls, telegram, user):
         """
-        Convert a user :class:`dict` (attached to a message) to an :class:`imirror.User`.
+        Convert a user :class:`dict` (attached to a message) to a :class:`.User`.
 
         Args:
             telegram (.TelegramTransport):
@@ -122,7 +122,7 @@ class TelegramMessage(imirror.Message):
     @classmethod
     def from_message(cls, telegram, message):
         """
-        Convert an API message :class:`dict` to an :class:`imirror.Message`.
+        Convert an API message :class:`dict` to a :class:`.Message`.
 
         Args:
             telegram (.TelegramTransport):
@@ -148,7 +148,7 @@ class TelegramMessage(imirror.Message):
     @classmethod
     def from_update(cls, telegram, update):
         """
-        Convert an API update :class:`dict` to an :class:`imirror.Message`.
+        Convert an API update :class:`dict` to a :class:`.Message`.
 
         Args:
             telegram (.TelegramTransport):
@@ -174,7 +174,7 @@ class TelegramTransport(imirror.Transport):
     """
     Transport for a `Telegram <https://telegram.org>`_ bot.
 
-    Config:
+    Config
         token (str):
             Telegram API token for a bot user (obtained from ``@BotFather``).
     """

@@ -130,7 +130,7 @@ class HangoutsTransport(imirror.Transport):
     """
     Transport for `Google Hangouts <https://hangouts.google.com>`_.
 
-    Config:
+    Config
         cookie (str):
             Path to a cookie text file read/written by :func:`hangups.get_auth_stdin`.
     """
@@ -151,7 +151,7 @@ class HangoutsTransport(imirror.Transport):
         self.client.on_connect.add_observer(self._connect)
         log.debug("Connecting client")
         asyncio.ensure_future(self.client.connect())
-    
+
     async def _connect(self):
         log.debug("Retrieving users and conversations")
         self.users, self.convs = await hangups.build_user_conversation_list(self.client)

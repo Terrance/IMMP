@@ -10,7 +10,7 @@ class SyncReceiver(imirror.Receiver):
     """
     A receiver to propagate messages between two or more channels.
 
-    Config:
+    Config
         channels (str list):
             List of channel names to manage.
     """

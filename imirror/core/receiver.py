@@ -6,6 +6,8 @@ class Receiver(Base):
     Base of all receiver classes, performs any form of processing on messages from all connected
     transports, via the provided host instance.
 
+    Instantiation may raise :class:`.ConfigError` if the provided configuration is invalid.
+
     Attributes:
         name (str):
             User-provided, unique name of the receiver, used for config references.
@@ -16,14 +18,6 @@ class Receiver(Base):
     """
 
     def __init__(self, name, config, host):
-        """
-        Process the user-provided configuration.  May raise :cls:`.ConfigError` if invalid.
-
-        Args:
-            name (str)
-            config (dict)
-            host (.Host)
-        """
         self.name = name
         self.config = config
         self.host = host

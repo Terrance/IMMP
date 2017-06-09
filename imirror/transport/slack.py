@@ -26,7 +26,7 @@ class SlackUser(imirror.User):
     @classmethod
     def from_member(cls, slack, member):
         """
-        Convert an API member :class:`dict` to an :class:`imirror.User`.
+        Convert an API member :class:`dict` to a :class:`.User`.
 
         Args:
             slack (.SlackTransport):
@@ -142,7 +142,7 @@ class SlackMessage(imirror.Message):
     @classmethod
     def from_event(cls, slack, event):
         """
-        Convert an API event :class:`dict` to an :class:`imirror.Message`.
+        Convert an API event :class:`dict` to a :class:`.Message`.
 
         Args:
             slack (.SlackTransport):
@@ -196,7 +196,7 @@ class SlackTransport(imirror.Transport):
     """
     Transport for a `Slack <https://slack.com>`_ team.
 
-    Config:
+    Config
         token (str):
             Slack API token for a bot user (usually starts ``xoxb-``).
     """

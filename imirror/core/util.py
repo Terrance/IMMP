@@ -3,7 +3,15 @@ import importlib
 
 def resolve_import(path):
     """
-    Take a dotted name (e.g. ``<module path>.<class name>``), and return the physical class.
+    Takes the qualified name of a Python class, and return the physical class object.
+
+    Args:
+        path (str):
+            Dotted Python class name, e.g. ``<module path>.<class name>``.
+
+    Returns:
+        type:
+            Class object imported from module.
     """
     module, class_ = path.rsplit(".", 1)
     return getattr(importlib.import_module(module), class_)
