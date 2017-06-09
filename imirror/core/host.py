@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from aiostream import stream
@@ -162,20 +163,16 @@ class Host(Base):
             log.warn("No transports registered")
         if not self.receivers:
             log.warn("No receivers registered")
-        for transport in self.transports.values():
-            await transport.connect()
+        await asyncio.wait([transport.connect() for transport in self.transports.values()])
         self.running = True
         receivers = (transport.receive() for transport in self.transports.values())
         async with stream.merge(*receivers).stream() as streamer:
             async for msg in streamer:
                 log.debug("Received message: {}".format(msg))
-                for receiver in self.receivers.values():
-                    await receiver.process(msg)
+                await asyncio.wait([receiver.process(msg) for receiver in self.receivers.values()])
 
     async def close(self):
         """
         Disconnect all open transports.
         """
-        for transport in self.transports.values():
-            if transport.connected:
-                await transport.disconnect()
+        await asyncio.wait([transport.disconnect() for transport in self.transports.values()])
