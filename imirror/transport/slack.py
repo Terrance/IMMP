@@ -266,7 +266,9 @@ class SlackTransport(imirror.Transport):
 
     async def send(self, channel, msg):
         await super().send(channel, msg)
-        log.debug("Sending message")
+        if msg.deleted:
+            # TODO
+            return
         with (await self.lock):
             if isinstance(msg.text, imirror.RichText):
                 text = "".join(SlackSegment.to_mrkdwn(segment) for segment in msg.text)

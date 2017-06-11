@@ -170,19 +170,22 @@ class HangoutsTransport(imirror.Transport):
 
     async def send(self, channel, msg):
         await super().send(channel, msg)
+        if msg.deleted:
+            # We can't delete the messages on this side.
+            return
         conv = self.convs.get(channel.source)
-        name = msg.user.real_name or msg.user.username
         if isinstance(msg.text, imirror.RichText):
             segments = [HangoutsSegment.to_segment(segment) for segment in msg.text]
         else:
             # Unformatted text received, make a plain segment out of it.
             segments = [hangups.ChatMessageSegment(msg.text)]
+        if msg.user:
+            name = msg.user.real_name or msg.user.username
+            prefix = ("{} " if msg.action else "{}: ").format(name)
+            segments.insert(0, hangups.ChatMessageSegment(prefix, is_bold=True))
         if msg.action:
-            segments.insert(0, hangups.ChatMessageSegment("{} ".format(name), is_bold=True))
             for segment in segments:
                 segment.is_italic = True
-        else:
-            segments.insert(0, hangups.ChatMessageSegment("{}: ".format(name), is_bold=True))
         content = [seg.serialize() for seg in segments]
         request = hangouts_pb2.SendChatMessageRequest(
                       request_header=self.client.get_request_header(),

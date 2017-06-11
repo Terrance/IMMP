@@ -201,24 +201,30 @@ class TelegramTransport(imirror.Transport):
         self.offset = 0
 
     async def send(self, channel, msg):
-        name = msg.user.real_name or msg.user.username
+        if msg.deleted:
+            # TODO
+            return
         if isinstance(msg.text, imirror.RichText):
             rich = msg.text.copy()
         else:
             # Unformatted text received, make a basic rich text instance out of it.
             rich = imirror.RichText([imirror.RichText.Segment(msg.text)])
+        if msg.user:
+            name = msg.user.real_name or msg.user.username
+            prefix = ("{} " if msg.action else "{}: ").format(name)
+            rich.insert(0, imirror.RichText.Segment(prefix, bold=True))
         if msg.action:
-            rich.insert(0, imirror.RichText.Segment("{} ".format(name), bold=True))
             for segment in rich:
                 segment.italic = True
-        else:
-            rich.insert(0, imirror.RichText.Segment("{}: ".format(name), bold=True))
         text = "".join(TelegramSegment.to_html(segment) for segment in rich)
         async with self.session.post("{}/sendMessage".format(self.base),
                                      json={"chat_id": channel.source,
                                            "text": text,
                                            "parse_mode": "HTML"}) as resp:
             json = await resp.json()
+        if not json.get("ok"):
+            raise TelegramAPIError(json.get("description", json.get("error_code")))
+        return json.get("result", {}).get("message_id")
 
     async def receive(self):
         await super().receive()
