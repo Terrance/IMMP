@@ -5,6 +5,7 @@ import logging
 import re
 
 import aiohttp
+from emoji import emojize
 from voluptuous import Schema, Any, Optional, Match, ALLOW_EXTRA
 
 import imirror
@@ -30,6 +31,8 @@ class _Schema(object):
     _base_message = Schema({"ts": str,
                             "type": "message",
                             Optional("channel", default=None): Any(str, None),
+                            Optional("edited", default={}):
+                                    {Optional("user", default=None): Any(str, None)},
                             Optional("thread_ts", default=None): Any(str, None)},
                            extra=ALLOW_EXTRA, required=True)
 
@@ -170,7 +173,8 @@ class SlackRichText(imirror.RichText):
             if start == end:
                 # Zero-length segment at the start or end, ignore it.
                 continue
-            segments.append(SlackSegment(text[start:end], **changes[start]))
+            segments.append(SlackSegment(emojize(text[start:end], use_aliases=True),
+                                         **changes[start]))
         return cls(segments)
 
 
@@ -234,14 +238,14 @@ class SlackMessage(imirror.Message):
         left = None
         if event["subtype"] == "bot_message":
             # Event has the bot's app ID, not user ID.
-            user = slack.bot2user.get(event["bot_id"])
+            user = slack.bot_to_user.get(event["bot_id"])
             text = event["text"]
         elif event["subtype"] == "message_changed":
             # Original message details are under a nested "message" key.
             original = event["message"]["ts"]
             text = event["message"]["text"]
             # NB: Editing user may be different to the original sender.
-            user = event["message"]["edited"]["user"]
+            user = event["message"]["edited"]["user"] or event["message"]["user"]
         elif event["subtype"] == "message_deleted":
             original = event["deleted_ts"]
             user = None
@@ -320,10 +324,7 @@ class SlackTransport(imirror.Transport):
         self.bots = {b.get("id"): b for b in rtm["bots"] if not b.get("deleted")}
         log.debug("Bots ({}): {}".format(len(self.bots), ", ".join(self.bots.keys())))
         # Create a map of bot IDs to users, as the bot cache doesn't contain references to them.
-        self.bot2user = {}
-        for user in self.users.values():
-            if user.bot_id:
-                self.bot2user[user.bot_id] = user.id
+        self.bot_to_user = {user.bot_id: user.id for user in self.users.values() if user.bot_id}
         self.socket = await self.session.ws_connect(rtm["url"])
         log.debug("Connected to websocket")
 
