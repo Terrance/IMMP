@@ -5,11 +5,66 @@ import logging
 import re
 
 import aiohttp
+from voluptuous import Schema, Any, Optional, Match, ALLOW_EXTRA
 
 import imirror
 
 
 log = logging.getLogger(__name__)
+
+
+class _Schema(object):
+
+    config = Schema({"token": str,
+                     Optional("fallback-name", default="Bridge"): str,
+                     Optional("fallback-image", default=None): Any(str, None)},
+                    extra=ALLOW_EXTRA, required=True)
+
+    user = Schema({"id": str,
+                   "name": str,
+                   "profile": {Optional("real_name", default=None): Any(str, None),
+                               Optional(Match(r"image_(original|\d+)")): Any(str, None),
+                               Optional("bot_id", default=None): Any(str, None)}},
+                  extra=ALLOW_EXTRA, required=True)
+
+    _base_message = Schema({"ts": str,
+                            "type": "message",
+                            Optional("channel", default=None): Any(str, None),
+                            Optional("thread_ts", default=None): Any(str, None)},
+                           extra=ALLOW_EXTRA, required=True)
+
+    message = Schema(Any(_base_message.extend({"subtype": "bot_message",
+                                               "bot_id": str,
+                                               "text": str,
+                                               Optional("username", default=None): Any(str, None),
+                                               Optional("icons", default=dict): Any(dict, None)}),
+                         _base_message.extend({"subtype": "message_changed",
+                                               "message": lambda v: _Schema.message(v)}),
+                         _base_message.extend({"subtype": "message_deleted",
+                                               "deleted_ts": str}),
+                         _base_message.extend({Optional("subtype", default=None): Any(str, None),
+                                               "user": str,
+                                               "text": str})))
+
+    event = Schema(Any(message,
+                       {"type": Any("team_join", "user_change"),
+                        "user": user},
+                       {"type": Any("channel_joined", "group_joined", "im_created"),
+                        "channel": {"id": str}},
+                       {"type": str},
+                       extra=ALLOW_EXTRA, required=True))
+
+    rtm = Schema(Any({"ok": False,
+                      "error": str},
+                     {"ok": True,
+                      "url": str,
+                      "team": dict,
+                      "users": [user],
+                      "channels": [{"id": str}],
+                      "groups": [{"id": str}],
+                      "ims": [{"id": str}],
+                      "bots": [{"id": str}]},
+                     extra=ALLOW_EXTRA, required=True))
 
 
 class SlackAPIError(imirror.TransportError):
@@ -32,28 +87,34 @@ class SlackUser(imirror.User):
         self.bot_id = bot_id
 
     @classmethod
-    def from_member(cls, slack, member):
+    def _best_image(cls, profile):
+        for size in ("original", "512", "192", "72", "48", "32", "24"):
+            if "image_{}".format(size) in profile:
+                return profile["image_{}".format(size)]
+        return None
+
+    @classmethod
+    def from_member(cls, slack, json):
         """
         Convert an API member :class:`dict` to a :class:`.User`.
 
         Args:
             slack (.SlackTransport):
                 Related transport instance that provides the user.
-            member (dict):
+            json (dict):
                 Slack API `user <https://api.slack.com/types/user>`_ object.
 
         Returns:
             .SlackUser:
                 Parsed user object.
         """
-        id = member.get("id")
-        username = member.get("name")
-        profile = member.get("profile", {})
-        real_name = profile.get("real_name")
-        avatar = profile.get("image_512")
-        bot_id = profile.get("bot_id")
-        return cls(id, username=username, real_name=real_name, avatar=avatar, bot_id=bot_id,
-                   raw=member)
+        member = _Schema.user(json)
+        return cls(id=member["id"],
+                   username=member["name"],
+                   real_name=member["profile"]["real_name"],
+                   avatar=cls._best_image(member["profile"]),
+                   bot_id=member["profile"]["bot_id"],
+                   raw=json)
 
 
 class SlackRichText(imirror.RichText):
@@ -151,56 +212,64 @@ class SlackMessage(imirror.Message):
     """
 
     @classmethod
-    def from_event(cls, slack, event):
+    def from_event(cls, slack, json):
         """
         Convert an API event :class:`dict` to a :class:`.Message`.
 
         Args:
             slack (.SlackTransport):
                 Related transport instance that provides the event.
-            event (dict):
+            json (dict):
                 Slack API `message <https://api.slack.com/events/message>`_ event data.
 
         Returns:
             .SlackMessage:
                 Parsed message object.
         """
-        id = event.get("ts")
-        channel = slack.host.resolve_channel(slack, event.get("channel"))
-        at = datetime.fromtimestamp(int(float(id))) if id else None
+        event = _Schema.message(json)
         original = None
-        subtype = event.get("subtype")
-        text = event.get("text")
-        user = slack.users.get(event.get("user"))
         action = False
         deleted = False
-        reply_to = event.get("thread_ts")
         joined = None
         left = None
-        if subtype == "bot_message":
+        if event["subtype"] == "bot_message":
             # Event has the bot's app ID, not user ID.
-            user = slack.users.get(slack.bot2user.get(event.get("bot_id")))
-        elif subtype in ("channel_join", "group_join"):
-            joined = [user]
-        elif subtype in ("channel_leave", "group_leave"):
-            left = [user]
-        elif subtype == "message_changed":
+            user = slack.bot2user.get(event["bot_id"])
+            text = event["text"]
+        elif event["subtype"] == "message_changed":
             # Original message details are under a nested "message" key.
-            msg = event.get("message", {})
-            original = msg.get("ts")
-            text = msg.get("text")
+            original = event["message"]["ts"]
+            text = event["message"]["text"]
             # NB: Editing user may be different to the original sender.
-            user = slack.users.get(msg.get("edited", {}).get("user"))
-        elif subtype == "message_deleted":
-            original = event.get("deleted_ts")
+            user = event["message"]["edited"]["user"]
+        elif event["subtype"] == "message_deleted":
+            original = event["deleted_ts"]
+            user = None
+            text = None
             deleted = True
-        if text and re.match(r"<@{}|.*?> ".format(user.id), text):
+        else:
+            user = event["user"]
+            text = event["text"]
+        if event["subtype"] in ("channel_join", "group_join"):
+            joined = [user]
+        elif event["subtype"] in ("channel_leave", "group_leave"):
+            left = [user]
+        if user and text and re.match(r"<@{}|.*?> ".format(user), text):
             # Own username at the start of the message, assume it's an action.
             action = True
-            text = re.sub(r"^<@{}|.*?> ".format(user.id), "", text)
-        text = SlackRichText.from_mrkdwn(text)
-        return cls(id, channel, at=at, original=original, text=text, user=user, action=action,
-                   deleted=deleted, reply_to=reply_to, joined=joined, left=left, raw=event)
+            text = re.sub(r"^<@{}|.*?> ".format(user), "", text)
+        return cls(id=event["ts"],
+                   channel=slack.host.resolve_channel(slack, event["channel"]),
+                   at=datetime.fromtimestamp(int(float(event["ts"]))),
+                   original=original,
+                   text=SlackRichText.from_mrkdwn(text) if text else None,
+                   user=slack.users.get(user, SlackUser(id=user)) if user else None,
+                   action=action,
+                   deleted=deleted,
+                   reply_to=event["thread_ts"],
+                   joined=joined,
+                   left=left,
+                   raw=json)
 
 
 class SlackTransport(imirror.Transport):
@@ -210,14 +279,18 @@ class SlackTransport(imirror.Transport):
     Config
         token (str):
             Slack API token for a bot user (usually starts ``xoxb-``).
+        fallback-name (str):
+            Name to display for incoming messages without an attached user (default: ``Bridge``).
+        fallback-image (str):
+            Avatar to display for incoming messages without a user or image (default: none).
     """
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
-        try:
-            self.token = config["token"]
-        except KeyError:
-            raise imirror.ConfigError("Slack token not specified") from None
+        config = _Schema.config(config)
+        self.token = config["token"]
+        self.fallback_name = config["fallback-name"]
+        self.fallback_image = config["fallback-image"]
         self.team = self.users = self.channels = self.directs = None
         # Connection objects that need to be closed on disconnect.
         self.session = self.socket = None
@@ -233,24 +306,25 @@ class SlackTransport(imirror.Transport):
         async with self.session.post("https://slack.com/api/rtm.start",
                                      data={"token": self.token}) as resp:
             json = await resp.json()
-        if not json.get("ok"):
-            raise SlackAPIError(json.get("error"))
+        rtm = _Schema.rtm(json)
+        if not rtm["ok"]:
+            raise SlackAPIError(rtm["error"])
         # Cache useful information about users and channels, to save on queries later.
-        self.team = json.get("team")
-        self.users = {u.get("id"): SlackUser.from_member(self, u) for u in json.get("users", [])}
+        self.team = rtm["team"]
+        self.users = {u.get("id"): SlackUser.from_member(self, u) for u in rtm["users"]}
         log.debug("Users ({}): {}".format(len(self.users), ", ".join(self.users.keys())))
-        self.channels = {c.get("id"): c for c in json.get("channels", []) + json.get("groups", [])}
+        self.channels = {c.get("id"): c for c in rtm["channels"] + rtm["groups"]}
         log.debug("Channels ({}): {}".format(len(self.channels), ", ".join(self.channels.keys())))
-        self.directs = {c.get("id"): c for c in json.get("ims", [])}
+        self.directs = {c.get("id"): c for c in rtm["ims"]}
         log.debug("Directs ({}): {}".format(len(self.directs), ", ".join(self.directs.keys())))
-        self.bots = {b.get("id"): b for b in json.get("bots", []) if not b.get("deleted")}
+        self.bots = {b.get("id"): b for b in rtm["bots"] if not b.get("deleted")}
         log.debug("Bots ({}): {}".format(len(self.bots), ", ".join(self.bots.keys())))
         # Create a map of bot IDs to users, as the bot cache doesn't contain references to them.
         self.bot2user = {}
         for user in self.users.values():
             if user.bot_id:
                 self.bot2user[user.bot_id] = user.id
-        self.socket = await self.session.ws_connect(json["url"])
+        self.socket = await self.session.ws_connect(rtm["url"])
         log.debug("Connected to websocket")
 
     async def disconnect(self):
@@ -274,9 +348,11 @@ class SlackTransport(imirror.Transport):
                 text = "".join(SlackSegment.to_mrkdwn(segment) for segment in msg.text)
             else:
                 text = msg.text
+            name = (msg.user.username or msg.user.real_name) if msg.user else self.fallback_name
+            image = msg.user.avatar if msg.user else self.fallback_image
             data = {"channel": channel.source,
-                    "username": msg.user.username or msg.user.real_name,
-                    "icon_url": msg.user.avatar,
+                    "username": name,
+                    "icon_url": image,
                     "text": text}
             # Block event processing whilst we wait for the message to go through. Processing will
             # resume once the caller yields or returns.
@@ -290,25 +366,21 @@ class SlackTransport(imirror.Transport):
     async def receive(self):
         await super().receive()
         while True:
-            event = await self.socket.receive_json()
+            json = await self.socket.receive_json()
             with (await self.lock):
                 # No critical section here, just wait for any pending messages to be sent.
                 pass
-            if "type" not in event:
-                log.warn("Received strange message with no type")
-                continue
+            event = _Schema.event(json)
             log.debug("Received a '{}' event".format(event["type"]))
-            user = event.get("user", {})
-            channel = event.get("channel", {})
             if event["type"] in ("team_join", "user_change"):
                 # A user appeared or changed, update our cache.
-                self.users[user.get("id")] = user
+                self.users[event["user"]["id"]] = user
             elif event["type"] in ("channel_joined", "group_joined"):
                 # A group or channel appeared, add to our cache.
-                self.channels[channel.get("id")] = channel
+                self.channels[event["channel"]["id"]] = channel
             elif event["type"] == "im_created":
                 # A DM appeared, add to our cache.
-                self.directs[channel.get("id")] = channel
+                self.directs[event["channel"]["id"]] = channel
             elif event["type"] == "message":
                 # A new message arrived, push it back to the host.
                 yield SlackMessage.from_event(self, event)
