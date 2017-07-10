@@ -3,11 +3,43 @@ from datetime import datetime
 import logging
 
 import aiohttp
+from voluptuous import Schema, Invalid, Any, Optional, ALLOW_EXTRA
 
 import imirror
 
 
 log = logging.getLogger(__name__)
+
+
+class _Schema(object):
+
+    config = Schema({"token": str}, extra=ALLOW_EXTRA, required=True)
+
+    user = Schema({"id": int,
+                   Optional("username", default=None): Any(str, None),
+                   "first_name": str,
+                   Optional("last_name", default=None): Any(str, None)},
+                  extra=ALLOW_EXTRA, required=True)
+
+    entity = Schema({"type": str,
+                     "offset": int,
+                     "length": int},
+                    extra=ALLOW_EXTRA, required=True)
+
+    message = Schema({"message_id": int,
+                      "chat": {"id": int},
+                      "date": int,
+                      Optional("from", default=None): Any(user, None),
+                      Optional("text", default=None): Any(str, None),
+                      Optional("entities", default=[]): [entity],
+                      Optional("new_chat_member", default=None): Any(user, None),
+                      Optional("left_chat_member", default=None): Any(user, None)},
+                     extra=ALLOW_EXTRA, required=True)
+
+    update = Schema({"update_id": int,
+                     Any("message", "edited_message",
+                         "channel_post", "edited_channel_post"): message},
+                    extra=ALLOW_EXTRA, required=True)
 
 
 class TelegramAPIError(imirror.TransportError):
@@ -22,26 +54,27 @@ class TelegramUser(imirror.User):
     """
 
     @classmethod
-    def from_sender(cls, telegram, user):
+    def from_user(cls, telegram, json):
         """
         Convert a user :class:`dict` (attached to a message) to a :class:`.User`.
 
         Args:
             telegram (.TelegramTransport):
                 Related transport instance that provides the user.
-            user (dict):
+            json (dict):
                 Telegram API `User <https://core.telegram.org/bots/api#user>`_ object.
 
         Returns:
             .TelegramUser:
                 Parsed user object.
         """
-        id = user.get("id")
-        username = user.get("username")
-        real_name = user.get("first_name")
-        if user.get("last_name"):
-            real_name = "{} {}".format(real_name, user["last_name"])
-        return cls(id, username=username, real_name=real_name, raw=user)
+        if json is None:
+            return None
+        user = _Schema.user(json)
+        return cls(id=user["id"],
+                   username=user["username"],
+                   real_name=" ".join(filter(None, [user["first_name"], user["last_name"]])),
+                   raw=user)
 
 
 class TelegramRichText(imirror.RichText):
@@ -65,14 +98,17 @@ class TelegramRichText(imirror.RichText):
             .TelegramRichText:
                 Parsed rich text container.
         """
+        if text is None:
+            return None
         changes = defaultdict(dict)
-        for entity in entities:
-            if entity.get("type") not in ("bold", "italic", "code", "pre"):
+        for json in entities:
+            entity = _Schema.entity(json)
+            if entity["type"] not in ("bold", "italic", "code", "pre"):
                 continue
-            start = entity.get("offset")
-            end = start + entity.get("length")
-            changes[start][entity.get("type")] = True
-            changes[end][entity.get("type")] = False
+            start = entity["offset"]
+            end = start + entity["length"]
+            changes[start][entity["type"]] = True
+            changes[end][entity["type"]] = False
         segments = []
         points = list(changes.keys())
         # Iterate through text in change start/end pairs.
@@ -120,30 +156,35 @@ class TelegramMessage(imirror.Message):
     """
 
     @classmethod
-    def from_message(cls, telegram, message):
+    def from_message(cls, telegram, json):
         """
         Convert an API message :class:`dict` to a :class:`.Message`.
 
         Args:
             telegram (.TelegramTransport):
                 Related transport instance that provides the event.
-            message (dict):
+            json (dict):
                 Telegram API `message <https://core.telegram.org/bots/api#message>`_ object.
 
         Returns:
             .TelegramMessage:
                 Parsed message object.
         """
-        log.debug(message)
-        id = message.get("message_id")
-        channel = telegram.host.resolve_channel(telegram, message.get("chat").get("id"))
-        at = datetime.fromtimestamp(message.get("date")) if "date" in message else None
-        user = TelegramUser.from_sender(telegram, message.get("from", {}))
-        joined = [message.get("new_chat_member")] if "new_chat_member" in message else []
-        left = [message.get("left_chat_member")] if "left_chat_member" in message else []
-        text = TelegramRichText.from_entities(message.get("text", ""),
-                                              message.get("entities", []))
-        return cls(id, channel, at=at, text=text, user=user, joined=joined, left=left, raw=message)
+        message = _Schema.message(json)
+        joined = []
+        left = []
+        if message["new_chat_member"]:
+            joined.append(TelegramUser.from_user(telegram, message["new_chat_member"]))
+        if message["left_chat_member"]:
+            left.append(TelegramUser.from_user(telegram, message["left_chat_member"]))
+        return cls(id=message["message_id"],
+                   channel=telegram.host.resolve_channel(telegram, message["chat"]["id"]),
+                   at=datetime.fromtimestamp(message["date"]),
+                   text=TelegramRichText.from_entities(message["text"], message["entities"]),
+                   user=TelegramUser.from_user(telegram, message["from"]),
+                   joined=joined,
+                   left=left,
+                   raw=message)
 
     @classmethod
     def from_update(cls, telegram, update):
@@ -164,7 +205,7 @@ class TelegramMessage(imirror.Message):
             if update.get(key):
                 return cls.from_message(telegram, update[key])
             elif update.get("edited_{}".format(key)):
-                msg = cls.from_message(update["edited_{}".format(key)])
+                msg = cls.from_message(telegram, update["edited_{}".format(key)])
                 # Messages are edited in-place, no new ID is issued.
                 msg.original = msg.id
                 return msg
@@ -237,7 +278,12 @@ class TelegramTransport(imirror.Transport):
             if not json.get("ok"):
                 raise TelegramAPIError(json.get("description", json.get("error_code")))
             updates = json.get("result", [])
-            for update in updates:
+            for json in updates:
+                try:
+                    update = _Schema.update(json)
+                except Invalid:
+                    log.debug("Ignoring non-message update")
+                    continue
                 log.debug("Received a message")
                 if any(key in update or "edited_{}".format(key) in update
                        for key in ("message", "channel_post")):
