@@ -32,6 +32,8 @@ class _Schema(object):
                       Optional("from", default=None): Any(user, None),
                       Optional("text", default=None): Any(str, None),
                       Optional("entities", default=[]): [entity],
+                      Optional("reply_to_message", default=None):
+                              Any(lambda v: _Schema.message(v), None),
                       Optional("new_chat_member", default=None): Any(user, None),
                       Optional("left_chat_member", default=None): Any(user, None)},
                      extra=ALLOW_EXTRA, required=True)
@@ -171,8 +173,11 @@ class TelegramMessage(imirror.Message):
                 Parsed message object.
         """
         message = _Schema.message(json)
+        reply_to = None
         joined = []
         left = []
+        if message["reply_to_message"]:
+            reply_to = message["reply_to_message"]["message_id"]
         if message["new_chat_member"]:
             joined.append(TelegramUser.from_user(telegram, message["new_chat_member"]))
         if message["left_chat_member"]:
@@ -182,6 +187,7 @@ class TelegramMessage(imirror.Message):
                    at=datetime.fromtimestamp(message["date"]),
                    text=TelegramRichText.from_entities(message["text"], message["entities"]),
                    user=TelegramUser.from_user(telegram, message["from"]),
+                   reply_to=reply_to,
                    joined=joined,
                    left=left,
                    raw=message)
