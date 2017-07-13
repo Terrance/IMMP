@@ -31,7 +31,7 @@ class _Schema(object):
     _base_message = Schema({"ts": str,
                             "type": "message",
                             Optional("channel", default=None): Any(str, None),
-                            Optional("edited", default={}):
+                            Optional("edited", default={"user": None}):
                                     {Optional("user", default=None): Any(str, None)},
                             Optional("thread_ts", default=None): Any(str, None)},
                            extra=ALLOW_EXTRA, required=True)
@@ -258,7 +258,7 @@ class SlackMessage(imirror.Message):
             joined = [user]
         elif event["subtype"] in ("channel_leave", "group_leave"):
             left = [user]
-        if user and text and re.match(r"<@{}|.*?> ".format(user), text):
+        if user and text and re.match(r"<@{}\|.*?> ".format(user), text):
             # Own username at the start of the message, assume it's an action.
             action = True
             text = re.sub(r"^<@{}|.*?> ".format(user), "", text)
@@ -344,17 +344,17 @@ class SlackTransport(imirror.Transport):
         if msg.deleted:
             # TODO
             return
+        if isinstance(msg.text, imirror.RichText):
+            text = "".join(SlackSegment.to_mrkdwn(segment) for segment in msg.text)
+        else:
+            text = msg.text
+        name = (msg.user.username or msg.user.real_name) if msg.user else self.fallback_name
+        image = msg.user.avatar if msg.user else self.fallback_image
+        data = {"channel": channel.source,
+                "username": name,
+                "icon_url": image,
+                "text": text}
         with (await self.lock):
-            if isinstance(msg.text, imirror.RichText):
-                text = "".join(SlackSegment.to_mrkdwn(segment) for segment in msg.text)
-            else:
-                text = msg.text
-            name = (msg.user.username or msg.user.real_name) if msg.user else self.fallback_name
-            image = msg.user.avatar if msg.user else self.fallback_image
-            data = {"channel": channel.source,
-                    "username": name,
-                    "icon_url": image,
-                    "text": text}
             # Block event processing whilst we wait for the message to go through. Processing will
             # resume once the caller yields or returns.
             resp = await self.session.post("https://slack.com/api/chat.postMessage",
