@@ -31,22 +31,21 @@ class SyncReceiver(imirror.Receiver):
             except KeyError:
                 raise imirror.ConfigError("No channel '{}' on host".format(channel)) from None
 
-    async def process(self, msg):
-        await super().process(msg)
+    async def process(self, channel, msg):
+        await super().process(channel, msg)
         # Only process if we recognise the channel.
-        if msg.channel not in self.channels:
-            log.debug("Ignoring message from unknown channel: {}".format(msg))
+        if channel not in self.channels:
             return
         for sync in self.synced.values():
-            if sync.get(msg.channel) == msg.id:
+            if sync.get(channel) == msg.id:
                 # This is a synced message being echoed back from another channel.
                 log.debug("Ignoring echoed message: {}".format(msg))
                 return
         log.debug("Syncing message to {} channel(s): {}".format(len(self.channels) - 1, msg))
         sync = {}
-        for channel in self.channels:
-            if channel == msg.channel:
+        for sync_channel in self.channels:
+            if channel == sync_channel:
                 # This is the channel we just got the message from.
                 continue
-            sync[channel] = (await channel.send(msg))
+            sync[sync_channel] = (await sync_channel.send(msg))
         self.synced[msg] = sync

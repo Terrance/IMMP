@@ -182,15 +182,15 @@ class TelegramMessage(imirror.Message):
             joined.append(TelegramUser.from_user(telegram, message["new_chat_member"]))
         if message["left_chat_member"]:
             left.append(TelegramUser.from_user(telegram, message["left_chat_member"]))
-        return cls(id=message["message_id"],
-                   channel=telegram.host.resolve_channel(telegram, message["chat"]["id"]),
-                   at=datetime.fromtimestamp(message["date"]),
-                   text=TelegramRichText.from_entities(message["text"], message["entities"]),
-                   user=TelegramUser.from_user(telegram, message["from"]),
-                   reply_to=reply_to,
-                   joined=joined,
-                   left=left,
-                   raw=message)
+        return (telegram.host.resolve_channel(telegram, message["chat"]["id"]),
+                cls(id=message["message_id"],
+                    at=datetime.fromtimestamp(message["date"]),
+                    text=TelegramRichText.from_entities(message["text"], message["entities"]),
+                    user=TelegramUser.from_user(telegram, message["from"]),
+                    reply_to=reply_to,
+                    joined=joined,
+                    left=left,
+                    raw=message))
 
     @classmethod
     def from_update(cls, telegram, update):

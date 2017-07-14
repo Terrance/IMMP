@@ -262,18 +262,18 @@ class SlackMessage(imirror.Message):
             # Own username at the start of the message, assume it's an action.
             action = True
             text = re.sub(r"^<@{}|.*?> ".format(user), "", text)
-        return cls(id=event["ts"],
-                   channel=slack.host.resolve_channel(slack, event["channel"]),
-                   at=datetime.fromtimestamp(int(float(event["ts"]))),
-                   original=original,
-                   text=SlackRichText.from_mrkdwn(text) if text else None,
-                   user=slack.users.get(user, SlackUser(id=user)) if user else None,
-                   action=action,
-                   deleted=deleted,
-                   reply_to=event["thread_ts"],
-                   joined=joined,
-                   left=left,
-                   raw=json)
+        return (slack.host.resolve_channel(slack, event["channel"]),
+                cls(id=event["ts"],
+                    at=datetime.fromtimestamp(int(float(event["ts"]))),
+                    original=original,
+                    text=SlackRichText.from_mrkdwn(text) if text else None,
+                    user=slack.users.get(user, SlackUser(id=user)) if user else None,
+                    action=action,
+                    deleted=deleted,
+                    reply_to=event["thread_ts"],
+                    joined=joined,
+                    left=left,
+                    raw=json))
 
 
 class SlackTransport(imirror.Transport):

@@ -100,8 +100,6 @@ class Message(Base):
     Attributes:
         id (str):
             Unique (to the transport) message identifier.
-        channel (.Channel):
-            Original source of this message.
         at (datetime.datetime):
             Timestamp of the message according to the external server.
         original (str):
@@ -124,9 +122,8 @@ class Message(Base):
             Optional transport-specific underlying message or event object.
     """
 
-    def __init__(self, id, channel, at=None, original=None, text=None, user=None, action=False,
+    def __init__(self, id, at=None, original=None, text=None, user=None, action=False,
                  deleted=False, reply_to=None, joined=None, left=None, raw=None):
-        self.channel = channel
         self.id = id
         self.at = at or datetime.now()
         self.original = original

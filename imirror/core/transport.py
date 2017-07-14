@@ -57,7 +57,7 @@ class Transport(Base):
         Generator of :class:`.Message` objects from the underlying network.
 
         Yields:
-            .Message:
+            (.Channel, .Message) tuple:
                 Messages received and processed by the transport.
         """
         if not self.connected:

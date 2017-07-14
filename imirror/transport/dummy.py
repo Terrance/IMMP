@@ -31,7 +31,6 @@ class DummyTransport(imirror.Transport):
             self.count += 1
             # Make a clone of the message to echo back out of the generator.
             clone = DummyMessage(id=self.count,
-                                 channel=self.host.resolve_channel(self, "dummy"),
                                  at=msg.at,
                                  original=msg.original,
                                  text=msg.text,
@@ -54,12 +53,12 @@ class DummyTransport(imirror.Transport):
             with (await self.lock):
                 self.count += 1
                 yield DummyMessage(id=self.count,
-                                   channel=self.host.resolve_channel(self, "dummy"),
                                    text="Test message",
                                    user=self.user)
 
     async def receive(self):
         await super().receive()
+        channel = self.host.resolve_channel(self, "dummy")
         async with stream.merge(self._receive_queue(), self._receive_timer()).stream() as streamer:
             async for msg in streamer:
-                yield msg
+                yield (channel, msg)

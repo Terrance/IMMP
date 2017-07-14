@@ -100,8 +100,6 @@ class HangoutsMessage(imirror.Message):
             .HangoutsMessage:
                 Parsed message object.
         """
-        id = event.id_
-        channel = hangouts.host.resolve_channel(hangouts, event.conversation_id)
         segments = (HangoutsSegment.from_segment(segment) for segment in event.segments)
         text = imirror.RichText(segments)
         user = HangoutsUser.from_user(hangouts, hangouts.users.get_user(event.user_id))
@@ -123,7 +121,12 @@ class HangoutsMessage(imirror.Message):
                 else:
                     # Couldn't match the user's name to the message text.
                     pass
-        return cls(id, channel, text=text, user=user, action=action, raw=event)
+        return (hangouts.host.resolve_channel(hangouts, event.conversation_id),
+                cls(id=event.id_,
+                    text=text,
+                    user=user,
+                    action=action,
+                    raw=event))
 
 
 class HangoutsTransport(imirror.Transport):

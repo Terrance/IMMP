@@ -22,11 +22,13 @@ class Receiver(Base):
         self.config = config
         self.host = host
 
-    async def process(self, msg):
+    async def process(self, channel, msg):
         """
         Handle an incoming message from the host.
 
         Args:
+            channel (.Channel):
+                Original source of this message.
             msg (.Message):
                 Original message received from another transport.
         """
