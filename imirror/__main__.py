@@ -17,7 +17,7 @@ _schema = Schema({"transports": {str: {"path": str, Optional("config", default=d
                  extra=REMOVE_EXTRA, required=True)
 
 
-async def main(config):
+def main(config):
     host = Host()
     for name, spec in config["transports"].items():
         host.add_transport(name, spec["path"], spec.get("config") or {})
@@ -25,19 +25,16 @@ async def main(config):
         host.add_channel(name, spec["transport"], spec["source"])
     for name, spec in config["receivers"].items():
         host.add_receiver(name, spec["path"], spec.get("config") or {})
+    loop = asyncio.get_event_loop()
     try:
-        await host.run()
+        loop.run_until_complete(host.run())
     finally:
-        await host.close()
+        loop.run_until_complete(host.close())
+        loop.close()
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     if len(sys.argv) < 2:
         exit("Usage: python -m imirror <config file>")
-    config = _schema(anyconfig.load(sys.argv[1]))
-    loop = asyncio.get_event_loop()
-    try:
-        loop.run_until_complete(main(config))
-    finally:
-        loop.close()
+    main(_schema(anyconfig.load(sys.argv[1])))
