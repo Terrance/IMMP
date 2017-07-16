@@ -1,6 +1,7 @@
 import asyncio
 from collections import defaultdict
 from datetime import datetime
+from json import dumps as json_dumps
 import logging
 import re
 
@@ -28,13 +29,21 @@ class _Schema(object):
                                Optional("bot_id", default=None): Any(str, None)}},
                   extra=ALLOW_EXTRA, required=True)
 
+    file = Schema({"id": str,
+                   "name": Any(str, None),
+                   "url_private": str},
+                  extra=ALLOW_EXTRA, required=True)
+
+    _edit_user = {Optional("user", default=None): Any(str, None)}
+
     _base_message = Schema({"ts": str,
                             "type": "message",
                             Optional("channel", default=None): Any(str, None),
-                            Optional("edited", default={"user": None}):
-                                    {Optional("user", default=None): Any(str, None)},
+                            Optional("edited", default={"user": None}): _edit_user,
                             Optional("thread_ts", default=None): Any(str, None)},
                            extra=ALLOW_EXTRA, required=True)
+
+    _plain_message = _base_message.extend({"user": str, "text": str})
 
     message = Schema(Any(_base_message.extend({"subtype": "bot_message",
                                                "bot_id": str,
@@ -45,9 +54,9 @@ class _Schema(object):
                                                "message": lambda v: _Schema.message(v)}),
                          _base_message.extend({"subtype": "message_deleted",
                                                "deleted_ts": str}),
-                         _base_message.extend({Optional("subtype", default=None): Any(str, None),
-                                               "user": str,
-                                               "text": str})))
+                         _plain_message.extend({"subtype": Any("file_share", "file_mention"),
+                                                "file": file}),
+                         _plain_message.extend({Optional("subtype", default=None): Any(str, None)})))
 
     event = Schema(Any(message,
                        {"type": Any("team_join", "user_change"),
@@ -210,13 +219,44 @@ class SlackSegment(imirror.RichText.Segment):
         return text
 
 
+class SlackFile(imirror.File):
+
+    def __init__(self, slack, title=None, type=None, source=None):
+        super().__init__(title=title, type=type, source=source)
+        self.slack = slack
+
+    async def get_content(self):
+        return await super().get_content(headers={"Authorization": "Bearer {}".format(self.slack.token)})
+
+    @classmethod
+    def from_file(cls, slack, json):
+        """
+        Convert an API file :class:`dict` to a :class:`.File`.
+
+        Args:
+            slack (.SlackTransport):
+                Related transport instance that provides the file.
+            json (dict):
+                Slack API `file <https://api.slack.com/types/file>`_ data.
+
+        Returns:
+            .SlackFile:
+                Parsed file object.
+        """
+        file = _Schema.file(json)
+        return cls(slack,
+                   title=file["name"],
+                   type=imirror.File.Type.image if file["mimetype"].startswith("image/") else None,
+                   source=file["url_private"])
+
+
 class SlackMessage(imirror.Message):
     """
     Message originating from Slack.
     """
 
     @classmethod
-    def from_event(cls, slack, json):
+    async def from_event(cls, slack, json):
         """
         Convert an API event :class:`dict` to a :class:`.Message`.
 
@@ -236,6 +276,7 @@ class SlackMessage(imirror.Message):
         deleted = False
         joined = None
         left = None
+        attachments = []
         if event["subtype"] == "bot_message":
             # Event has the bot's app ID, not user ID.
             user = slack.bot_to_user.get(event["bot_id"])
@@ -254,6 +295,8 @@ class SlackMessage(imirror.Message):
         else:
             user = event["user"]
             text = event["text"]
+            if event["subtype"] in ("file_share", "file_mention"):
+                attachments.append(SlackFile.from_file(slack, event["file"]))
         if event["subtype"] in ("channel_join", "group_join"):
             joined = [user]
         elif event["subtype"] in ("channel_leave", "group_leave"):
@@ -273,6 +316,7 @@ class SlackMessage(imirror.Message):
                     reply_to=event["thread_ts"],
                     joined=joined,
                     left=left,
+                    attachments=attachments,
                     raw=json))
 
 
@@ -308,7 +352,7 @@ class SlackTransport(imirror.Transport):
         self.session = aiohttp.ClientSession()
         log.debug("Requesting RTM session")
         async with self.session.post("https://slack.com/api/rtm.start",
-                                     data={"token": self.token}) as resp:
+                                     params={"token": self.token}) as resp:
             json = await resp.json()
         rtm = _Schema.rtm(json)
         if not rtm["ok"]:
@@ -352,13 +396,25 @@ class SlackTransport(imirror.Transport):
         image = msg.user.avatar if msg.user else self.fallback_image
         data = {"channel": channel.source,
                 "username": name,
-                "icon_url": image,
-                "text": text}
+                "icon_url": image}
+        attachments = []
+        for attach in msg.attachments:
+            if isinstance(attach, imirror.File) and attach.type == imirror.File.Type.image:
+                # TODO: Handle files with no source URL.
+                if not attach.source:
+                    continue
+                attachments.append({"fallback": attach.source,
+                                    "title": attach.title,
+                                    "image_url": attach.source})
+        if text:
+            data["text"] = text
+        if attachments:
+            data["attachments"] = json_dumps(attachments)
         with (await self.lock):
             # Block event processing whilst we wait for the message to go through. Processing will
             # resume once the caller yields or returns.
             resp = await self.session.post("https://slack.com/api/chat.postMessage",
-                                           data=dict(data, token=self.token))
+                                           params={"token": self.token}, data=data)
             json = await resp.json()
         if not json.get("ok"):
             raise SlackAPIError(json.get("error"))
@@ -384,4 +440,4 @@ class SlackTransport(imirror.Transport):
                 self.directs[event["channel"]["id"]] = channel
             elif event["type"] == "message":
                 # A new message arrived, push it back to the host.
-                yield SlackMessage.from_event(self, event)
+                yield (await SlackMessage.from_event(self, event))
