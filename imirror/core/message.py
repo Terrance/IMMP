@@ -1,5 +1,8 @@
 from copy import deepcopy
 from datetime import datetime
+from enum import Enum
+
+import aiohttp
 
 from .util import Base
 
@@ -93,6 +96,59 @@ class RichText(list, Base):
         return "{}({})".format(self.__class__.__name__, super().__repr__())
 
 
+class Attachment(Base):
+    """
+    Base class for secondary data attached to a message.
+    """
+
+
+class File(Attachment):
+    """
+    Base file attachment object.
+
+    Attributes:
+        title (str):
+            Name of file, if the transport supports names.
+        type (.Type):
+            Basic type of the file.
+        source (str):
+            URL to original file location.
+    """
+
+    class Type(Enum):
+        image = 1
+
+    def __init__(self, title=None, type=None, source=None):
+        self.title = title
+        self.type = type
+        self.source = source
+
+    async def get_content(self, method="get", url=None, **kwargs):
+        """
+        Stream the contents of the file, suitable for writing to a file or uploading elsewhere.
+
+        The default implementation will attempt to obtain the raw file using the source URL if
+        available.  Transports will likely need to override this method and add authentication.
+
+        The resulting :meth:`get_content` method should take no arguments; any keyword arguments
+        given via :func:`super` will be passed through to :meth:`aiohttp.ClientSession.request`.
+
+        Streams should be closed once they are used (e.g. :class:`aiohttp.ClientResponse`).
+
+        Args:
+            method (str):
+                HTTP method used to retrieve the file (default: ``GET``).
+            url (str):
+                URL to original file location (default: :attr:`source`).
+
+        Returns:
+            io.IOBase:
+                Readable stream of the raw file.
+        """
+        async with aiohttp.ClientSession() as sess:
+            return await sess.request(method, url or self.source, **kwargs)
+
+
 class Message(Base):
     """
     Base message object, understood by all transports.
@@ -118,12 +174,14 @@ class Message(Base):
             Collection of users that just joined the channel.
         left (.User list):
             Collection of users that just parted the channel.
+        attachments (.Attachment list):
+            Additional data included in the message.
         raw:
             Optional transport-specific underlying message or event object.
     """
 
     def __init__(self, id, at=None, original=None, text=None, user=None, action=False,
-                 deleted=False, reply_to=None, joined=None, left=None, raw=None):
+                 deleted=False, reply_to=None, joined=None, left=None, attachments=None, raw=None):
         self.id = id
         self.at = at or datetime.now()
         self.original = original
@@ -132,6 +190,7 @@ class Message(Base):
         self.action = action
         self.deleted = deleted
         self.reply_to = reply_to
-        self.joined = joined
-        self.left = left
+        self.joined = joined or []
+        self.left = left or []
+        self.attachments = attachments or []
         self.raw = raw
