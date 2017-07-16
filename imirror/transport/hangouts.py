@@ -1,4 +1,5 @@
 import asyncio
+from io import BytesIO
 import logging
 import re
 
@@ -121,11 +122,15 @@ class HangoutsMessage(imirror.Message):
                 else:
                     # Couldn't match the user's name to the message text.
                     pass
+        attachments = []
+        for attach in event.attachments:
+            attachments.append(imirror.File(type=imirror.File.Type.image, source=attach))
         return (hangouts.host.resolve_channel(hangouts, event.conversation_id),
                 cls(id=event.id_,
                     text=text,
                     user=user,
                     action=action,
+                    attachments=attachments,
                     raw=event))
 
 
@@ -189,11 +194,24 @@ class HangoutsTransport(imirror.Transport):
         if msg.action:
             for segment in segments:
                 segment.is_italic = True
-        content = [seg.serialize() for seg in segments]
+        msg_content = [seg.serialize() for seg in segments]
+        media = None
+        for attach in msg.attachments:
+            if isinstance(attach, imirror.File) and attach.type == imirror.File.Type.image:
+                # Upload an image file to Hangouts.
+                async with attach.get_content() as img_content:
+                    # Hangups expects a file-like object with a synchronous read() method.
+                    # NB. The whole files is read into memory by Hangups anyway.
+                    photo = await self.client.upload_image(BytesIO(await img_content.read()),
+                                                           filename=attach.title)
+                media = hangouts_pb2.ExistingMedia(photo=hangouts_pb2.Photo(photo_id=photo))
+                # TODO: Handle more than one image attachment.
+                break
         request = hangouts_pb2.SendChatMessageRequest(
                       request_header=self.client.get_request_header(),
                       event_request_header=conv._get_event_request_header(),
-                      message_content=hangouts_pb2.MessageContent(segment=content))
+                      message_content=hangouts_pb2.MessageContent(segment=msg_content),
+                      existing_media=media)
         sent = await self.client.send_chat_message(request)
         return sent.created_event.event_id
 
