@@ -3,7 +3,7 @@ from datetime import datetime
 import logging
 
 import aiohttp
-from voluptuous import Schema, Invalid, Any, Optional, ALLOW_EXTRA
+from voluptuous import Schema, Invalid, Any, All, Optional, ALLOW_EXTRA
 
 import imirror
 
@@ -39,9 +39,19 @@ class _Schema(object):
                      extra=ALLOW_EXTRA, required=True)
 
     update = Schema({"update_id": int,
-                     Any("message", "edited_message",
-                         "channel_post", "edited_channel_post"): message},
+                     Optional(Any("message", "edited_message",
+                                  "channel_post", "edited_channel_post")): message},
                     extra=ALLOW_EXTRA, required=True)
+
+    send = Schema({"message_id": int}, extra=ALLOW_EXTRA, required=True)
+
+    def api(value, nested=All()):
+        return Schema(Any({"ok": True,
+                           "result": nested},
+                          {"ok": False,
+                           "description": str,
+                           "error_code": int}),
+                      extra=ALLOW_EXTRA, required=True)(value)
 
 
 class TelegramAPIError(imirror.TransportError):
@@ -253,9 +263,11 @@ class TelegramTransport(imirror.Transport):
             return
         if isinstance(msg.text, imirror.RichText):
             rich = msg.text.copy()
-        else:
+        elif msg.text:
             # Unformatted text received, make a basic rich text instance out of it.
             rich = imirror.RichText([imirror.RichText.Segment(msg.text)])
+        else:
+            rich = imirror.RichText()
         if msg.user:
             name = msg.user.real_name or msg.user.username
             prefix = ("{} " if msg.action else "{}: ").format(name)
@@ -268,10 +280,10 @@ class TelegramTransport(imirror.Transport):
                                      json={"chat_id": channel.source,
                                            "text": text,
                                            "parse_mode": "HTML"}) as resp:
-            json = await resp.json()
-        if not json.get("ok"):
-            raise TelegramAPIError(json.get("description", json.get("error_code")))
-        return json.get("result", {}).get("message_id")
+            json = _Schema.api(await resp.json(), _Schema.send)
+        if not json["ok"]:
+            raise TelegramAPIError(json["description"], json["error_code"])
+        return json["result"]["message_id"]
 
     async def receive(self):
         await super().receive()
@@ -280,19 +292,12 @@ class TelegramTransport(imirror.Transport):
             async with self.session.get("{}/getUpdates".format(self.base),
                                         params={"offset": self.offset or "",
                                                 "timeout": 240}) as resp:
-                json = await resp.json()
-            if not json.get("ok"):
-                raise TelegramAPIError(json.get("description", json.get("error_code")))
-            updates = json.get("result", [])
-            for json in updates:
-                try:
-                    update = _Schema.update(json)
-                except Invalid:
-                    log.debug("Ignoring non-message update")
-                    continue
+                json = _Schema.api(await resp.json(), [_Schema.update])
+            if not json["ok"]:
+                raise TelegramAPIError(json["description"], json["error_code"])
+            for update in json["result"]:
                 log.debug("Received a message")
                 if any(key in update or "edited_{}".format(key) in update
                        for key in ("message", "channel_post")):
-                    yield TelegramMessage.from_update(self, update)
-                if update.get("update_id"):
-                    self.offset = max(update["update_id"] + 1, self.offset)
+                    yield await TelegramMessage.from_update(self, update)
+                self.offset = max(update["update_id"] + 1, self.offset)
