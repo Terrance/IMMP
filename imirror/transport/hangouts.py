@@ -103,7 +103,7 @@ class HangoutsMessage(imirror.Message):
         """
         segments = (HangoutsSegment.from_segment(segment) for segment in event.segments)
         text = imirror.RichText(segments)
-        user = HangoutsUser.from_user(hangouts, hangouts.users.get_user(event.user_id))
+        user = HangoutsUser.from_user(hangouts, hangouts._users.get_user(event.user_id))
         action = False
         if any(a.type == 4 for a in event._event.chat_message.annotation):
             # This is a /me message sent from desktop Hangouts.
@@ -146,42 +146,42 @@ class HangoutsTransport(imirror.Transport):
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         try:
-            self.cookie = config["cookie"]
+            self._cookie = config["cookie"]
         except KeyError:
             raise imirror.ConfigError("Hangouts cookie file not specified") from None
-        self.client = None
+        self._client = None
         # Message queue, to move processing from the event stream to the generator.
-        self.queue = asyncio.Queue()
+        self._queue = asyncio.Queue()
 
     async def connect(self):
         await super().connect()
-        self.client = hangups.Client(hangups.get_auth_stdin(self.cookie))
-        self.client.on_connect.add_observer(self._connect)
+        self._client = hangups.Client(hangups.get_auth_stdin(self._cookie))
+        self._client.on_connect.add_observer(self._connect)
         log.debug("Connecting client")
-        asyncio.ensure_future(self.client.connect())
+        asyncio.ensure_future(self._client.connect())
 
     async def _connect(self):
         log.debug("Retrieving users and conversations")
-        self.users, self.convs = await hangups.build_user_conversation_list(self.client)
-        self.convs.on_event.add_observer(self._event)
+        self._users, self._convs = await hangups.build_user_conversation_list(self._client)
+        self._convs.on_event.add_observer(self._event)
         log.debug("Listening for events")
 
     async def _event(self, event):
         log.debug("Queued new message event")
-        await self.queue.put(event)
+        await self._queue.put(event)
 
     async def disconnect(self):
         await super().disconnect()
-        if self.client:
+        if self._client:
             log.debug("Requesting client disconnect")
-            await self.client.disconnect()
+            await self._client.disconnect()
 
     async def send(self, channel, msg):
         await super().send(channel, msg)
         if msg.deleted:
             # We can't delete the messages on this side.
             return
-        conv = self.convs.get(channel.source)
+        conv = self._convs.get(channel.source)
         if isinstance(msg.text, imirror.RichText):
             segments = [HangoutsSegment.to_segment(segment) for segment in msg.text]
         else:
@@ -202,21 +202,21 @@ class HangoutsTransport(imirror.Transport):
                 async with attach.get_content() as img_content:
                     # Hangups expects a file-like object with a synchronous read() method.
                     # NB. The whole files is read into memory by Hangups anyway.
-                    photo = await self.client.upload_image(BytesIO(await img_content.read()),
-                                                           filename=attach.title)
+                    photo = await self._client.upload_image(BytesIO(await img_content.read()),
+                                                            filename=attach.title)
                 media = hangouts_pb2.ExistingMedia(photo=hangouts_pb2.Photo(photo_id=photo))
                 # TODO: Handle more than one image attachment.
                 break
         request = hangouts_pb2.SendChatMessageRequest(
-                      request_header=self.client.get_request_header(),
+                      request_header=self._client.get_request_header(),
                       event_request_header=conv._get_event_request_header(),
                       message_content=hangouts_pb2.MessageContent(segment=msg_content),
                       existing_media=media)
-        sent = await self.client.send_chat_message(request)
+        sent = await self._client.send_chat_message(request)
         return sent.created_event.event_id
 
     async def receive(self):
         while True:
-            event = await self.queue.get()
+            event = await self._queue.get()
             log.debug("Retrieved message event")
             yield HangoutsMessage.from_event(self, event)

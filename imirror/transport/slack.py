@@ -226,7 +226,8 @@ class SlackFile(imirror.File):
         self.slack = slack
 
     async def get_content(self):
-        return await super().get_content(headers={"Authorization": "Bearer {}".format(self.slack.token)})
+        headers = {"Authorization": "Bearer {}".format(self.slack._token)}
+        return await super().get_content(headers=headers)
 
     @classmethod
     def from_file(cls, slack, json):
@@ -279,7 +280,7 @@ class SlackMessage(imirror.Message):
         attachments = []
         if event["subtype"] == "bot_message":
             # Event has the bot's app ID, not user ID.
-            user = slack.bot_to_user.get(event["bot_id"])
+            user = slack._bot_to_user.get(event["bot_id"])
             text = event["text"]
         elif event["subtype"] == "message_changed":
             # Original message details are under a nested "message" key.
@@ -310,7 +311,7 @@ class SlackMessage(imirror.Message):
                     at=datetime.fromtimestamp(int(float(event["ts"]))),
                     original=original,
                     text=SlackRichText.from_mrkdwn(text) if text else None,
-                    user=slack.users.get(user, SlackUser(id=user)) if user else None,
+                    user=slack._users.get(user, SlackUser(id=user)) if user else None,
                     action=action,
                     deleted=deleted,
                     reply_to=event["thread_ts"],
@@ -336,52 +337,52 @@ class SlackTransport(imirror.Transport):
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         config = _Schema.config(config)
-        self.token = config["token"]
+        self._token = config["token"]
         self.fallback_name = config["fallback-name"]
         self.fallback_image = config["fallback-image"]
-        self.team = self.users = self.channels = self.directs = None
+        self._team = self._users = self._channels = self._directs = self._bots = None
         # Connection objects that need to be closed on disconnect.
-        self.session = self.socket = None
+        self._session = self._socket = None
         # When we send messages asynchronously, we'll receive an RTM event before the HTTP request
         # returns. This lock will block event parsing whilst we're sending, to make sure the caller
         # can finish processing the new message (e.g. storing the ID) before receiving the event.
-        self.lock = asyncio.BoundedSemaphore()
+        self._lock = asyncio.BoundedSemaphore()
 
     async def connect(self):
         await super().connect()
-        self.session = aiohttp.ClientSession()
+        self._session = aiohttp.ClientSession()
         log.debug("Requesting RTM session")
-        async with self.session.post("https://slack.com/api/rtm.start",
-                                     params={"token": self.token}) as resp:
+        async with self._session.post("https://slack.com/api/rtm.start",
+                                      params={"token": self._token}) as resp:
             json = await resp.json()
         rtm = _Schema.rtm(json)
         if not rtm["ok"]:
             raise SlackAPIError(rtm["error"])
         # Cache useful information about users and channels, to save on queries later.
-        self.team = rtm["team"]
-        self.users = {u.get("id"): SlackUser.from_member(self, u) for u in rtm["users"]}
-        log.debug("Users ({}): {}".format(len(self.users), ", ".join(self.users.keys())))
-        self.channels = {c.get("id"): c for c in rtm["channels"] + rtm["groups"]}
-        log.debug("Channels ({}): {}".format(len(self.channels), ", ".join(self.channels.keys())))
-        self.directs = {c.get("id"): c for c in rtm["ims"]}
-        log.debug("Directs ({}): {}".format(len(self.directs), ", ".join(self.directs.keys())))
-        self.bots = {b.get("id"): b for b in rtm["bots"] if not b.get("deleted")}
-        log.debug("Bots ({}): {}".format(len(self.bots), ", ".join(self.bots.keys())))
+        self._team = rtm["team"]
+        self._users = {u.get("id"): SlackUser.from_member(self, u) for u in rtm["users"]}
+        log.debug("Users ({}): {}".format(len(self._users), ", ".join(self._users.keys())))
+        self._channels = {c.get("id"): c for c in rtm["channels"] + rtm["groups"]}
+        log.debug("Channels ({}): {}".format(len(self._channels), ", ".join(self._channels.keys())))
+        self._directs = {c.get("id"): c for c in rtm["ims"]}
+        log.debug("Directs ({}): {}".format(len(self._directs), ", ".join(self._directs.keys())))
+        self._bots = {b.get("id"): b for b in rtm["bots"] if not b.get("deleted")}
+        log.debug("Bots ({}): {}".format(len(self._bots), ", ".join(self._bots.keys())))
         # Create a map of bot IDs to users, as the bot cache doesn't contain references to them.
-        self.bot_to_user = {user.bot_id: user.id for user in self.users.values() if user.bot_id}
-        self.socket = await self.session.ws_connect(rtm["url"])
+        self._bot_to_user = {user.bot_id: user.id for user in self._users.values() if user.bot_id}
+        self._socket = await self._session.ws_connect(rtm["url"])
         log.debug("Connected to websocket")
 
     async def disconnect(self):
         await super().disconnect()
-        if self.socket:
+        if self._socket:
             log.debug("Closing websocket")
-            await self.socket.close()
-            self.socket = None
-        if self.session:
+            await self._socket.close()
+            self._socket = None
+        if self._session:
             log.debug("Closing session")
-            await self.session.close()
-            self.session = None
+            await self._session.close()
+            self._session = None
 
     async def send(self, channel, msg):
         await super().send(channel, msg)
@@ -410,11 +411,11 @@ class SlackTransport(imirror.Transport):
             data["text"] = text
         if attachments:
             data["attachments"] = json_dumps(attachments)
-        with (await self.lock):
+        with (await self._lock):
             # Block event processing whilst we wait for the message to go through. Processing will
             # resume once the caller yields or returns.
-            resp = await self.session.post("https://slack.com/api/chat.postMessage",
-                                           params={"token": self.token}, data=data)
+            resp = await self._session.post("https://slack.com/api/chat.postMessage",
+                                            params={"token": self._token}, data=data)
             json = await resp.json()
         if not json.get("ok"):
             raise SlackAPIError(json.get("error"))
@@ -423,21 +424,21 @@ class SlackTransport(imirror.Transport):
     async def receive(self):
         await super().receive()
         while True:
-            json = await self.socket.receive_json()
-            with (await self.lock):
+            json = await self._socket.receive_json()
+            with (await self._lock):
                 # No critical section here, just wait for any pending messages to be sent.
                 pass
             event = _Schema.event(json)
             log.debug("Received a '{}' event".format(event["type"]))
             if event["type"] in ("team_join", "user_change"):
                 # A user appeared or changed, update our cache.
-                self.users[event["user"]["id"]] = user
+                self._users[event["user"]["id"]] = user
             elif event["type"] in ("channel_joined", "group_joined"):
                 # A group or channel appeared, add to our cache.
-                self.channels[event["channel"]["id"]] = channel
+                self._channels[event["channel"]["id"]] = channel
             elif event["type"] == "im_created":
                 # A DM appeared, add to our cache.
-                self.directs[event["channel"]["id"]] = channel
+                self._directs[event["channel"]["id"]] = channel
             elif event["type"] == "message":
                 # A new message arrived, push it back to the host.
                 yield (await SlackMessage.from_event(self, event))

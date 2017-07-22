@@ -239,23 +239,26 @@ class TelegramTransport(imirror.Transport):
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         try:
-            self.token = config["token"]
+            self._token = config["token"]
         except KeyError:
             raise imirror.ConfigError("Telegram token not specified") from None
-        self.base = "https://api.telegram.org/bot{}".format(self.token)
+        self._base = "https://api.telegram.org/bot{}".format(self._token)
         # Connection objects that need to be closed on disconnect.
-        self.session = None
+        self._session = None
         # Update ID from which to retrieve the next batch.  Should be one higher than the max seen.
-        self.offset = 0
+        self._offset = 0
 
     async def connect(self):
         await super().connect()
-        self.session = aiohttp.ClientSession()
+        self._session = aiohttp.ClientSession()
 
     async def disconnect(self):
         await super().disconnect()
-        self.session = None
-        self.offset = 0
+        if self._session:
+            log.debug("Closing session")
+            await self._session.close()
+            self._session = None
+        self._offset = 0
 
     async def send(self, channel, msg):
         if msg.deleted:
@@ -276,10 +279,10 @@ class TelegramTransport(imirror.Transport):
             for segment in rich:
                 segment.italic = True
         text = "".join(TelegramSegment.to_html(segment) for segment in rich)
-        async with self.session.post("{}/sendMessage".format(self.base),
-                                     json={"chat_id": channel.source,
-                                           "text": text,
-                                           "parse_mode": "HTML"}) as resp:
+        async with self._session.post("{}/sendMessage".format(self._base),
+                                      json={"chat_id": channel.source,
+                                            "text": text,
+                                            "parse_mode": "HTML"}) as resp:
             json = _Schema.api(await resp.json(), _Schema.send)
         if not json["ok"]:
             raise TelegramAPIError(json["description"], json["error_code"])
@@ -289,9 +292,9 @@ class TelegramTransport(imirror.Transport):
         await super().receive()
         while True:
             log.debug("Making long-poll request")
-            async with self.session.get("{}/getUpdates".format(self.base),
-                                        params={"offset": self.offset or "",
-                                                "timeout": 240}) as resp:
+            async with self._session.get("{}/getUpdates".format(self._base),
+                                         params={"offset": self._offset or "",
+                                                 "timeout": 240}) as resp:
                 json = _Schema.api(await resp.json(), [_Schema.update])
             if not json["ok"]:
                 raise TelegramAPIError(json["description"], json["error_code"])
@@ -299,5 +302,5 @@ class TelegramTransport(imirror.Transport):
                 log.debug("Received a message")
                 if any(key in update or "edited_{}".format(key) in update
                        for key in ("message", "channel_post")):
-                    yield await TelegramMessage.from_update(self, update)
-                self.offset = max(update["update_id"] + 1, self.offset)
+                    yield TelegramMessage.from_update(self, update)
+                self._offset = max(update["update_id"] + 1, self._offset)

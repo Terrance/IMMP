@@ -25,10 +25,12 @@ class Base(object):
     def __repr__(self):
         def nest_repr(obj):
             if isinstance(obj, dict):
-                return "{...}"
+                return "{...}" if obj else "{}"
             elif isinstance(obj, list):
-                return "[...]"
+                return "[...]" if obj else "[]"
             else:
                 return repr(obj)
-        items = ("{}={}".format(k, nest_repr(v)) for k, v in self.__dict__.items())
-        return "{}({})".format(self.__class__.__name__, ", ".join(items))
+        return "{}({})".format(self.__class__.__name__,
+                               ", ".join("{}={}".format(k, nest_repr(v))
+                                         for k, v in self.__dict__.items()
+                                         if not k.startswith("_")))
