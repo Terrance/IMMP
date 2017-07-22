@@ -150,6 +150,7 @@ class HangoutsTransport(imirror.Transport):
         except KeyError:
             raise imirror.ConfigError("Hangouts cookie file not specified") from None
         self._client = None
+        self._lock = asyncio.BoundedSemaphore()
         # Message queue, to move processing from the event stream to the generator.
         self._queue = asyncio.Queue()
 
@@ -212,11 +213,15 @@ class HangoutsTransport(imirror.Transport):
                       event_request_header=conv._get_event_request_header(),
                       message_content=hangouts_pb2.MessageContent(segment=msg_content),
                       existing_media=media)
-        sent = await self._client.send_chat_message(request)
+        with (await self._lock):
+            sent = await self._client.send_chat_message(request)
         return sent.created_event.event_id
 
     async def receive(self):
         while True:
             event = await self._queue.get()
+            with (await self._lock):
+                # No critical section here, just wait for any pending messages to be sent.
+                pass
             log.debug("Retrieved message event")
             yield HangoutsMessage.from_event(self, event)
