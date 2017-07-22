@@ -1,3 +1,4 @@
+import asyncio
 from collections import defaultdict
 from datetime import datetime
 import logging
@@ -34,6 +35,8 @@ class _Schema(object):
                       Optional("entities", default=[]): [entity],
                       Optional("reply_to_message", default=None):
                               Any(lambda v: _Schema.message(v), None),
+                      Optional("photo", default=[]): [{"file_id": str,
+                                                       "width": int}],
                       Optional("new_chat_member", default=None): Any(user, None),
                       Optional("left_chat_member", default=None): Any(user, None)},
                      extra=ALLOW_EXTRA, required=True)
@@ -42,6 +45,8 @@ class _Schema(object):
                      Optional(Any("message", "edited_message",
                                   "channel_post", "edited_channel_post")): message},
                     extra=ALLOW_EXTRA, required=True)
+
+    file = Schema({"file_path": str}, extra=ALLOW_EXTRA, required=True)
 
     send = Schema({"message_id": int}, extra=ALLOW_EXTRA, required=True)
 
@@ -168,7 +173,7 @@ class TelegramMessage(imirror.Message):
     """
 
     @classmethod
-    def from_message(cls, telegram, json):
+    async def from_message(cls, telegram, json):
         """
         Convert an API message :class:`dict` to a :class:`.Message`.
 
@@ -186,12 +191,22 @@ class TelegramMessage(imirror.Message):
         reply_to = None
         joined = []
         left = []
+        attachments = []
         if message["reply_to_message"]:
             reply_to = message["reply_to_message"]["message_id"]
         if message["new_chat_member"]:
             joined.append(TelegramUser.from_user(telegram, message["new_chat_member"]))
         if message["left_chat_member"]:
             left.append(TelegramUser.from_user(telegram, message["left_chat_member"]))
+        if message["photo"]:
+            # This is a list of resolutions, find the original sized one to return.
+            photo = max(message["photo"], key=lambda photo: photo["height"])
+            async with telegram.session.get("{}/getFile".format(telegram.base),
+                                            params={"file_id": photo["file_id"]}) as resp:
+                file_json = _Schema.api(await resp.json(), _Schema.file)
+            url = ("https://api.telegram.org/file/bot{}/{}"
+                   .format(telegram.token, file_json["result"]["file_path"]))
+            attachments.append(imirror.File(type=imirror.File.Type.image, source=url))
         return (telegram.host.resolve_channel(telegram, message["chat"]["id"]),
                 cls(id=message["message_id"],
                     at=datetime.fromtimestamp(message["date"]),
@@ -200,10 +215,11 @@ class TelegramMessage(imirror.Message):
                     reply_to=reply_to,
                     joined=joined,
                     left=left,
+                    attachments=attachments,
                     raw=message))
 
     @classmethod
-    def from_update(cls, telegram, update):
+    async def from_update(cls, telegram, update):
         """
         Convert an API update :class:`dict` to a :class:`.Message`.
 
@@ -219,9 +235,9 @@ class TelegramMessage(imirror.Message):
         """
         for key in ("message", "channel_post"):
             if update.get(key):
-                return cls.from_message(telegram, update[key])
+                return await cls.from_message(telegram, update[key])
             elif update.get("edited_{}".format(key)):
-                msg = cls.from_message(telegram, update["edited_{}".format(key)])
+                msg = await cls.from_message(telegram, update["edited_{}".format(key)])
                 # Messages are edited in-place, no new ID is issued.
                 msg.original = msg.id
                 return msg
@@ -247,6 +263,8 @@ class TelegramTransport(imirror.Transport):
         self._session = None
         # Update ID from which to retrieve the next batch.  Should be one higher than the max seen.
         self._offset = 0
+        # Locking is required when working with photos, as they need additional API calls.
+        self._lock = asyncio.BoundedSemaphore()
 
     async def connect(self):
         await super().connect()
@@ -279,11 +297,14 @@ class TelegramTransport(imirror.Transport):
             for segment in rich:
                 segment.italic = True
         text = "".join(TelegramSegment.to_html(segment) for segment in rich)
-        async with self._session.post("{}/sendMessage".format(self._base),
-                                      json={"chat_id": channel.source,
-                                            "text": text,
-                                            "parse_mode": "HTML"}) as resp:
-            json = _Schema.api(await resp.json(), _Schema.send)
+        with (await self._lock):
+            # Block event processing whilst we wait for the message to go through. Processing will
+            # resume once the caller yields or returns.
+            async with self._session.post("{}/sendMessage".format(self._base),
+                                          json={"chat_id": channel.source,
+                                                "text": text,
+                                                "parse_mode": "HTML"}) as resp:
+                json = _Schema.api(await resp.json(), _Schema.send)
         if not json["ok"]:
             raise TelegramAPIError(json["description"], json["error_code"])
         return json["result"]["message_id"]
@@ -298,6 +319,9 @@ class TelegramTransport(imirror.Transport):
                 json = _Schema.api(await resp.json(), [_Schema.update])
             if not json["ok"]:
                 raise TelegramAPIError(json["description"], json["error_code"])
+            with (await self._lock):
+                # No critical section here, just wait for any pending messages to be sent.
+                pass
             for update in json["result"]:
                 log.debug("Received a message")
                 if any(key in update or "edited_{}".format(key) in update
