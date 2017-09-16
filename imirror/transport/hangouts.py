@@ -183,31 +183,38 @@ class HangoutsTransport(imirror.Transport):
             # We can't delete the messages on this side.
             return
         conv = self._convs.get(channel.source)
+        segments = []
         if isinstance(msg.text, imirror.RichText):
             segments = [HangoutsSegment.to_segment(segment) for segment in msg.text]
-        else:
+        elif msg.text:
             # Unformatted text received, make a plain segment out of it.
             segments = [hangups.ChatMessageSegment(msg.text)]
-        if msg.user:
-            name = msg.user.real_name or msg.user.username
-            prefix = ("{} " if msg.action else "{}: ").format(name)
-            segments.insert(0, hangups.ChatMessageSegment(prefix, is_bold=True))
-        if msg.action:
-            for segment in segments:
-                segment.is_italic = True
-        msg_content = [seg.serialize() for seg in segments]
         media = None
+        action = msg.action
         for attach in msg.attachments:
             if isinstance(attach, imirror.File) and attach.type == imirror.File.Type.image:
                 # Upload an image file to Hangouts.
-                async with attach.get_content() as img_content:
+                async with (await attach.get_content()) as img_content:
+                    # import aioconsole; await aioconsole.interact(locals=dict(globals(), **locals()))
                     # Hangups expects a file-like object with a synchronous read() method.
                     # NB. The whole files is read into memory by Hangups anyway.
+                    # Filename must be present, else Hangups will try (and fail) to read the path.
                     photo = await self._client.upload_image(BytesIO(await img_content.read()),
-                                                            filename=attach.title)
+                                                            filename=attach.title or "image.png")
                 media = hangouts_pb2.ExistingMedia(photo=hangouts_pb2.Photo(photo_id=photo))
                 # TODO: Handle more than one image attachment.
+                if not segments:
+                    segments = [hangups.ChatMessageSegment("sent an image")]
+                    action = True
                 break
+        if msg.user:
+            name = msg.user.real_name or msg.user.username
+            prefix = ("{} " if action else "{}: ").format(name)
+            segments.insert(0, hangups.ChatMessageSegment(prefix, is_bold=True))
+        if action:
+            for segment in segments:
+                segment.is_italic = True
+        msg_content = [seg.serialize() for seg in segments]
         request = hangouts_pb2.SendChatMessageRequest(
                       request_header=self._client.get_request_header(),
                       event_request_header=conv._get_event_request_header(),

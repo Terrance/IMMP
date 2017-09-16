@@ -201,11 +201,11 @@ class TelegramMessage(imirror.Message):
         if message["photo"]:
             # This is a list of resolutions, find the original sized one to return.
             photo = max(message["photo"], key=lambda photo: photo["height"])
-            async with telegram.session.get("{}/getFile".format(telegram.base),
-                                            params={"file_id": photo["file_id"]}) as resp:
+            async with telegram._session.get("{}/getFile".format(telegram._base),
+                                             params={"file_id": photo["file_id"]}) as resp:
                 file_json = _Schema.api(await resp.json(), _Schema.file)
             url = ("https://api.telegram.org/file/bot{}/{}"
-                   .format(telegram.token, file_json["result"]["file_path"]))
+                   .format(telegram._token, file_json["result"]["file_path"]))
             attachments.append(imirror.File(type=imirror.File.Type.image, source=url))
         return (telegram.host.resolve_channel(telegram, message["chat"]["id"]),
                 cls(id=message["message_id"],
@@ -279,6 +279,7 @@ class TelegramTransport(imirror.Transport):
         self._offset = 0
 
     async def send(self, channel, msg):
+        await super().send(channel, msg)
         if msg.deleted:
             # TODO
             return
@@ -297,14 +298,33 @@ class TelegramTransport(imirror.Transport):
             for segment in rich:
                 segment.italic = True
         text = "".join(TelegramSegment.to_html(segment) for segment in rich)
+        media = None
+        caption = None
+        for attach in msg.attachments:
+            if isinstance(attach, imirror.File) and attach.type == imirror.File.Type.image:
+                # TODO: Handle files with no source URL.
+                if not attach.source:
+                    continue
+                media = attach.source
+                if msg.user:
+                    caption = "{} sent an image".format(msg.user.real_name or msg.user.username)
+                break
         with (await self._lock):
             # Block event processing whilst we wait for the message to go through. Processing will
             # resume once the caller yields or returns.
-            async with self._session.post("{}/sendMessage".format(self._base),
-                                          json={"chat_id": channel.source,
-                                                "text": text,
-                                                "parse_mode": "HTML"}) as resp:
-                json = _Schema.api(await resp.json(), _Schema.send)
+            if media:
+                # TODO: Send accompanying message text too.
+                async with self._session.post("{}/sendPhoto".format(self._base),
+                                              json={"chat_id": channel.source,
+                                                    "photo": media,
+                                                    "caption": caption}) as resp:
+                    json = _Schema.api(await resp.json(), _Schema.send)
+            else:
+                async with self._session.post("{}/sendMessage".format(self._base),
+                                              json={"chat_id": channel.source,
+                                                    "text": text,
+                                                    "parse_mode": "HTML"}) as resp:
+                    json = _Schema.api(await resp.json(), _Schema.send)
         if not json["ok"]:
             raise TelegramAPIError(json["description"], json["error_code"])
         return json["result"]["message_id"]
@@ -326,5 +346,5 @@ class TelegramTransport(imirror.Transport):
                 log.debug("Received a message")
                 if any(key in update or "edited_{}".format(key) in update
                        for key in ("message", "channel_post")):
-                    yield TelegramMessage.from_update(self, update)
+                    yield await TelegramMessage.from_update(self, update)
                 self._offset = max(update["update_id"] + 1, self._offset)
