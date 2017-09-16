@@ -1,6 +1,7 @@
 import asyncio
 from collections import defaultdict
 from datetime import datetime
+from functools import partial
 from json import dumps as json_dumps
 import logging
 import re
@@ -148,11 +149,21 @@ class SlackRichText(imirror.RichText):
                                .format(_outside_chars, _tag_chars, _inside_chars))
 
     @classmethod
-    def from_mrkdwn(cls, text):
+    def _sub_user(cls, slack, match):
+        return "@{}".format(slack._users[match.group(1)].username)
+
+    @classmethod
+    def _sub_channel(cls, slack, match):
+        return "#{}".format(slack._channels[match.group(1)]["name"])
+
+    @classmethod
+    def from_mrkdwn(cls, slack, text):
         """
         Convert a string of Slack's Mrkdwn into a :class:`.RichText`.
 
         Args:
+            slack (.SlackTransport):
+                Related transport instance that provides the text.
             text (str):
                 Slack-style formatted text.
 
@@ -182,8 +193,13 @@ class SlackRichText(imirror.RichText):
             if start == end:
                 # Zero-length segment at the start or end, ignore it.
                 continue
-            segments.append(SlackSegment(emojize(text[start:end], use_aliases=True),
-                                         **changes[start]))
+            # Strip Slack user/channel tags, replace with a plain-text representation.
+            part = emojize(text[start:end], use_aliases=True)
+            part = re.sub(r"<@([^\|>]+)(\|[^>]+)?>", partial(cls._sub_user, slack), part)
+            part = re.sub(r"<#([^\|>]+)(\|[^>]+)?>", partial(cls._sub_channel, slack), part)
+            # TODO: Handle links.
+            part = re.sub(r"<([^\|>]+)(\|[^>]+)?>", r"\1", part)
+            segments.append(SlackSegment(part, **changes[start]))
         return cls(segments)
 
 
@@ -222,12 +238,14 @@ class SlackSegment(imirror.RichText.Segment):
 class SlackFile(imirror.File):
 
     def __init__(self, slack, title=None, type=None, source=None):
-        super().__init__(title=title, type=type, source=source)
+        super().__init__(title=title, type=type)
         self.slack = slack
+        # Private source as the URL is not publically accessible.
+        self._source = source
 
     async def get_content(self):
         headers = {"Authorization": "Bearer {}".format(self.slack._token)}
-        return await super().get_content(headers=headers)
+        return await super().get_content(url=self._source, headers=headers)
 
     @classmethod
     def from_file(cls, slack, json):
@@ -310,7 +328,7 @@ class SlackMessage(imirror.Message):
                 cls(id=event["ts"],
                     at=datetime.fromtimestamp(int(float(event["ts"]))),
                     original=original,
-                    text=SlackRichText.from_mrkdwn(text) if text else None,
+                    text=SlackRichText.from_mrkdwn(slack, text) if text else None,
                     user=slack._users.get(user, SlackUser(id=user)) if user else None,
                     action=action,
                     deleted=deleted,
