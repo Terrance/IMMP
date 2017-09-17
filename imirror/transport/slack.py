@@ -437,7 +437,7 @@ class SlackTransport(imirror.Transport):
             json = await resp.json()
         if not json.get("ok"):
             raise SlackAPIError(json.get("error"))
-        return json.get("ts")
+        return [json.get("ts")]
 
     async def receive(self):
         await super().receive()

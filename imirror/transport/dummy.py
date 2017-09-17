@@ -41,7 +41,7 @@ class DummyTransport(imirror.Transport):
                                  left=[],
                                  raw=msg.raw)
             await self.queue.put(clone)
-            return self.count
+            return [self.count]
 
     async def _receive_queue(self):
         while True:

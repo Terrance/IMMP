@@ -1,3 +1,4 @@
+from collections import defaultdict
 import logging
 
 import imirror
@@ -23,7 +24,7 @@ class SyncReceiver(imirror.Receiver):
             raise imirror.ConfigError("Sync channels not specified") from None
         self.channels = []
         # Message cache, stores synced message IDs keyed by original message.
-        # {Message(): {Channel(): id, ...}, ...}
+        # {Message(): {Channel(): [id, ...], ...}, ...}
         self.synced = {}
         for channel in channels:
             try:
@@ -37,12 +38,12 @@ class SyncReceiver(imirror.Receiver):
         if channel not in self.channels:
             return
         for sync in self.synced.values():
-            if sync.get(channel) == msg.id:
+            if msg.id in sync[channel]:
                 # This is a synced message being echoed back from another channel.
                 log.debug("Ignoring echoed message: {}".format(msg))
                 return
         log.debug("Syncing message to {} channel(s): {}".format(len(self.channels) - 1, msg))
-        sync = {}
+        sync = defaultdict(list)
         for sync_channel in self.channels:
             if channel == sync_channel:
                 # This is the channel we just got the message from.

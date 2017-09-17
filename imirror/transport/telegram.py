@@ -283,21 +283,23 @@ class TelegramTransport(imirror.Transport):
         if msg.deleted:
             # TODO
             return
-        if isinstance(msg.text, imirror.RichText):
-            rich = msg.text.copy()
-        elif msg.text:
-            # Unformatted text received, make a basic rich text instance out of it.
-            rich = imirror.RichText([imirror.RichText.Segment(msg.text)])
-        else:
-            rich = imirror.RichText()
-        if msg.user:
-            name = msg.user.real_name or msg.user.username
-            prefix = ("{} " if msg.action else "{}: ").format(name)
-            rich.insert(0, imirror.RichText.Segment(prefix, bold=True))
-        if msg.action:
-            for segment in rich:
-                segment.italic = True
-        text = "".join(TelegramSegment.to_html(segment) for segment in rich)
+        text = None
+        if msg.text:
+            if isinstance(msg.text, imirror.RichText):
+                rich = msg.text.copy()
+            elif msg.text:
+                # Unformatted text received, make a basic rich text instance out of it.
+                rich = imirror.RichText([imirror.RichText.Segment(msg.text)])
+            else:
+                rich = imirror.RichText()
+            if msg.user:
+                name = msg.user.real_name or msg.user.username
+                prefix = ("{} " if msg.action else "{}: ").format(name)
+                rich.insert(0, imirror.RichText.Segment(prefix, bold=True))
+            if msg.action:
+                for segment in rich:
+                    segment.italic = True
+            text = "".join(TelegramSegment.to_html(segment) for segment in rich)
         media = None
         caption = None
         for attach in msg.attachments:
@@ -309,25 +311,26 @@ class TelegramTransport(imirror.Transport):
                 if msg.user:
                     caption = "{} sent an image".format(msg.user.real_name or msg.user.username)
                 break
+        jsons = []
         with (await self._lock):
             # Block event processing whilst we wait for the message to go through. Processing will
             # resume once the caller yields or returns.
             if media:
-                # TODO: Send accompanying message text too.
                 async with self._session.post("{}/sendPhoto".format(self._base),
                                               json={"chat_id": channel.source,
                                                     "photo": media,
                                                     "caption": caption}) as resp:
-                    json = _Schema.api(await resp.json(), _Schema.send)
-            else:
+                    jsons.append(_Schema.api(await resp.json(), _Schema.send))
+            if text:
                 async with self._session.post("{}/sendMessage".format(self._base),
                                               json={"chat_id": channel.source,
                                                     "text": text,
                                                     "parse_mode": "HTML"}) as resp:
-                    json = _Schema.api(await resp.json(), _Schema.send)
-        if not json["ok"]:
-            raise TelegramAPIError(json["description"], json["error_code"])
-        return json["result"]["message_id"]
+                    jsons.append(_Schema.api(await resp.json(), _Schema.send))
+        for json in jsons:
+            if not json["ok"]:
+                raise TelegramAPIError(json["description"], json["error_code"])
+        return [json["result"]["message_id"] for json in jsons]
 
     async def receive(self):
         await super().receive()

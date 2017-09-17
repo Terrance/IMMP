@@ -222,7 +222,7 @@ class HangoutsTransport(imirror.Transport):
                       existing_media=media)
         with (await self._lock):
             sent = await self._client.send_chat_message(request)
-        return sent.created_event.event_id
+        return [sent.created_event.event_id]
 
     async def receive(self):
         while True:

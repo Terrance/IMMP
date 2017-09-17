@@ -40,14 +40,20 @@ class Transport(Base):
 
     async def send(self, channel, msg):
         """
-        Take a :class:`.Message` object, and push it to the underlying network.  The message should
-        have its ID updated to match the server.
+        Take a :class:`.Message` object, and push it to the underlying network.
+
+        Because some transports may not support combinations of message components (such as text
+        and an accompanying image), this method may send more than one physical message.
 
         Args:
             channel (.Channel):
                 Target channel for the new message.
             msg (.Message):
                 Original message received from another channel or transport.
+
+        Returns:
+            list:
+                IDs of new messages sent to the transport.
         """
         if not self.connected:
             raise TransportError("Can't send messages when not connected")
