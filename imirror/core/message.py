@@ -112,7 +112,7 @@ class File(Attachment):
         type (.Type):
             Basic type of the file.
         source (str):
-            URL to original file location.
+            Public URL to the original file location, if one is available.
     """
 
     class Type(Enum):
@@ -123,30 +123,24 @@ class File(Attachment):
         self.type = type
         self.source = source
 
-    async def get_content(self, method="get", url=None, **kwargs):
+    async def get_content(self, sess=None):
         """
         Stream the contents of the file, suitable for writing to a file or uploading elsewhere.
 
-        The default implementation will attempt to obtain the raw file using the source URL if
-        available.  Transports will likely need to override this method and add authentication.
-
-        The resulting :meth:`get_content` method should take no arguments; any keyword arguments
-        given via :func:`super` will be passed through to :meth:`aiohttp.ClientSession.request`.
-
-        Streams should be closed once they are used (e.g. :class:`aiohttp.ClientResponse`).
+        The default implementation will try to fetch a file by the source field.  It may be
+        overridden to add authentication or other metadata, but the method must remain callable
+        with only a session passed to it.
 
         Args:
-            method (str):
-                HTTP method used to retrieve the file (default: ``GET``).
-            url (str):
-                URL to original file location (default: :attr:`source`).
+            sess (aiohttp.ClientSession):
+                Existing HTTP session with which to make any requests.
 
         Returns:
             io.IOBase:
                 Readable stream of the raw file.
         """
-        async with aiohttp.ClientSession() as sess:
-            return await sess.request(method, url or self.source, **kwargs)
+        sess = sess or aiohttp.ClientSession()
+        return await sess.get(self.source)
 
 
 class Message(Base):

@@ -243,9 +243,9 @@ class SlackFile(imirror.File):
         # Private source as the URL is not publically accessible.
         self._source = source
 
-    async def get_content(self):
+    async def get_content(self, sess=None):
         headers = {"Authorization": "Bearer {}".format(self.slack._token)}
-        return await super().get_content(url=self._source, headers=headers)
+        return await sess.get(self._source, headers=headers)
 
     @classmethod
     def from_file(cls, slack, json):
