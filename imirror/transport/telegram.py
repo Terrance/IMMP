@@ -304,33 +304,36 @@ class TelegramTransport(imirror.Transport):
         caption = None
         for attach in msg.attachments:
             if isinstance(attach, imirror.File) and attach.type == imirror.File.Type.image:
-                # TODO: Handle files with no source URL.
-                if not attach.source:
-                    continue
-                media = attach.source
+                media = attach
                 if msg.user:
                     caption = "{} sent an image".format(msg.user.real_name or msg.user.username)
                 break
-        jsons = []
+        sent = []
         with (await self._lock):
             # Block event processing whilst we wait for the message to go through. Processing will
             # resume once the caller yields or returns.
+            parts = []
             if media:
-                async with self._session.post("{}/sendPhoto".format(self._base),
-                                              json={"chat_id": channel.source,
-                                                    "photo": media,
-                                                    "caption": caption}) as resp:
-                    jsons.append(_Schema.api(await resp.json(), _Schema.send))
+                # Upload an image file to Telegram in its own message.
+                # Prefer a source URL if available, else fall back to re-uploading the file.
+                data = aiohttp.FormData((("chat_id", str(channel.source)), ("caption", caption)))
+                if media.source:
+                    data.add_field("photo", media.source)
+                else:
+                    img_resp = await media.get_content(self._session)
+                    data.add_field("photo", img_resp.content, filename=media.title or "image.png")
+                parts.append(("sendPhoto", data))
             if text:
-                async with self._session.post("{}/sendMessage".format(self._base),
-                                              json={"chat_id": channel.source,
-                                                    "text": text,
-                                                    "parse_mode": "HTML"}) as resp:
-                    jsons.append(_Schema.api(await resp.json(), _Schema.send))
-        for json in jsons:
-            if not json["ok"]:
-                raise TelegramAPIError(json["description"], json["error_code"])
-        return [json["result"]["message_id"] for json in jsons]
+                parts.append(("sendMessage", {"chat_id": channel.source,
+                                              "text": text,
+                                              "parse_mode": "HTML"}))
+            for endpoint, data in parts:
+                async with self._session.post("{}/{}".format(self._base, endpoint), data=data) as resp:
+                    json = _Schema.api(await resp.json(), _Schema.send)
+                    if not json["ok"]:
+                        raise TelegramAPIError(json["description"], json["error_code"])
+                    sent.append(json["result"]["message_id"])
+        return sent
 
     async def receive(self):
         await super().receive()
