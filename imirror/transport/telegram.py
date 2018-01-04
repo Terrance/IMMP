@@ -156,14 +156,18 @@ class TelegramSegment(imirror.RichText.Segment):
                 HTML-formatted string.
         """
         text = segment.text
-        if segment.bold:
-            text = "<b>{}</b>".format(text)
-        if segment.italic:
-            text = "<i>{}</i>".format(text)
-        if segment.code:
-            text = "<code>{}</code>".format(text)
-        if segment.pre:
+        # Any form of tag nesting (e.g. bold inside italic) isn't supported, so at most one type of
+        # formatting may apply for each segment.
+        if segment.link:
+            text = "<a href=\"{}\">{}</a>".format(segment.link, text)
+        elif segment.pre:
             text = "<pre>{}</pre>".format(text)
+        elif segment.code:
+            text = "<code>{}</code>".format(text)
+        elif segment.bold:
+            text = "<b>{}</b>".format(text)
+        elif segment.italic:
+            text = "<i>{}</i>".format(text)
         return text
 
 
