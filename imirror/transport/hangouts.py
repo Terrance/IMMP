@@ -101,30 +101,65 @@ class HangoutsMessage(imirror.Message):
             .HangoutsMessage:
                 Parsed message object.
         """
-        segments = (HangoutsSegment.from_segment(segment) for segment in event.segments)
-        text = imirror.RichText(segments)
         user = HangoutsUser.from_user(hangouts, hangouts._users.get_user(event.user_id))
         action = False
-        if any(a.type == 4 for a in event._event.chat_message.annotation):
-            # This is a /me message sent from desktop Hangouts.
-            action = True
-            # The user's first name prefixes the message text, so try to strip that.
-            if user.real_name:
-                # We don't have a clear-cut first name, so try to match parts of names.
-                # Try the full name first, then split successive words off the end.
-                parts = user.real_name.split()
-                start = text[0].text
-                for pos in range(len(parts), 0, -1):
-                    sub_name = " ".join(parts[:pos])
-                    if start.startswith(sub_name):
-                        text[0].text = start[len(sub_name) + 1:]
-                        break
-                else:
-                    # Couldn't match the user's name to the message text.
-                    pass
         attachments = []
-        for attach in event.attachments:
-            attachments.append(imirror.File(type=imirror.File.Type.image, source=attach))
+        if isinstance(event, hangups.ChatMessageEvent):
+            segments = [HangoutsSegment.from_segment(segment) for segment in event.segments]
+            text = imirror.RichText(segments)
+            if any(a.type == 4 for a in event._event.chat_message.annotation):
+                # This is a /me message sent from desktop Hangouts.
+                action = True
+                # The user's first name prefixes the message text, so try to strip that.
+                if user.real_name:
+                    # We don't have a clear-cut first name, so try to match parts of names.
+                    # Try the full name first, then split successive words off the end.
+                    parts = user.real_name.split()
+                    start = text[0].text
+                    for pos in range(len(parts), 0, -1):
+                        sub_name = " ".join(parts[:pos])
+                        if start.startswith(sub_name):
+                            text[0].text = start[len(sub_name) + 1:]
+                            break
+                    else:
+                        # Couldn't match the user's name to the message text.
+                        pass
+            for attach in event.attachments:
+                attachments.append(imirror.File(type=imirror.File.Type.image, source=attach))
+        elif isinstance(event, hangups.MembershipChangeEvent):
+            action = True
+            is_join = event.type_ == hangups.hangouts_pb2.MEMBERSHIP_CHANGE_TYPE_JOIN
+            users = [HangoutsUser.from_user(hangouts, hangouts._users.get_user(part))
+                     for part in event.participant_ids]
+            if users == [user]: # len(users) == 1 and users[0].id == user.id:
+                # Membership event is a user acting on themselves.
+                segments = [HangoutsSegment("joined" if is_join else "left")]
+            else:
+                segments = [HangoutsSegment("added " if is_join else "removed ")]
+                for user in users:
+                    link = "https://hangouts.google.com/chat/person/{}".format(user.id)
+                    segments.append(HangoutsSegment(user.real_name, bold=True, link=link))
+                    segments.append(HangoutsSegment(", "))
+                segments.pop()
+        elif isinstance(event, hangups.OTREvent):
+            action = True
+            is_history = event.new_otr_status == hangups.hangouts_pb2.OFF_THE_RECORD_STATUS_ON_THE_RECORD
+            segments = [HangoutsSegment("{}abled hangout message history"
+                                        .format("en" if is_history else "dis"))]
+        elif isinstance(event, hangups.RenameEvent):
+            action = True
+            segments = [HangoutsSegment("renamed the hangout from "),
+                        HangoutsSegment(event.old_name, italic=True),
+                        HangoutsSegment(" to "),
+                        HangoutsSegment(event.new_name, italic=True)]
+        elif isinstance(event, hangups.GroupLinkSharingModificationEvent):
+            action = True
+            is_shared = event.new_status == hangups.hangouts_pb2.GROUP_LINK_SHARING_STATUS_ON
+            segments = [HangoutsSegment("{}abled joining the hangout by link"
+                                        .format("en" if is_shared else "dis"))]
+        else:
+            raise NotImplementedError
+        text = imirror.RichText(segments)
         return (hangouts.host.resolve_channel(hangouts, event.conversation_id),
                 cls(id=event.id_,
                     text=text,
@@ -231,4 +266,9 @@ class HangoutsTransport(imirror.Transport):
                 # No critical section here, just wait for any pending messages to be sent.
                 pass
             log.debug("Retrieved message event")
-            yield HangoutsMessage.from_event(self, event)
+            try:
+                message = HangoutsMessage.from_event(self, event)
+            except NotImplementedError:
+                log.warn("Skipping unimplemented message event")
+            else:
+                yield message
