@@ -103,6 +103,8 @@ class HangoutsMessage(imirror.Message):
         """
         user = HangoutsUser.from_user(hangouts, hangouts._users.get_user(event.user_id))
         action = False
+        joined = None
+        left = None
         attachments = []
         if isinstance(event, hangups.ChatMessageEvent):
             segments = [HangoutsSegment.from_segment(segment) for segment in event.segments]
@@ -129,18 +131,23 @@ class HangoutsMessage(imirror.Message):
         elif isinstance(event, hangups.MembershipChangeEvent):
             action = True
             is_join = event.type_ == hangups.hangouts_pb2.MEMBERSHIP_CHANGE_TYPE_JOIN
-            users = [HangoutsUser.from_user(hangouts, hangouts._users.get_user(part))
-                     for part in event.participant_ids]
-            if users == [user]: # len(users) == 1 and users[0].id == user.id:
+            parts = [HangoutsUser.from_user(hangouts, hangouts._users.get_user(part_id))
+                     for part_id in event.participant_ids]
+            if len(parts) == 1 and parts[0].id == user.id:
                 # Membership event is a user acting on themselves.
-                segments = [HangoutsSegment("joined" if is_join else "left")]
+                segments = [HangoutsSegment("{} the hangout".format("joined" if is_join else "left"))]
             else:
                 segments = [HangoutsSegment("added " if is_join else "removed ")]
-                for user in users:
-                    link = "https://hangouts.google.com/chat/person/{}".format(user.id)
-                    segments.append(HangoutsSegment(user.real_name, bold=True, link=link))
+                for part in parts:
+                    link = "https://hangouts.google.com/chat/person/{}".format(part.id)
+                    segments.append(HangoutsSegment(part.real_name, bold=True, link=link))
                     segments.append(HangoutsSegment(", "))
-                segments.pop()
+                # Replace trailing comma.
+                segments[-1].text = " {} the hangout".format("to" if is_join else "from")
+            if is_join:
+                joined = parts
+            else:
+                left = parts
         elif isinstance(event, hangups.OTREvent):
             action = True
             is_history = event.new_otr_status == hangups.hangouts_pb2.OFF_THE_RECORD_STATUS_ON_THE_RECORD
@@ -148,10 +155,8 @@ class HangoutsMessage(imirror.Message):
                                         .format("en" if is_history else "dis"))]
         elif isinstance(event, hangups.RenameEvent):
             action = True
-            segments = [HangoutsSegment("renamed the hangout from "),
-                        HangoutsSegment(event.old_name, italic=True),
-                        HangoutsSegment(" to "),
-                        HangoutsSegment(event.new_name, italic=True)]
+            segments = [HangoutsSegment("renamed the hangout to "),
+                        HangoutsSegment(event.new_name, bold=True)]
         elif isinstance(event, hangups.GroupLinkSharingModificationEvent):
             action = True
             is_shared = event.new_status == hangups.hangouts_pb2.GROUP_LINK_SHARING_STATUS_ON
@@ -165,6 +170,8 @@ class HangoutsMessage(imirror.Message):
                     text=text,
                     user=user,
                     action=action,
+                    joined=joined,
+                    left=left,
                     attachments=attachments,
                     raw=event))
 
