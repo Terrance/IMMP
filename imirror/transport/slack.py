@@ -316,12 +316,17 @@ class SlackMessage(imirror.Message):
             user = event["user"]
             text = event["text"]
             if event["subtype"] in ("file_share", "file_mention"):
+                action = True
                 attachments.append(SlackFile.from_file(slack, event["file"]))
-        if event["subtype"] in ("channel_join", "group_join"):
-            joined = [user]
-        elif event["subtype"] in ("channel_leave", "group_leave"):
-            left = [user]
-        if user and text and re.match(r"<@{}\|.*?> ".format(user), text):
+            elif event["subtype"] in ("channel_join", "group_join"):
+                action = True
+                joined = [user]
+            elif event["subtype"] in ("channel_leave", "group_leave"):
+                action = True
+                left = [user]
+            elif event["subtype"] == "me_message":
+                action = True
+        if user and text and re.match(r"<@{}(\|.*?)?> ".format(user), text):
             # Own username at the start of the message, assume it's an action.
             action = True
             text = re.sub(r"^<@{}|.*?> ".format(user), "", text)
