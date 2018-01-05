@@ -1,6 +1,7 @@
 from copy import deepcopy
 from datetime import datetime
 from enum import Enum
+import re
 
 import aiohttp
 
@@ -74,9 +75,44 @@ class RichText(list, Base):
             self.pre = pre
             self.link = link
 
+        def clone(self):
+            """
+            Make a copy of this message text segment.
+
+            Returns:
+                .RichText.Segment:
+                    Cloned segment instance.
+            """
+            return deepcopy(self)
+
         def __str__(self):
             # Fallback implementation: just return the segment text without formatting.
             return self.text
+
+    def normalise(self):
+        """
+        Make a copy of this message with formatting applied from text boundaries.
+
+        For example::
+
+            Some[b] bold [/b]text.
+
+        The bold boundaries would be moved to surround "bold" excluding the spaces.
+
+        Returns:
+            .RichText:
+                Normalised message text instance.
+        """
+        normalised = []
+        for segment in self:
+            clone = segment.clone()
+            before, clone.text, after = re.match(r"(\s*)(.*)(\s*)", clone.text).groups()
+            if before:
+                normalised.append(RichText.Segment(before))
+            normalised.append(clone)
+            if after:
+                normalised.append(RichText.Segment(after))
+        return RichText(normalised)
 
     def clone(self):
         """

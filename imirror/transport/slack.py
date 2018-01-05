@@ -199,39 +199,40 @@ class SlackRichText(imirror.RichText):
             part = re.sub(r"<#([^\|>]+)(\|[^>]+)?>", partial(cls._sub_channel, slack), part)
             # TODO: Handle links.
             part = re.sub(r"<([^\|>]+)(\|[^>]+)?>", r"\1", part)
-            segments.append(SlackSegment(part, **changes[start]))
+            segments.append(imirror.RichText.Segment(part, **changes[start]))
         return cls(segments)
 
-
-class SlackSegment(imirror.RichText.Segment):
-    """
-    Transport-friendly representation of Slack message formatting.
-    """
-
     @classmethod
-    def to_mrkdwn(cls, segment):
+    def to_mrkdwn(cls, rich):
         """
-        Convert a :class:`.RichText.Segment` back into a Mrkdwn string.
+        Convert a string of Slack's Mrkdwn into a :class:`.RichText`.
 
         Args:
-            segment (.RichText.Segment)
-                Message segment created by another transport.
+            rich (.SlackRichText):
+                Parsed rich text container.
 
         Returns:
             str:
-                Unparsed segment string.
+                Slack-style formatted text.
         """
-        text = segment.text
-        if segment.bold:
-            text = "*{}*".format(text)
-        if segment.italic:
-            text = "_{}_".format(text)
-        if segment.strike:
-            text = "~{}~".format(text)
-        if segment.code:
-            text = "`{}`".format(text)
-        if segment.pre:
-            text = "```{}```".format(text)
+        text = ""
+        active = []
+        for segment in rich.normalise():
+            for tag in reversed(active):
+                # Check all existing tags, and remove any that end at this segment.
+                attr = cls.tags[tag]
+                if not getattr(segment, attr):
+                    text += tag
+                    active.remove(tag)
+            for tag, attr in cls.tags.items():
+                # Add any new tags that start at this segment.
+                if getattr(segment, attr) and tag not in active:
+                    text += tag
+                    active.append(tag)
+            text += segment.text
+        for tag in reversed(active):
+            # Close all remaining tags.
+            text += tag
         return text
 
 
@@ -408,7 +409,7 @@ class SlackTransport(imirror.Transport):
             # TODO
             return
         if isinstance(msg.text, imirror.RichText):
-            text = "".join(SlackSegment.to_mrkdwn(segment) for segment in msg.text)
+            text = SlackRichText.to_mrkdwn(msg.text)
         else:
             text = msg.text
         name = (msg.user.username or msg.user.real_name) if msg.user else self.fallback_name
