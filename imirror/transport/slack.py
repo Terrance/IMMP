@@ -1,4 +1,3 @@
-import asyncio
 from collections import defaultdict
 from datetime import datetime
 from functools import partial
@@ -367,10 +366,6 @@ class SlackTransport(imirror.Transport):
         self._team = self._users = self._channels = self._directs = self._bots = None
         # Connection objects that need to be closed on disconnect.
         self._session = self._socket = None
-        # When we send messages asynchronously, we'll receive an RTM event before the HTTP request
-        # returns. This lock will block event parsing whilst we're sending, to make sure the caller
-        # can finish processing the new message (e.g. storing the ID) before receiving the event.
-        self._lock = asyncio.BoundedSemaphore()
 
     async def connect(self):
         await super().connect()
@@ -408,8 +403,7 @@ class SlackTransport(imirror.Transport):
             await self._session.close()
             self._session = None
 
-    async def send(self, channel, msg):
-        await super().send(channel, msg)
+    async def put(self, channel, msg):
         if msg.deleted:
             # TODO
             return
@@ -435,23 +429,16 @@ class SlackTransport(imirror.Transport):
             data["text"] = text
         if attachments:
             data["attachments"] = json_dumps(attachments)
-        with (await self._lock):
-            # Block event processing whilst we wait for the message to go through. Processing will
-            # resume once the caller yields or returns.
-            resp = await self._session.post("https://slack.com/api/chat.postMessage",
-                                            params={"token": self._token}, data=data)
-            json = await resp.json()
+        resp = await self._session.post("https://slack.com/api/chat.postMessage",
+                                        params={"token": self._token}, data=data)
+        json = await resp.json()
         if not json.get("ok"):
             raise SlackAPIError(json.get("error"))
         return [json.get("ts")]
 
-    async def receive(self):
-        await super().receive()
+    async def get(self):
         while True:
             json = await self._socket.receive_json()
-            with (await self._lock):
-                # No critical section here, just wait for any pending messages to be sent.
-                pass
             event = _Schema.event(json)
             log.debug("Received a '{}' event".format(event["type"]))
             if event["type"] in ("team_join", "user_change"):

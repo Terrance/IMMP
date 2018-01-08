@@ -1,4 +1,3 @@
-import asyncio
 from collections import defaultdict
 from datetime import datetime
 import logging
@@ -267,8 +266,6 @@ class TelegramTransport(imirror.Transport):
         self._session = None
         # Update ID from which to retrieve the next batch.  Should be one higher than the max seen.
         self._offset = 0
-        # Locking is required when working with photos, as they need additional API calls.
-        self._lock = asyncio.BoundedSemaphore()
 
     async def connect(self):
         await super().connect()
@@ -282,8 +279,7 @@ class TelegramTransport(imirror.Transport):
             self._session = None
         self._offset = 0
 
-    async def send(self, channel, msg):
-        await super().send(channel, msg)
+    async def put(self, channel, msg):
         if msg.deleted:
             # TODO
             return
@@ -312,35 +308,31 @@ class TelegramTransport(imirror.Transport):
                 if msg.user:
                     caption = "{} sent an image".format(msg.user.real_name or msg.user.username)
                 break
+        parts = []
+        if media:
+            # Upload an image file to Telegram in its own message.
+            # Prefer a source URL if available, else fall back to re-uploading the file.
+            data = aiohttp.FormData((("chat_id", str(channel.source)), ("caption", caption)))
+            if media.source:
+                data.add_field("photo", media.source)
+            else:
+                img_resp = await media.get_content(self._session)
+                data.add_field("photo", img_resp.content, filename=media.title or "image.png")
+            parts.append(("sendPhoto", data))
+        if text:
+            parts.append(("sendMessage", {"chat_id": channel.source,
+                                          "text": text,
+                                          "parse_mode": "HTML"}))
         sent = []
-        with (await self._lock):
-            # Block event processing whilst we wait for the message to go through. Processing will
-            # resume once the caller yields or returns.
-            parts = []
-            if media:
-                # Upload an image file to Telegram in its own message.
-                # Prefer a source URL if available, else fall back to re-uploading the file.
-                data = aiohttp.FormData((("chat_id", str(channel.source)), ("caption", caption)))
-                if media.source:
-                    data.add_field("photo", media.source)
-                else:
-                    img_resp = await media.get_content(self._session)
-                    data.add_field("photo", img_resp.content, filename=media.title or "image.png")
-                parts.append(("sendPhoto", data))
-            if text:
-                parts.append(("sendMessage", {"chat_id": channel.source,
-                                              "text": text,
-                                              "parse_mode": "HTML"}))
-            for endpoint, data in parts:
-                async with self._session.post("{}/{}".format(self._base, endpoint), data=data) as resp:
-                    json = _Schema.api(await resp.json(), _Schema.send)
-                    if not json["ok"]:
-                        raise TelegramAPIError(json["description"], json["error_code"])
-                    sent.append(json["result"]["message_id"])
+        for endpoint, data in parts:
+            async with self._session.post("{}/{}".format(self._base, endpoint), data=data) as resp:
+                json = _Schema.api(await resp.json(), _Schema.send)
+                if not json["ok"]:
+                    raise TelegramAPIError(json["description"], json["error_code"])
+                sent.append(json["result"]["message_id"])
         return sent
 
-    async def receive(self):
-        await super().receive()
+    async def get(self):
         while True:
             log.debug("Making long-poll request")
             async with self._session.get("{}/getUpdates".format(self._base),
@@ -349,9 +341,6 @@ class TelegramTransport(imirror.Transport):
                 json = _Schema.api(await resp.json(), [_Schema.update])
             if not json["ok"]:
                 raise TelegramAPIError(json["description"], json["error_code"])
-            with (await self._lock):
-                # No critical section here, just wait for any pending messages to be sent.
-                pass
             for update in json["result"]:
                 log.debug("Received a message")
                 if any(key in update or "edited_{}".format(key) in update

@@ -1,3 +1,5 @@
+from asyncio import BoundedSemaphore, Queue
+
 from .error import TransportError
 from .util import Base
 
@@ -25,6 +27,10 @@ class Transport(Base):
         self.config = config
         self.host = host
         self.connected = False
+        # Message queue, to move processing from the event stream to the generator.
+        self._queue = Queue()
+        # Receiver lock, to put a hold on retrieving messages whilst a send is in progress.
+        self._lock = BoundedSemaphore()
 
     async def connect(self):
         """
@@ -38,7 +44,76 @@ class Transport(Base):
         """
         self.connected = False
 
+    def queue(self, channel, msg):
+        """
+        Add a new message to the receiver queue.
+
+        Args:
+            channel (.Channel):
+                Source channel for the incoming message.
+            msg (.Message):
+                Message received and processed by the transport.
+        """
+        self._queue.put_nowait((channel, msg))
+
+    async def receive(self):
+        """
+        Wrapper method to receive messages from the network.  Transports should implement
+        :meth:`get` to yield a series of channel/message pairs from a continuous source (e.g.
+        listening on a socket or long-poll).  For event-driven frameworks, use :meth:`queue` to
+        submit new messages, which will be handled by default.
+
+        Yields:
+            (.Channel, .Message) tuple:
+                Messages received and processed by the transport.
+        """
+        if not self.connected:
+            raise TransportError("Can't receive messages when not connected")
+        getter = self.get()
+        async for channel, msg in getter:
+            with (await self._lock):
+                # No critical section here, just wait for any pending messages to be sent.
+                pass
+            yield (channel, msg)
+
+    async def get(self):
+        """
+        Generator of :class:`.Message` objects from the underlying network.
+
+        By default, reads from the built-in message queue, but may be overridden to use a
+        different source.
+
+        Yields:
+            (.Channel, .Message) tuple:
+                Messages received and processed by the transport.
+        """
+        while True:
+            yield (await self._queue.get())
+
     async def send(self, channel, msg):
+        """
+        Wrapper method to send a message to the network.  Transports should implement :meth:`put`
+        to convert the framework message into a native representation and submit it.
+
+        Args:
+            channel (.Channel):
+                Target channel for the new message.
+            msg (.Message):
+                Original message received from another channel or transport.
+
+        Returns:
+            list:
+                IDs of new messages sent to the transport.
+        """
+        if not self.connected:
+            raise TransportError("Can't send messages when not connected")
+        # When sending messages asynchronously, the network will likely return the new message
+        # before the send request returns with confirmation.  Use the lock when sending in order
+        # return the new message ID(s) in advance of them appearing in the receive queue.
+        with (await self._lock):
+            return self.put(channel, msg)
+
+    async def put(self, channel, msg):
         """
         Take a :class:`.Message` object, and push it to the underlying network.
 
@@ -55,16 +130,4 @@ class Transport(Base):
             list:
                 IDs of new messages sent to the transport.
         """
-        if not self.connected:
-            raise TransportError("Can't send messages when not connected")
-
-    async def receive(self):
-        """
-        Generator of :class:`.Message` objects from the underlying network.
-
-        Yields:
-            (.Channel, .Message) tuple:
-                Messages received and processed by the transport.
-        """
-        if not self.connected:
-            raise TransportError("Can't receive messages when not connected")
+        raise NotImplementedError

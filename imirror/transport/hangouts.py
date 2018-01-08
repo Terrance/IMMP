@@ -1,4 +1,4 @@
-import asyncio
+from asyncio import ensure_future
 from io import BytesIO
 import logging
 import re
@@ -192,16 +192,13 @@ class HangoutsTransport(imirror.Transport):
         except KeyError:
             raise imirror.ConfigError("Hangouts cookie file not specified") from None
         self._client = None
-        self._lock = asyncio.BoundedSemaphore()
-        # Message queue, to move processing from the event stream to the generator.
-        self._queue = asyncio.Queue()
 
     async def connect(self):
         await super().connect()
         self._client = hangups.Client(hangups.get_auth_stdin(self._cookie))
         self._client.on_connect.add_observer(self._connect)
         log.debug("Connecting client")
-        asyncio.ensure_future(self._client.connect())
+        ensure_future(self._client.connect())
 
     async def _connect(self):
         log.debug("Retrieving users and conversations")
@@ -210,8 +207,13 @@ class HangoutsTransport(imirror.Transport):
         log.debug("Listening for events")
 
     async def _event(self, event):
-        log.debug("Queued new message event")
-        await self._queue.put(event)
+        try:
+            channel, msg = HangoutsMessage.from_event(self, event)
+        except NotImplementedError:
+            log.warn("Skipping unimplemented message event")
+        else:
+            log.debug("Queueing new message event")
+            self.queue(channel, msg)
 
     async def disconnect(self):
         await super().disconnect()
@@ -219,8 +221,7 @@ class HangoutsTransport(imirror.Transport):
             log.debug("Requesting client disconnect")
             await self._client.disconnect()
 
-    async def send(self, channel, msg):
-        await super().send(channel, msg)
+    async def put(self, channel, msg):
         if msg.deleted:
             # We can't delete the messages on this side.
             return
@@ -237,7 +238,6 @@ class HangoutsTransport(imirror.Transport):
             if isinstance(attach, imirror.File) and attach.type == imirror.File.Type.image:
                 # Upload an image file to Hangouts.
                 async with (await attach.get_content()) as img_content:
-                    # import aioconsole; await aioconsole.interact(locals=dict(globals(), **locals()))
                     # Hangups expects a file-like object with a synchronous read() method.
                     # NB. The whole files is read into memory by Hangups anyway.
                     # Filename must be present, else Hangups will try (and fail) to read the path.
@@ -262,20 +262,5 @@ class HangoutsTransport(imirror.Transport):
                       event_request_header=conv._get_event_request_header(),
                       message_content=hangouts_pb2.MessageContent(segment=msg_content),
                       existing_media=media)
-        with (await self._lock):
-            sent = await self._client.send_chat_message(request)
+        sent = await self._client.send_chat_message(request)
         return [sent.created_event.event_id]
-
-    async def receive(self):
-        while True:
-            event = await self._queue.get()
-            with (await self._lock):
-                # No critical section here, just wait for any pending messages to be sent.
-                pass
-            log.debug("Retrieved message event")
-            try:
-                message = HangoutsMessage.from_event(self, event)
-            except NotImplementedError:
-                log.warn("Skipping unimplemented message event")
-            else:
-                yield message
