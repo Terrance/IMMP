@@ -10,6 +10,8 @@ from imirror import Host
 
 logging.getLogger("anyconfig").setLevel(logging.WARNING)
 
+log = logging.getLogger(__name__)
+
 
 _schema = Schema({"transports": {str: {"path": str, Optional("config", default=dict): dict}},
                   "channels": {str: {"transport": str, "source": object}},
@@ -27,8 +29,12 @@ def main(config):
         host.add_receiver(name, spec["path"], spec.get("config") or {})
     loop = asyncio.get_event_loop()
     try:
+        log.debug("Starting host")
         loop.run_until_complete(host.run())
+    except KeyboardInterrupt:
+        log.debug("Interrupt received")
     finally:
+        log.debug("Closing host")
         loop.run_until_complete(host.close())
         loop.close()
 
