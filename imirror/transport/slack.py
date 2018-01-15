@@ -366,9 +366,11 @@ class SlackTransport(imirror.Transport):
         self._team = self._users = self._channels = self._directs = self._bots = None
         # Connection objects that need to be closed on disconnect.
         self._session = self._socket = None
+        self._closing = False
 
     async def connect(self):
         await super().connect()
+        self._closing = False
         self._session = ClientSession()
         log.debug("Requesting RTM session")
         async with self._session.post("https://slack.com/api/rtm.start",
@@ -394,6 +396,7 @@ class SlackTransport(imirror.Transport):
 
     async def disconnect(self):
         await super().disconnect()
+        self._closing = True
         if self._socket:
             log.debug("Closing websocket")
             await self._socket.close()
@@ -438,7 +441,13 @@ class SlackTransport(imirror.Transport):
 
     async def get(self):
         while True:
-            json = await self._socket.receive_json()
+            try:
+                json = await self._socket.receive_json()
+            except TypeError:
+                if self._closing:
+                    return
+                else:
+                    raise
             event = _Schema.event(json)
             log.debug("Received a '{}' event".format(event["type"]))
             if event["type"] in ("team_join", "user_change"):
