@@ -286,7 +286,7 @@ class TelegramTransport(imirror.Transport):
         text = None
         if msg.text:
             if isinstance(msg.text, imirror.RichText):
-                rich = msg.text.copy()
+                rich = msg.text.clone()
             elif msg.text:
                 # Unformatted text received, make a basic rich text instance out of it.
                 rich = imirror.RichText([imirror.RichText.Segment(msg.text)])
