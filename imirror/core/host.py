@@ -175,11 +175,10 @@ class Host(Base):
             log.warn("No receivers registered")
         await asyncio.wait([transport.connect() for transport in self.transports.values()])
         self.running = True
-        receivers = (transport.receive() for transport in self.transports.values())
-        async with stream.merge(*receivers).stream() as streamer:
+        getters = (transport.receive() for transport in self.transports.values())
+        async with stream.merge(*getters).stream() as streamer:
             async for channel, msg in streamer:
-                log.debug("Receiving from channel: {}".format(channel))
-                log.debug("New message: {}".format(msg))
+                log.debug("Received: {} {}".format(repr(channel), repr(msg)))
                 await asyncio.wait([receiver.process(channel, msg)
                                     for receiver in self.receivers.values()])
 

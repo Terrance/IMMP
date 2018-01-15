@@ -40,9 +40,9 @@ class SyncReceiver(imirror.Receiver):
         for sync in self.synced.values():
             if msg.id in sync[channel]:
                 # This is a synced message being echoed back from another channel.
-                log.debug("Ignoring echoed message: {}".format(msg))
+                log.debug("Ignoring echoed message: {}".format(repr(msg)))
                 return
-        log.debug("Syncing message to {} channel(s): {}".format(len(self.channels) - 1, msg))
+        log.debug("Syncing message to {} channel(s): {}".format(len(self.channels) - 1, repr(msg)))
         sync = defaultdict(list)
         for sync_channel in self.channels:
             if channel == sync_channel:
