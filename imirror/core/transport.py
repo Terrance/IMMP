@@ -111,7 +111,7 @@ class Transport(Base):
         # before the send request returns with confirmation.  Use the lock when sending in order
         # return the new message ID(s) in advance of them appearing in the receive queue.
         with (await self._lock):
-            return self.put(channel, msg)
+            return await self.put(channel, msg)
 
     async def put(self, channel, msg):
         """
