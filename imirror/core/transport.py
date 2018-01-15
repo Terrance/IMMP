@@ -131,3 +131,6 @@ class Transport(Base):
                 IDs of new messages sent to the transport.
         """
         raise NotImplementedError
+
+    def __repr__(self):
+        return "<{}: {}>".format(self.__class__.__name__, self.name)

@@ -17,20 +17,21 @@ def resolve_import(path):
     return getattr(importlib.import_module(module), class_)
 
 
+def nest_str(obj):
+    if isinstance(obj, dict):
+        return "{{...{}...}}".format(len(obj)) if obj else "{}"
+    elif isinstance(obj, list):
+        return "[...{}...]".format(len(obj)) if obj else "[]"
+    else:
+        return str(obj)
+
+
 class Base(object):
     """
-    Utility class to provide a default :meth:`__repr__` based on the contents of :attr:`__dict__`.
+    Utility class to provide a default :meth:`__str__` based on the contents of :attr:`__dict__`.
     """
 
-    def __repr__(self):
-        def nest_repr(obj):
-            if isinstance(obj, dict):
-                return "{...}" if obj else "{}"
-            elif isinstance(obj, list):
-                return "[...]" if obj else "[]"
-            else:
-                return repr(obj)
-        return "{}({})".format(self.__class__.__name__,
-                               ", ".join("{}={}".format(k, nest_repr(v))
-                                         for k, v in self.__dict__.items()
-                                         if not k.startswith("_")))
+    def __str__(self):
+        args = "\n".join("{}: {}".format(k, nest_str(v).replace("\n", "\n" + " " * (len(k) + 2)))
+                         for k, v in self.__dict__.items() if not k.startswith("_"))
+        return "[{}]\n{}".format(self.__class__.__name__, args)

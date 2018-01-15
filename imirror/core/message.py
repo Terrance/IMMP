@@ -32,6 +32,16 @@ class User(Base):
         self.avatar = avatar
         self.raw = raw
 
+    def __eq__(self, other):
+        return isinstance(other, self.__class__) and self.id == other.id
+
+    def __hash__(self):
+        return hash(self.id)
+
+    def __repr__(self):
+        return "<{}: {} {}>".format(self.__class__.__name__, self.id,
+                                    self.real_name or self.username)
+
 
 class RichText(list, Base):
     """
@@ -85,9 +95,21 @@ class RichText(list, Base):
             """
             return deepcopy(self)
 
+        def __eq__(self, other):
+            return isinstance(other, self.__class__) and self.text == other.text
+
+        def __hash__(self):
+            return hash(self.text)
+
         def __str__(self):
             # Fallback implementation: just return the segment text without formatting.
             return self.text
+
+        def __repr__(self):
+            attrs = [" {}".format(attr)
+                     for attr in ("bold", "italic", "underline", "strike", "code", "pre", "link")
+                     if getattr(self, attr)]
+            return "<{}: {}{}>".format(self.__class__.__name__, repr(self.text), "".join(attrs))
 
     def normalise(self):
         """
@@ -124,12 +146,17 @@ class RichText(list, Base):
         """
         return deepcopy(self)
 
+    def __eq__(self, other):
+        return isinstance(other, self.__class__) and super().__eq__(other)
+
+    __hash__ = list.__hash__
+
     def __str__(self):
         # Fallback implementation: just return the message text without formatting.
         return "".join(str(segment) for segment in self)
 
     def __repr__(self):
-        return "{}({})".format(self.__class__.__name__, super().__repr__())
+        return "<{}: {}>".format(self.__class__.__name__, super().__repr__())
 
 
 class Attachment(Base):
@@ -178,6 +205,9 @@ class File(Attachment):
         sess = sess or aiohttp.ClientSession()
         return await sess.get(self.source)
 
+    def __repr__(self):
+        return "<{}: {} {}>".format(self.__class__.__name__, repr(self.title), self.type)
+
 
 class Message(Base):
     """
@@ -224,3 +254,13 @@ class Message(Base):
         self.left = left or []
         self.attachments = attachments or []
         self.raw = raw
+
+    def __eq__(self, other):
+        return isinstance(other, self.__class__) and self.id == other.id
+
+    def __hash__(self):
+        return hash(self.id)
+
+    def __repr__(self):
+        return "<{}: {} @ {}: {}>".format(self.__class__.__name__, repr(self.user), self.at,
+                                          repr(str(self.text)))

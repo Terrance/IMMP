@@ -32,3 +32,6 @@ class Receiver(Base):
             msg (.Message):
                 Original message received from another transport.
         """
+
+    def __repr__(self):
+        return "<{}: {}>".format(self.__class__.__name__, self.name)
