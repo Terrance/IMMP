@@ -5,7 +5,7 @@ from json import dumps as json_dumps
 import logging
 import re
 
-import aiohttp
+from aiohttp import ClientSession
 from emoji import emojize
 from voluptuous import Schema, Any, Optional, Match, ALLOW_EXTRA
 
@@ -369,7 +369,7 @@ class SlackTransport(imirror.Transport):
 
     async def connect(self):
         await super().connect()
-        self._session = aiohttp.ClientSession()
+        self._session = ClientSession()
         log.debug("Requesting RTM session")
         async with self._session.post("https://slack.com/api/rtm.start",
                                       params={"token": self._token}) as resp:

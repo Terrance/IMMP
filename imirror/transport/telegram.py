@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import datetime
 import logging
 
-import aiohttp
+from aiohttp import ClientSession, FormData
 from voluptuous import Schema, Invalid, Any, All, Optional, ALLOW_EXTRA
 
 import imirror
@@ -269,7 +269,7 @@ class TelegramTransport(imirror.Transport):
 
     async def connect(self):
         await super().connect()
-        self._session = aiohttp.ClientSession()
+        self._session = ClientSession()
 
     async def disconnect(self):
         await super().disconnect()
@@ -312,7 +312,7 @@ class TelegramTransport(imirror.Transport):
         if media:
             # Upload an image file to Telegram in its own message.
             # Prefer a source URL if available, else fall back to re-uploading the file.
-            data = aiohttp.FormData((("chat_id", str(channel.source)), ("caption", caption)))
+            data = FormData((("chat_id", str(channel.source)), ("caption", caption)))
             if media.source:
                 data.add_field("photo", media.source)
             else:
