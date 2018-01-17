@@ -168,11 +168,16 @@ class Host(Base):
         """
         Connect all transports, and distribute messages to receivers.
         """
-        if not self.transports:
+        if self.transports:
+            log.debug("Connecting transports")
+            await asyncio.wait([transport.connect() for transport in self.transports.values()])
+        else:
             log.warn("No transports registered")
-        if not self.receivers:
+        if self.receivers:
+            log.debug("Starting receivers")
+            await asyncio.wait([receiver.start() for receiver in self.receivers.values()])
+        else:
             log.warn("No receivers registered")
-        await asyncio.wait([transport.connect() for transport in self.transports.values()])
         self.running = True
         getters = (transport.receive() for transport in self.transports.values())
         async with stream.merge(*getters).stream() as streamer:
@@ -185,4 +190,5 @@ class Host(Base):
         """
         Disconnect all open transports.
         """
+        await asyncio.wait([receiver.stop() for receiver in self.receivers.values()])
         await asyncio.wait([transport.disconnect() for transport in self.transports.values()])

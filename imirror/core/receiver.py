@@ -22,6 +22,16 @@ class Receiver(Base):
         self.config = config
         self.host = host
 
+    async def start(self):
+        """
+        Perform any setup tasks.
+        """
+
+    async def stop(self):
+        """
+        Perform any teardown tasks.
+        """
+
     async def process(self, channel, msg):
         """
         Handle an incoming message from the host.
