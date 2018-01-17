@@ -3,10 +3,9 @@ import logging
 
 from aiostream import stream
 
-from .channel import Channel
 from .error import ConfigError
 from .receiver import Receiver
-from .transport import Transport
+from .transport import Channel, Transport
 from .util import resolve_import, Base
 
 
