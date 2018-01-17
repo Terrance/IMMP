@@ -1,4 +1,4 @@
-from copy import deepcopy
+from copy import copy
 from datetime import datetime
 from enum import Enum
 import re
@@ -43,73 +43,76 @@ class User(Base):
                                     self.real_name or self.username)
 
 
-class RichText(list, Base):
+class Segment(Base):
     """
-    Common standard for formatted message text, akin to Hangouts' message segments.
+    Substring of message text with consistent formatting.
 
-    This is a specialised subclass of :class:`list`, designed to hold instances of
-    :class:`.RichText.Segment`.
+    Calling :meth:`str` on an instance will return the segment text.  Similarly, the length of a
+    segment is just the length of the contained text.
+
+    Attributes:
+        text (str):
+            Plain segment text.
+        bold (bool):
+            Whether this segment should be formatted bold.
+        italic (bool):
+            Whether this segment should be emphasised.
+        underline (bool):
+            Whether this segment should be underlined.
+        strike (bool):
+            Whether this segment should be struck through.
+        code (bool):
+            Whether this segment should be monospaced.
+        pre (bool):
+            Whether this segment should be preformatted.
+        link (str):
+            Anchor URL if this segment represents a clickable link.
     """
 
-    class Segment(Base):
-        """
-        Substring of message text with consistent formatting.
+    def __init__(self, text, *, bold=False, italic=False, underline=False, strike=False,
+                 code=False, pre=False, link=None):
+        self.text = text
+        self.bold = bold
+        self.italic = italic
+        self.underline = underline
+        self.strike = strike
+        self.code = code
+        self.pre = pre
+        self.link = link
 
-        Attributes:
-            text (str):
-                Plain segment text.
-            bold (bool):
-                Whether this segment should be formatted bold.
-            italic (bool):
-                Whether this segment should be emphasised.
-            underline (bool):
-                Whether this segment should be underlined.
-            strike (bool):
-                Whether this segment should be struck through.
-            code (bool):
-                Whether this segment should be monospaced.
-            pre (bool):
-                Whether this segment should be preformatted.
-            link (str):
-                Anchor URL if this segment represents a clickable link.
-        """
+    def __len__(self):
+        return len(self.text)
 
-        def __init__(self, text, bold=False, italic=False, underline=False, strike=False,
-                     code=False, pre=False, link=None):
-            self.text = text
-            self.bold = bold
-            self.italic = italic
-            self.underline = underline
-            self.strike = strike
-            self.code = code
-            self.pre = pre
-            self.link = link
+    def __eq__(self, other):
+        return isinstance(other, self.__class__) and self.text == other.text
 
-        def clone(self):
-            """
-            Make a copy of this message text segment.
+    def __hash__(self):
+        return hash(self.text)
 
-            Returns:
-                .RichText.Segment:
-                    Cloned segment instance.
-            """
-            return deepcopy(self)
+    def __str__(self):
+        return self.text
 
-        def __eq__(self, other):
-            return isinstance(other, self.__class__) and self.text == other.text
+    def __repr__(self):
+        attrs = [" {}".format(attr)
+                 for attr in ("bold", "italic", "underline", "strike", "code", "pre", "link")
+                 if getattr(self, attr)]
+        return "<{}: {}{}>".format(self.__class__.__name__, repr(self.text), "".join(attrs))
 
-        def __hash__(self):
-            return hash(self.text)
 
-        def __str__(self):
-            # Fallback implementation: just return the segment text without formatting.
-            return self.text
+class RichText(Base):
+    """
+    Common standard for formatted message text, akin to Hangouts' message segments.  This is a
+    container designed to hold instances of :class:`.Segment`.
 
-        def __repr__(self):
-            attrs = [" {}".format(attr)
-                     for attr in ("bold", "italic", "underline", "strike", "code", "pre", "link")
-                     if getattr(self, attr)]
-            return "<{}: {}{}>".format(self.__class__.__name__, repr(self.text), "".join(attrs))
+    Calling :meth:`str` on an instance will return the entire message text without formatting.
+    Indexing and slicing are possible, but will return :class:`.RichText` even if subclassed.
+
+    Note that the length of an instance is equal to the sum of each segment's text length, not the
+    number of segments.  To count the segments, call :meth:`list` on it to get a plain list.
+    """
+
+    def __init__(self, segments=None):
+        self._segments = list(segments) or []
 
     def normalise(self):
         """
@@ -126,14 +129,14 @@ class RichText(list, Base):
                 Normalised message text instance.
         """
         normalised = []
-        for segment in self:
-            clone = segment.clone()
+        for segment in self._segments:
+            clone = copy(segment)
             before, clone.text, after = re.match(r"(\s*)(.*)(\s*)", clone.text).groups()
             if before:
-                normalised.append(RichText.Segment(before))
+                normalised.append(Segment(before))
             normalised.append(clone)
             if after:
-                normalised.append(RichText.Segment(after))
+                normalised.append(Segment(after))
         return RichText(normalised)
 
     def clone(self):
@@ -144,19 +147,51 @@ class RichText(list, Base):
             .RichText:
                 Cloned message text instance.
         """
-        return deepcopy(self)
+        return RichText([copy(segment) for segment in self._segments])
+
+    def prepend(self, *segments):
+        """
+        Insert one or more segments at the beginning of the text.
+
+        Args:
+            segments (.Segment list):
+                New segments to lead the message text.
+        """
+        self._segments = list(segments) + self._segments
+
+    def append(self, *segments):
+        """
+        Insert one or more segments at the end of the text.
+
+        Args:
+            segments (.Segment list):
+                New segments to tail the message text.
+        """
+        self._segments += segments
+
+    def __len__(self):
+        return sum(len(segment) for segment in self._segments)
+
+    def __iter__(self):
+        return iter(self._segments)
+
+    def __getitem__(self, key):
+        item = self._segments[key]
+        return RichText(item) if isinstance(key, slice) else item
 
     def __eq__(self, other):
-        return isinstance(other, self.__class__) and super().__eq__(other)
+        return (isinstance(other, self.__class__) and len(self) == len(other) and
+                all(x == y for x, y in zip(self, other)))
 
-    __hash__ = list.__hash__
+    def __hash__(self):
+        return hash(self._segments)
 
     def __str__(self):
         # Fallback implementation: just return the message text without formatting.
-        return "".join(str(segment) for segment in self)
+        return "".join(str(segment) for segment in self._segments)
 
     def __repr__(self):
-        return "<{}: {}>".format(self.__class__.__name__, super().__repr__())
+        return "<{}: {}>".format(self.__class__.__name__, repr(self._segments))
 
 
 class Attachment(Base):

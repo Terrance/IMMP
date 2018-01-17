@@ -93,6 +93,40 @@ class TelegramUser(imirror.User):
                    raw=user)
 
 
+class TelegramSegment(imirror.Segment):
+    """
+    Transport-friendly representation of Telegram message formatting.
+    """
+
+    @classmethod
+    def to_html(cls, segment):
+        """
+        Convert a :class:`.Segment` into HTML suitable for Telegram's automatic parsing.
+
+        Args:
+            segment (.Segment)
+                Message segment created by another transport.
+
+        Returns:
+            str:
+                HTML-formatted string.
+        """
+        text = segment.text
+        # Any form of tag nesting (e.g. bold inside italic) isn't supported, so at most one type of
+        # formatting may apply for each segment.
+        if segment.link:
+            text = "<a href=\"{}\">{}</a>".format(segment.link, text)
+        elif segment.pre:
+            text = "<pre>{}</pre>".format(text)
+        elif segment.code:
+            text = "<code>{}</code>".format(text)
+        elif segment.bold:
+            text = "<b>{}</b>".format(text)
+        elif segment.italic:
+            text = "<i>{}</i>".format(text)
+        return text
+
+
 class TelegramRichText(imirror.RichText):
     """
     Wrapper for Telegram-specific parsing of formatting.
@@ -134,40 +168,6 @@ class TelegramRichText(imirror.RichText):
                 continue
             segments.append(TelegramSegment(text[start:end], **changes[start]))
         return cls(segments)
-
-
-class TelegramSegment(imirror.RichText.Segment):
-    """
-    Transport-friendly representation of Telegram message formatting.
-    """
-
-    @classmethod
-    def to_html(cls, segment):
-        """
-        Convert a :class:`.RichText.Segment` into HTML suitable for Telegram's automatic parsing.
-
-        Args:
-            segment (.RichText.Segment)
-                Message segment created by another transport.
-
-        Returns:
-            str:
-                HTML-formatted string.
-        """
-        text = segment.text
-        # Any form of tag nesting (e.g. bold inside italic) isn't supported, so at most one type of
-        # formatting may apply for each segment.
-        if segment.link:
-            text = "<a href=\"{}\">{}</a>".format(segment.link, text)
-        elif segment.pre:
-            text = "<pre>{}</pre>".format(text)
-        elif segment.code:
-            text = "<code>{}</code>".format(text)
-        elif segment.bold:
-            text = "<b>{}</b>".format(text)
-        elif segment.italic:
-            text = "<i>{}</i>".format(text)
-        return text
 
 
 class TelegramMessage(imirror.Message):
@@ -289,13 +289,13 @@ class TelegramTransport(imirror.Transport):
                 rich = msg.text.clone()
             elif msg.text:
                 # Unformatted text received, make a basic rich text instance out of it.
-                rich = imirror.RichText([imirror.RichText.Segment(msg.text)])
+                rich = imirror.RichText([imirror.Segment(msg.text)])
             else:
                 rich = imirror.RichText()
             if msg.user:
                 name = msg.user.real_name or msg.user.username
                 prefix = ("{} " if msg.action else "{}: ").format(name)
-                rich.insert(0, imirror.RichText.Segment(prefix, bold=True))
+                rich.prepend(imirror.Segment(prefix, bold=True))
             if msg.action:
                 for segment in rich:
                     segment.italic = True

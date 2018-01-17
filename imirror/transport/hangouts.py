@@ -40,7 +40,7 @@ class HangoutsUser(imirror.User):
         return cls(id, real_name=real_name, avatar=avatar, raw=user)
 
 
-class HangoutsSegment(imirror.RichText.Segment):
+class HangoutsSegment(imirror.Segment):
     """
     Transport-friendly representation of Hangouts message formatting.
     """
@@ -48,7 +48,7 @@ class HangoutsSegment(imirror.RichText.Segment):
     @classmethod
     def from_segment(cls, segment):
         """
-        Convert a :class:`hangups.ChatMessageSegment` into a :class:`.RichText.Segment`.
+        Convert a :class:`hangups.ChatMessageSegment` into a :class:`.Segment`.
 
         Args:
             segment (hangups.ChatMessageSegment):
@@ -58,27 +58,33 @@ class HangoutsSegment(imirror.RichText.Segment):
             .HangoutsSegment:
                 Parsed segment object.
         """
-        # RichText.Segment is modelled on hangups, so not much to do here.
-        return cls(segment.text, bold=segment.is_bold, italic=segment.is_italic,
-                   underline=segment.is_underline, strike=segment.is_strikethrough,
+        # Segment is modelled on hangups, so not much to do here.
+        return cls(segment.text,
+                   bold=segment.is_bold,
+                   italic=segment.is_italic,
+                   underline=segment.is_underline,
+                   strike=segment.is_strikethrough,
                    link=segment.link_target)
 
     @classmethod
     def to_segment(cls, segment):
         """
-        Convert a :class:`.RichText.Segment` back into a :class:`hangups.ChatMessageSegment`.
+        Convert a :class:`.Segment` back into a :class:`hangups.ChatMessageSegment`.
 
         Args:
-            segment (.RichText.Segment)
+            segment (.Segment)
                 Message segment created by another transport.
 
         Returns:
             hangups.ChatMessageSegment:
                 Unparsed segment object.
         """
-        return hangups.ChatMessageSegment(segment.text, is_bold=segment.bold,
-                                          is_italic=segment.italic, is_underline=segment.underline,
-                                          is_strikethrough=segment.strike, link_target=segment.link)
+        return hangups.ChatMessageSegment(segment.text,
+                                          is_bold=segment.bold,
+                                          is_italic=segment.italic,
+                                          is_underline=segment.underline,
+                                          is_strikethrough=segment.strike,
+                                          link_target=segment.link)
 
 
 class HangoutsMessage(imirror.Message):

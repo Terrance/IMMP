@@ -198,7 +198,7 @@ class SlackRichText(imirror.RichText):
             part = re.sub(r"<#([^\|>]+)(\|[^>]+)?>", partial(cls._sub_channel, slack), part)
             # TODO: Handle links.
             part = re.sub(r"<([^\|>]+)(\|[^>]+)?>", r"\1", part)
-            segments.append(imirror.RichText.Segment(part, **changes[start]))
+            segments.append(imirror.Segment(part, **changes[start]))
         return cls(segments)
 
     @classmethod
