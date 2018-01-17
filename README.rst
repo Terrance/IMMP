@@ -9,13 +9,18 @@ Requirements
 This project uses the latest and greatest Python features (that is, native asyncio syntax and
 asynchronous generators), and therefore requires at least **Python 3.6**.
 
-The following modules are also required:
+The following extra modules are required:
 
 - `aiohttp <https://aiohttp.readthedocs.io>`_
 - `aiostream <https://pythonhosted.org/aiostream/>`_
+- `voluptuous <https://alecthomas.github.io/voluptuous/docs/_build/html/>`_
+
+Further modules may also be needed for certain features:
+
+- `aioconsole <https://aioconsole.readthedocs.io>`_ (for async shell receiver)
 - `anyconfig <https://python-anyconfig.readthedocs.io>`_ (for running from command-line)
 - `hangups <https://hangups.readthedocs.io>`_ (for Hangouts transport)
-- `voluptuous <https://alecthomas.github.io/voluptuous/docs/_build/html/>`_
+- `ptpython <https://github.com/jonathanslenders/ptpython>`_ (for shell receiver)
 
 Terminology
 -----------
