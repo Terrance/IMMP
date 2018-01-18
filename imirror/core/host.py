@@ -1,4 +1,4 @@
-import asyncio
+from asyncio import wait
 import logging
 
 from aiostream import stream
@@ -31,9 +31,9 @@ class Host(Base):
         self.receivers = {}
         self.running = False
 
-    def add_transport(self, name, path, config):
+    def create_transport(self, name, path, config):
         """
-        Register a new transport, along with its associated config.
+        Create a new named transport according to the provided config.
 
         Args:
             name (str):
@@ -43,6 +43,10 @@ class Host(Base):
                 selected transport.
             config (dict):
                 Reference to the user-provided configuration.
+
+        Returns:
+            .Transport:
+                Generated transport instance.
         """
         if name in self.transports:
             raise ConfigError("Transport name '{}' already registered".format(name))
@@ -52,9 +56,19 @@ class Host(Base):
             raise ConfigError("Error trying to import transport class '{}'".format(path)) from e
         if not issubclass(cls, Transport):
             raise ConfigError("Transport class '{}' not a valid subclass".format(path))
-        log.debug("Adding transport: {} ({})".format(name, path))
-        transport = cls(name, config, self)
-        self.transports[name] = transport
+        log.debug("Creating transport: {} ({})".format(name, path))
+        return cls(name, config, self)
+
+    def add_transport(self, transport):
+        """
+        Register a transport to the host.
+
+        Args:
+            transport (.Transport):
+                Existing transport instance.
+        """
+        log.debug("Adding transport: {}".format(transport.name))
+        self.transports[transport.name] = transport
 
     def remove_transport(self, name):
         """
@@ -89,7 +103,7 @@ class Host(Base):
         try:
             transport = self.transports[transport]
         except KeyError:
-            raise ConfigError("Channel transport '{}' not registered".format(name))
+            raise ConfigError("Channel transport '{}' not registered".format(name)) from None
         log.debug("Adding channel: {} ({} -> {})".format(name, transport.name, source))
         self.channels[name] = Channel(name, transport, source)
 
@@ -104,11 +118,11 @@ class Host(Base):
         try:
             del self.channels[name]
         except KeyError:
-            raise RuntimeError("Channel '{}' not added to host".format(name)) from None
+            raise RuntimeError("Channel '{}' not registered to host".format(name)) from None
 
-    def add_receiver(self, name, path, config):
+    def create_receiver(self, name, path, config):
         """
-        Register a new receiver, along with its associated config.
+        Create a new named receiver according to the provided config.
 
         Args:
             name (str):
@@ -118,6 +132,10 @@ class Host(Base):
                 selected receiver.
             config (dict):
                 Reference to the user-provided configuration.
+
+        Returns:
+            .Receiver:
+                Generated receiver instance.
         """
         if name in self.receivers:
             raise ConfigError("Receiver name '{}' already registered".format(name))
@@ -128,8 +146,17 @@ class Host(Base):
         if not issubclass(cls, Receiver):
             raise ConfigError("Receiver class '{}' not a valid subclass".format(path))
         log.debug("Adding receiver: {} ({})".format(name, path))
-        receiver = cls(name, config, self)
-        self.receivers[name] = receiver
+        return cls(name, config, self)
+
+    def add_receiver(self, receiver):
+        """
+        Register a receiver to the host.
+
+        Args:
+            receiver (.Receiver):
+                Existing receiver instance.
+        """
+        self.receivers[receiver.name] = receiver
 
     def remove_receiver(self, name):
         """
@@ -170,12 +197,12 @@ class Host(Base):
         """
         if self.transports:
             log.debug("Connecting transports")
-            await asyncio.wait([transport.connect() for transport in self.transports.values()])
+            await wait([transport.connect() for transport in self.transports.values()])
         else:
             log.warn("No transports registered")
         if self.receivers:
             log.debug("Starting receivers")
-            await asyncio.wait([receiver.start() for receiver in self.receivers.values()])
+            await wait([receiver.start() for receiver in self.receivers.values()])
         else:
             log.warn("No receivers registered")
         self.running = True
@@ -183,12 +210,12 @@ class Host(Base):
         async with stream.merge(*getters).stream() as streamer:
             async for channel, msg in streamer:
                 log.debug("Received: {} {}".format(repr(channel), repr(msg)))
-                await asyncio.wait([receiver.process(channel, msg)
-                                    for receiver in self.receivers.values()])
+                await wait([receiver.process(channel, msg)
+                            for receiver in self.receivers.values()])
 
     async def close(self):
         """
         Disconnect all open transports.
         """
-        await asyncio.wait([receiver.stop() for receiver in self.receivers.values()])
-        await asyncio.wait([transport.disconnect() for transport in self.transports.values()])
+        await wait([receiver.stop() for receiver in self.receivers.values()])
+        await wait([transport.disconnect() for transport in self.transports.values()])

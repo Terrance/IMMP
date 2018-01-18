@@ -22,11 +22,13 @@ _schema = Schema({"transports": {str: {"path": str, Optional("config", default=d
 def main(config):
     host = Host()
     for name, spec in config["transports"].items():
-        host.add_transport(name, spec["path"], spec.get("config") or {})
+        transport = host.create_transport(name, spec["path"], spec.get("config") or {})
+        host.add_transport(transport)
     for name, spec in config["channels"].items():
         host.add_channel(name, spec["transport"], spec["source"])
     for name, spec in config["receivers"].items():
-        host.add_receiver(name, spec["path"], spec.get("config") or {})
+        receiver = host.create_receiver(name, spec["path"], spec.get("config") or {})
+        host.add_receiver(receiver)
     loop = asyncio.get_event_loop()
     try:
         log.debug("Starting host")
