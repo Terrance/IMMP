@@ -2,6 +2,8 @@ import code
 from collections import deque
 import logging
 
+from voluptuous import Schema, Any, Optional, ALLOW_EXTRA
+
 try:
     import ptpython.repl
 except ImportError:
@@ -16,6 +18,17 @@ import imirror
 
 
 log = logging.getLogger(__name__)
+
+
+class _Schema(object):
+
+    config_shell = Schema({Optional("all", default=False): bool,
+                           Optional("console", default=None): Any("ptpython", None)},
+                          extra=ALLOW_EXTRA, required=True)
+
+    config_async = Schema({"port": int,
+                           Optional("buffer", default=None): Any(int, None)},
+                          extra=ALLOW_EXTRA, required=True)
 
 
 class ShellReceiver(imirror.Receiver):
@@ -36,16 +49,14 @@ class ShellReceiver(imirror.Receiver):
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
-        self.all = bool(config.get("all"))
-        console = config.get("console")
-        if console == "ptpython":
+        config = _Schema.config_shell(config)
+        self.all = config["all"]
+        if config["console"] == "ptpython":
             if ptpython:
                 log.debug("Using ptpython console")
                 self.console = self._ptpython
             else:
                 raise imirror.TransportError("'ptpython' module not installed")
-        elif console:
-            raise imirror.ConfigError("Unknown console type '{}'".format(console))
         else:
             log.debug("Using native console")
             self.console = self._code
@@ -89,11 +100,11 @@ class AsyncShellReceiver(imirror.Receiver):
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
+        config = _Schema.config_async(config)
         if not aioconsole:
             raise imirror.TransportError("'aioconsole' module not installed")
-        self.port = int(config["port"])
-        maxlen = int(config.get("buffer")) if "buffer" in config else None
-        self.buffer = deque(maxlen=maxlen)
+        self.port = config["port"]
+        self.buffer = deque(maxlen=config["buffer"])
 
     @property
     def last(self):
