@@ -1,3 +1,4 @@
+from asyncio import sleep
 from collections import defaultdict
 from datetime import datetime
 from functools import partial
@@ -368,10 +369,7 @@ class SlackTransport(imirror.Transport):
         self._session = self._socket = None
         self._closing = False
 
-    async def connect(self):
-        await super().connect()
-        self._closing = False
-        self._session = ClientSession()
+    async def _rtm(self):
         log.debug("Requesting RTM session")
         async with self._session.post("https://slack.com/api/rtm.start",
                                       params={"token": self._token}) as resp:
@@ -393,6 +391,12 @@ class SlackTransport(imirror.Transport):
         self._bot_to_user = {user.bot_id: user.id for user in self._users.values() if user.bot_id}
         self._socket = await self._session.ws_connect(rtm["url"])
         log.debug("Connected to websocket")
+
+    async def connect(self):
+        await super().connect()
+        self._closing = False
+        self._session = ClientSession()
+        await self._rtm()
 
     async def disconnect(self):
         await super().disconnect()
@@ -443,11 +447,16 @@ class SlackTransport(imirror.Transport):
         while True:
             try:
                 json = await self._socket.receive_json()
-            except TypeError:
+            except TypeError as e:
                 if self._closing:
                     return
-                else:
-                    raise
+                log.debug("Unexpected socket state: {}".format(e))
+                await self._socket.close()
+                self._socket = None
+                log.debug("Reconnecting in 3 seconds")
+                await sleep(3)
+                await self._rtm()
+                continue
             event = _Schema.event(json)
             log.debug("Received a '{}' event".format(event["type"]))
             if event["type"] in ("team_join", "user_change"):
