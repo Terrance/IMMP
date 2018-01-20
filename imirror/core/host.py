@@ -97,6 +97,10 @@ class Host(Base):
                 Name of the transport that provides this channel.
             source (str):
                 Transport-specific channel identifier.
+
+        Returns:
+            .Channel:
+                Newly registered channel instance.
         """
         if name in self.channels:
             raise ConfigError("Channel name '{}' already registered".format(name))
@@ -106,6 +110,7 @@ class Host(Base):
             raise ConfigError("Channel transport '{}' not registered".format(name)) from None
         log.debug("Adding channel: {} ({} -> {})".format(name, transport.name, source))
         self.channels[name] = Channel(name, transport, source)
+        return self.channels[name]
 
     def remove_channel(self, name):
         """
