@@ -461,13 +461,13 @@ class SlackTransport(imirror.Transport):
             log.debug("Received a '{}' event".format(event["type"]))
             if event["type"] in ("team_join", "user_change"):
                 # A user appeared or changed, update our cache.
-                self._users[event["user"]["id"]] = user
+                self._users[event["user"]["id"]] = event["user"]
             elif event["type"] in ("channel_joined", "group_joined"):
                 # A group or channel appeared, add to our cache.
-                self._channels[event["channel"]["id"]] = channel
+                self._channels[event["channel"]["id"]] = event["channel"]
             elif event["type"] == "im_created":
                 # A DM appeared, add to our cache.
-                self._directs[event["channel"]["id"]] = channel
+                self._directs[event["channel"]["id"]] = event["channel"]
             elif event["type"] == "message":
                 # A new message arrived, push it back to the host.
                 yield (await SlackMessage.from_event(self, event))
