@@ -39,8 +39,8 @@ class User(Base):
         return hash(self.id)
 
     def __repr__(self):
-        return "<{}: {} {}>".format(self.__class__.__name__, self.id,
-                                    self.real_name or self.username)
+        return "<{}: {} {}>".format(self.__class__.__name__, repr(self.id),
+                                    repr(self.real_name or self.username))
 
 
 class Segment(Base):
@@ -241,7 +241,7 @@ class File(Attachment):
         return await sess.get(self.source)
 
     def __repr__(self):
-        return "<{}: {} {}>".format(self.__class__.__name__, repr(self.title), self.type)
+        return "<{}: {} {}>".format(self.__class__.__name__, repr(self.title), self.type.name)
 
 
 class Message(Base):
@@ -297,5 +297,5 @@ class Message(Base):
         return hash(self.id)
 
     def __repr__(self):
-        return "<{}: {} @ {}: {}>".format(self.__class__.__name__, repr(self.user), self.at,
-                                          repr(str(self.text)))
+        return "<{}: {} ({} @ {}): {}>".format(self.__class__.__name__, repr(self.id),
+                                               repr(self.user), self.at, repr(str(self.text)))
