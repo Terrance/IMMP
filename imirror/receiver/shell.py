@@ -35,9 +35,10 @@ class ShellReceiver(imirror.Receiver):
     """
     A receiver to start a Python shell when a message is received.
 
-    Note that the console will block all other tasks; notably, all transports will be unable to
-    make any progress whilst the console is open.  See :class:`.AsyncShellReceiver` for an
-    alternative solution.
+    .. warning::
+        The console will block all other running tasks; notably, all transports will be unable to
+        make any progress whilst the console is open.  See :class:`.AsyncShellReceiver` for an
+        alternative solution.
 
     Config:
         all (bool):
@@ -79,14 +80,15 @@ class AsyncShellReceiver(imirror.Receiver):
     :mod:`aioconsole` module).  The console exposes the running :class:`.Host` instance as
     ``host``, and the current shell receiver as ``shell``.
 
-    For example, to retrieve the most recent message and the channel where it appeared::
-
-        >>> channel, msg = shell.last
+    .. warning::
+        The console will be accessible on a locally bound port without authentication.  Do not use
+        on a shared or untrusted system, as the host and all connected transports are exposed.
 
     Config:
         port (int):
             Port to bind the console on.  Once running, one can connect using e.g. netcat.  The
-            `aioconsole's docs <https://aioconsole.readthedocs.io/en/latest/#serving-the-console>`_ for more info.
+            `aioconsole's docs <https://aioconsole.readthedocs.io/en/latest/#serving-the-console>`
+            for more info.
         buffer (int):
             Number of received messages to keep at any one time (default: no limit).  When a new
             message comes in and the queue is full, the oldest message will be discarded.
