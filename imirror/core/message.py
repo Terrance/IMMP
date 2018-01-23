@@ -214,9 +214,10 @@ class File(Attachment):
     """
 
     class Type(Enum):
+        unknown = 0
         image = 1
 
-    def __init__(self, title=None, type=None, source=None):
+    def __init__(self, title=None, type=Type.unknown, source=None):
         self.title = title
         self.type = type
         self.source = source

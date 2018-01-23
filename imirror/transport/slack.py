@@ -264,9 +264,12 @@ class SlackFile(imirror.File):
                 Parsed file object.
         """
         file = _Schema.file(json)
+        type = imirror.File.Type.unknown
+        if file["mimetype"].startswith("image/"):
+            type = imirror.File.Type.image
         return cls(slack,
                    title=file["name"],
-                   type=imirror.File.Type.image if file["mimetype"].startswith("image/") else None,
+                   type=type,
                    source=file["url_private"])
 
 
