@@ -67,10 +67,11 @@ class SyncReceiver(imirror.Receiver):
         # Add a virtual transport to the host, for external subscribers.
         if config["transport"]:
             tname = config["transport"]
-            log.debug("Adding virtual transport '{}'".format(tname))
+            log.debug("Creating virtual transport '{}'".format(tname))
             self.transport = SyncTransport(tname, self, host)
             host.add_transport(self.transport)
-            self.channel = host.add_channel(tname, tname, None)
+            self.channel = imirror.Channel(tname, self.transport, None)
+            host.add_channel(self.channel)
         else:
             self.transport = None
 

@@ -5,7 +5,7 @@ import sys
 import anyconfig
 from voluptuous import Schema, Optional, REMOVE_EXTRA
 
-from imirror import Host
+from imirror import Host, Channel, resolve_import
 
 
 logging.getLogger("anyconfig").setLevel(logging.WARNING)
@@ -22,13 +22,14 @@ _schema = Schema({"transports": {str: {"path": str, Optional("config", default=d
 def main(config):
     host = Host()
     for name, spec in config["transports"].items():
-        transport = host.create_transport(name, spec["path"], spec.get("config") or {})
-        host.add_transport(transport)
+        cls = resolve_import(spec["path"])
+        host.add_transport(cls(name, spec["config"], host))
     for name, spec in config["channels"].items():
-        host.add_channel(name, spec["transport"], spec["source"])
+        transport = host.transports[spec["transport"]]
+        host.add_channel(Channel(name, transport, spec["source"]))
     for name, spec in config["receivers"].items():
-        receiver = host.create_receiver(name, spec["path"], spec.get("config") or {})
-        host.add_receiver(receiver)
+        cls = resolve_import(spec["path"])
+        host.add_receiver(cls(name, spec["config"], host))
     loop = asyncio.get_event_loop()
     try:
         log.debug("Starting host")

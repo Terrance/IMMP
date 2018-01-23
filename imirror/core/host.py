@@ -31,42 +31,16 @@ class Host(Base):
         self.receivers = {}
         self.running = False
 
-    def create_transport(self, name, path, config):
-        """
-        Create a new named transport according to the provided config.
-
-        Args:
-            name (str):
-                User-provided, unique name of the transport, used for config references.
-            path (str):
-                Python dotted name of the form ``<module name>.<class name>``, representing the
-                selected transport.
-            config (dict):
-                Reference to the user-provided configuration.
-
-        Returns:
-            .Transport:
-                Generated transport instance.
-        """
-        if name in self.transports:
-            raise ConfigError("Transport name '{}' already registered".format(name))
-        try:
-            cls = resolve_import(path)
-        except ImportError as e:
-            raise ConfigError("Error trying to import transport class '{}'".format(path)) from e
-        if not issubclass(cls, Transport):
-            raise ConfigError("Transport class '{}' not a valid subclass".format(path))
-        log.debug("Creating transport: {} ({})".format(name, path))
-        return cls(name, config, self)
-
     def add_transport(self, transport):
         """
         Register a transport to the host.
 
         Args:
             transport (.Transport):
-                Existing transport instance.
+                Existing transport instance to add.
         """
+        if transport.name in self.transports:
+            raise ConfigError("Transport name '{}' already registered".format(transport.name))
         log.debug("Adding transport: {}".format(transport.name))
         self.transports[transport.name] = transport
 
@@ -76,41 +50,30 @@ class Host(Base):
 
         Args:
             name (str):
-                Name of a previously registered transport instance to disconnect and stop tracking.
+                Name of a previously registered transport instance to remove.
         """
         try:
             transport = self.transports[name]
         except KeyError:
             raise RuntimeError("Transport '{}' not registered to host".format(name)) from None
-        if transport.connected:
-            raise RuntimeError("Transport '{}' still connected".format(name))
         del self.transports[name]
 
-    def add_channel(self, name, transport, source):
+    def add_channel(self, channel):
         """
-        Register a new channel.
+        Register a channel to the host.  The channel's transport must be registered first.
 
         Args:
-            name (str):
-                User-provided, unique name of the transport, used for config references.
-            transport (str):
-                Name of the transport that provides this channel.
-            source (str):
-                Transport-specific channel identifier.
-
-        Returns:
-            .Channel:
-                Newly registered channel instance.
+            channel (.Channel):
+                Existing channel instance to add.
         """
-        if name in self.channels:
-            raise ConfigError("Channel name '{}' already registered".format(name))
-        try:
-            transport = self.transports[transport]
-        except KeyError:
-            raise ConfigError("Channel transport '{}' not registered".format(name)) from None
-        log.debug("Adding channel: {} ({} -> {})".format(name, transport.name, source))
-        self.channels[name] = Channel(name, transport, source)
-        return self.channels[name]
+        if channel.name in self.channels:
+            raise ConfigError("Channel name '{}' already registered".format(channel.name))
+        if channel.transport.name not in self.transports:
+            raise ConfigError("Channel transport '{}' not yet registered"
+                              .format(channel.transport.name))
+        log.debug("Adding channel: {} ({}/{})"
+                  .format(channel.name, channel.transport.name, channel.source))
+        self.channels[channel.name] = channel
 
     def remove_channel(self, name):
         """
@@ -118,40 +81,12 @@ class Host(Base):
 
         Args:
             name (str):
-                Name of a previously registered channel.
+                Name of a previously registered channel instance to remove.
         """
         try:
             del self.channels[name]
         except KeyError:
             raise RuntimeError("Channel '{}' not registered to host".format(name)) from None
-
-    def create_receiver(self, name, path, config):
-        """
-        Create a new named receiver according to the provided config.
-
-        Args:
-            name (str):
-                User-provided, unique name of the receiver, used for config references.
-            path (str):
-                Python dotted name of the form ``<module name>.<class name>``, representing the
-                selected receiver.
-            config (dict):
-                Reference to the user-provided configuration.
-
-        Returns:
-            .Receiver:
-                Generated receiver instance.
-        """
-        if name in self.receivers:
-            raise ConfigError("Receiver name '{}' already registered".format(name))
-        try:
-            cls = resolve_import(path)
-        except ImportError:
-            raise ConfigError("Error trying to import receiver class '{}'".format(path))
-        if not issubclass(cls, Receiver):
-            raise ConfigError("Receiver class '{}' not a valid subclass".format(path))
-        log.debug("Adding receiver: {} ({})".format(name, path))
-        return cls(name, config, self)
 
     def add_receiver(self, receiver):
         """
@@ -159,8 +94,11 @@ class Host(Base):
 
         Args:
             receiver (.Receiver):
-                Existing receiver instance.
+                Existing receiver instance to add.
         """
+        if receiver.name in self.receivers:
+            raise ConfigError("Receiver name '{}' already registered".format(receiver.name))
+        log.debug("Adding receiver: {}".format(receiver.name))
         self.receivers[receiver.name] = receiver
 
     def remove_receiver(self, name):
@@ -168,8 +106,8 @@ class Host(Base):
         Unregister an existing receiver.
 
         Args:
-            receiver (.Receiver):
-                Name of a previously registered receiver instance to stop using.
+            name (str):
+                Name of a previously registered receiver instance to remove.
         """
         try:
             del self.receivers[name]
