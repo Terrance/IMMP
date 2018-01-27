@@ -19,6 +19,7 @@ Further modules may also be needed for certain features:
 
 - `aioconsole <https://aioconsole.readthedocs.io>`_ (for async shell receiver)
 - `anyconfig <https://python-anyconfig.readthedocs.io>`_ (for running from command-line)
+- `discord.py <https://discordpy.readthedocs.io/en/rewrite/>`_ **1.0+** (for Discord transport)
 - `hangups <https://hangups.readthedocs.io>`_ (for Hangouts transport)
 - `ptpython <https://github.com/jonathanslenders/ptpython>`_ (for shell receiver)
 
