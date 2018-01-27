@@ -1,8 +1,9 @@
+from asyncio import sleep
 from collections import defaultdict
 from datetime import datetime
 import logging
 
-from aiohttp import ClientSession, FormData
+from aiohttp import ClientSession, ClientResponseError, FormData
 from voluptuous import Schema, Invalid, Any, All, Optional, ALLOW_EXTRA
 
 import imirror
@@ -338,6 +339,12 @@ class TelegramTransport(imirror.Transport):
             async with self._session.get("{}/getUpdates".format(self._base),
                                          params={"offset": self._offset or "",
                                                  "timeout": 240}) as resp:
+                try:
+                    resp.raise_for_status()
+                except ClientResponseError:
+                    log.debug("Unexpected response code: {}".format(resp.status))
+                    await sleep(3)
+                    continue
                 json = _Schema.api(await resp.json(), [_Schema.update])
             if not json["ok"]:
                 raise TelegramAPIError(json["description"], json["error_code"])
