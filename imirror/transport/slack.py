@@ -245,6 +245,7 @@ class SlackFile(imirror.File):
         self._source = source
 
     async def get_content(self, sess=None):
+        sess = sess or self.slack._session
         headers = {"Authorization": "Bearer {}".format(self.slack._token)}
         return await sess.get(self._source, headers=headers)
 
