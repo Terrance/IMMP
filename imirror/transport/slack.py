@@ -437,16 +437,15 @@ class SlackTransport(imirror.Transport):
             return
         uploads = []
         sent = []
-        types = []
         for attach in msg.attachments:
             if isinstance(attach, imirror.File):
                 # Upload each file to Slack.
-                data = FormData({"channels": channel.source})
+                data = FormData({"channels": channel.source,
+                                 "filename": attach.title or ""})
                 img_resp = await attach.get_content(self._session)
-                data.add_field("file", img_resp.content, filename=attach.title or "file")
+                data.add_field("file", img_resp.content, filename="file")
                 upload = await self._api("files.upload", _Schema.upload, data=data)
                 uploads.append(upload["file"]["id"])
-                types.append(file["pretty_type"])
         for upload in uploads:
             # Slack doesn't provide us with a message ID, so we have to find it ourselves.
             params = {"token": self._token,
@@ -471,13 +470,8 @@ class SlackTransport(imirror.Transport):
                 data["text"] = SlackRichText.to_mrkdwn(msg.text)
             else:
                 data["text"] = msg.text
-        elif types:
-            if len(types) == 1:
-                what = "this {}".format(types[0])
-            elif types.count(types[0]) == 1:
-                what = "{} {}s".format(len(types), types[0])
-            else:
-                what = "{} files".format(len(types))
+        else:
+            what = "{} files".format(len(uploads)) if len(uploads) > 1 else "this file"
             data["text"] = "_shared {}_".format(what)
         post = await self._api("chat.postMessage", _Schema.post, data=data)
         sent.append(post["ts"])
