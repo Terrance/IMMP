@@ -336,25 +336,21 @@ class TelegramTransport(imirror.Transport):
                 for segment in rich:
                     segment.italic = True
             text = "".join(TelegramSegment.to_html(segment) for segment in rich)
-        media = None
-        caption = None
+        parts = []
         for attach in msg.attachments:
             if isinstance(attach, imirror.File) and attach.type == imirror.File.Type.image:
-                media = attach
+                # Upload an image file to Telegram in its own message.
+                # Prefer a source URL if available, else fall back to re-uploading the file.
+                data = FormData({"chat_id": str(channel.source)})
                 if msg.user:
-                    caption = "{} sent an image".format(msg.user.real_name or msg.user.username)
-                break
-        parts = []
-        if media:
-            # Upload an image file to Telegram in its own message.
-            # Prefer a source URL if available, else fall back to re-uploading the file.
-            data = FormData((("chat_id", str(channel.source)), ("caption", caption)))
-            if media.source:
-                data.add_field("photo", media.source)
-            else:
-                img_resp = await media.get_content(self._session)
-                data.add_field("photo", img_resp.content, filename=media.title or "image.png")
-            parts.append(("sendPhoto", data))
+                    data.add_field("caption", "{} sent an image"
+                                              .format(msg.user.real_name or msg.user.username))
+                if attach.source:
+                    data.add_field("photo", attach.source)
+                else:
+                    img_resp = await attach.get_content(self._session)
+                    data.add_field("photo", img_resp.content, filename=attach.title or "photo")
+                parts.append(("sendPhoto", data))
         if text:
             parts.append(("sendMessage", {"chat_id": channel.source,
                                           "text": text,
