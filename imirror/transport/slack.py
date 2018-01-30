@@ -163,6 +163,11 @@ class SlackRichText(imirror.RichText):
         return "#{}".format(slack._channels[match.group(1)]["name"])
 
     @classmethod
+    def _sub_link(cls, match):
+        # Use a label if we have one, else just show the URL.
+        return match.group(2) or match.group(1)
+
+    @classmethod
     def from_mrkdwn(cls, slack, text):
         """
         Convert a string of Slack's Mrkdwn into a :class:`.RichText`.
@@ -192,6 +197,10 @@ class SlackRichText(imirror.RichText):
             field = cls.tags[tag]
             changes[start][field] = True
             changes[end][field] = False
+        for match in re.finditer(r"<([^@#\|][^\|>]*)(?:\|([^>]+))?>", text):
+            # Store the link target; the link tag will be removed after segmenting.
+            changes[match.start()]["link"] = match.group(1)
+            changes[match.end()]["link"] = None
         segments = []
         points = list(changes.keys())
         # Iterate through text in change start/end pairs.
@@ -201,10 +210,9 @@ class SlackRichText(imirror.RichText):
                 continue
             # Strip Slack user/channel tags, replace with a plain-text representation.
             part = emojize(text[start:end], use_aliases=True)
-            part = re.sub(r"<@([^\|>]+)(\|[^>]+)?>", partial(cls._sub_user, slack), part)
-            part = re.sub(r"<#([^\|>]+)(\|[^>]+)?>", partial(cls._sub_channel, slack), part)
-            # TODO: Handle links.
-            part = re.sub(r"<([^\|>]+)(\|[^>]+)?>", r"\1", part)
+            part = re.sub(r"<@([^\|>]+)(?:\|[^>]+)?>", partial(cls._sub_user, slack), part)
+            part = re.sub(r"<#([^\|>]+)(?:\|[^>]+)?>", partial(cls._sub_channel, slack), part)
+            part = re.sub(r"<([^\|>]+)(?:\|([^>]+))?>", cls._sub_link, part)
             segments.append(imirror.Segment(part, **changes[start]))
         return cls(segments)
 
@@ -235,7 +243,10 @@ class SlackRichText(imirror.RichText):
                 if getattr(segment, attr) and tag not in active:
                     text += tag
                     active.append(tag)
-            text += segment.text
+            if segment.link:
+                text += "<{}|{}>".format(segment.link, segment.text)
+            else:
+                text += segment.text
         for tag in reversed(active):
             # Close all remaining tags.
             text += tag
