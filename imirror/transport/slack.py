@@ -5,7 +5,7 @@ from functools import partial
 import logging
 import re
 
-from aiohttp import ClientSession, FormData
+from aiohttp import ClientSession, ClientResponseError, FormData
 from emoji import emojize
 from voluptuous import Schema, Any, Optional, Match, ALLOW_EXTRA
 
@@ -66,17 +66,24 @@ class _Schema(object):
                        {"type": str},
                        extra=ALLOW_EXTRA, required=True))
 
-    rtm = Schema(Any({"ok": False,
-                      "error": str},
-                     {"ok": True,
-                      "url": str,
-                      "team": dict,
-                      "users": [user],
-                      "channels": [{"id": str}],
-                      "groups": [{"id": str}],
-                      "ims": [{"id": str}],
-                      "bots": [{"id": str}]},
-                     extra=ALLOW_EXTRA, required=True))
+    def _api(nested={}):
+        return Schema(Any({"ok": True, **nested},
+                          {"ok": False, "error": str},
+                          extra=ALLOW_EXTRA, required=True))
+
+    rtm = _api({"url": str,
+                "team": dict,
+                "users": [user],
+                "channels": [{"id": str}],
+                "groups": [{"id": str}],
+                "ims": [{"id": str}],
+                "bots": [{"id": str}]})
+
+    post = _api({"ts": str})
+
+    upload = _api({"file": file})
+
+    history = _api({"messages": [message]})
 
 
 class SlackAPIError(imirror.TransportError):
@@ -372,14 +379,25 @@ class SlackTransport(imirror.Transport):
         self._session = self._socket = None
         self._closing = False
 
+    async def _api(self, endpoint, schema, params=None, **kwargs):
+        params = params or {}
+        params["token"] = self._token
+        async with self._session.post("https://slack.com/api/{}".format(endpoint),
+                                      params=params, **kwargs) as resp:
+            try:
+                resp.raise_for_status()
+            except ClientResponseError as e:
+                raise SlackAPIError("Unexpected response code: {}".format(resp.status)) from e
+            else:
+                json = await resp.json()
+        data = schema(json)
+        if not data["ok"]:
+            raise SlackAPIError(data["error"])
+        return data
+
     async def _rtm(self):
         log.debug("Requesting RTM session")
-        async with self._session.post("https://slack.com/api/rtm.start",
-                                      params={"token": self._token}) as resp:
-            json = await resp.json()
-        rtm = _Schema.rtm(json)
-        if not rtm["ok"]:
-            raise SlackAPIError(rtm["error"])
+        rtm = await self._api("rtm.start", _Schema.rtm)
         # Cache useful information about users and channels, to save on queries later.
         self._team = rtm["team"]
         self._users = {u.get("id"): SlackUser.from_member(self, u) for u in rtm["users"]}
@@ -426,31 +444,21 @@ class SlackTransport(imirror.Transport):
                 data = FormData({"channels": channel.source})
                 img_resp = await attach.get_content(self._session)
                 data.add_field("file", img_resp.content, filename=attach.title or "file")
-                async with self._session.post("https://slack.com/api/files.upload",
-                                              params={"token": self._token}, data=data) as resp:
-                    json = await resp.json()
-                if not json.get("ok"):
-                    raise SlackAPIError(json.get("error"))
-                file = _Schema.file(json["file"])
-                uploads.append(file["id"])
+                upload = await self._api("files.upload", _Schema.upload, data=data)
+                uploads.append(upload["file"]["id"])
                 types.append(file["pretty_type"])
         for upload in uploads:
             # Slack doesn't provide us with a message ID, so we have to find it ourselves.
             params = {"token": self._token,
                       "channel": channel.source,
                       "limit": 100}
-            async with self._session.get("https://slack.com/api/conversations.history",
-                                         params=params) as resp:
-                # TODO: Schema.
-                json = await resp.json()
-            if not json.get("ok"):
-                raise SlackAPIError(json.get("error"))
-            for message in json["messages"]:
-                message = _Schema.message(message)
+            history = await self._api("conversations.history", _Schema.history, params=params)
+            for message in history["messages"]:
                 if message["subtype"] in ("file_share", "file_mention"):
                     if message["file"]["id"] in uploads:
                         sent.append(message["ts"])
             if len(sent) < len(uploads):
+                # Of the 100 messages we just looked at, at least one file wasn't found.
                 log.debug("Missing some file upload messages")
         name = (msg.user.username or msg.user.real_name) if msg.user else self.fallback_name
         image = msg.user.avatar if msg.user else self.fallback_image
@@ -471,12 +479,8 @@ class SlackTransport(imirror.Transport):
             else:
                 what = "{} files".format(len(types))
             data["text"] = "_shared {}_".format(what)
-        resp = await self._session.post("https://slack.com/api/chat.postMessage",
-                                        params={"token": self._token}, data=data)
-        json = await resp.json()
-        if not json.get("ok"):
-            raise SlackAPIError(json.get("error"))
-        sent.append(json["ts"])
+        post = await self._api("chat.postMessage", _Schema.post, data=data)
+        sent.append(post["ts"])
         return sent
 
     async def get(self):
