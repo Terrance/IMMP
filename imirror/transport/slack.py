@@ -478,10 +478,14 @@ class SlackTransport(imirror.Transport):
                 "icon_url": image}
         if msg.text:
             if isinstance(msg.text, imirror.RichText):
-                data["text"] = SlackRichText.to_mrkdwn(msg.text)
+                rich = msg.text.clone()
             else:
-                data["text"] = msg.text
-        else:
+                rich = imirror.RichText([imirror.Segment(msg.text)])
+            if msg.action:
+                for segment in rich:
+                    segment.italic = True
+            data["text"] = SlackRichText.to_mrkdwn(rich)
+        elif uploads:
             what = "{} files".format(len(uploads)) if len(uploads) > 1 else "this file"
             data["text"] = "_shared {}_".format(what)
         post = await self._api("chat.postMessage", _Schema.post, data=data)
