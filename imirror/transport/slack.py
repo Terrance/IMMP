@@ -6,7 +6,7 @@ from json import dumps as json_dumps
 import logging
 import re
 
-from aiohttp import ClientSession
+from aiohttp import ClientSession, FormData
 from emoji import emojize
 from voluptuous import Schema, Any, Optional, Match, ALLOW_EXTRA
 
@@ -32,6 +32,7 @@ class _Schema(object):
 
     file = Schema({"id": str,
                    "name": Any(str, None),
+                   "pretty_type": str,
                    "url_private": str},
                   extra=ALLOW_EXTRA, required=True)
 
@@ -241,7 +242,7 @@ class SlackFile(imirror.File):
     def __init__(self, slack, title=None, type=None, source=None):
         super().__init__(title=title, type=type)
         self.slack = slack
-        # Private source as the URL is not publically accessible.
+        # Private source as the URL is not publicly accessible.
         self._source = source
 
     async def get_content(self, sess=None):
@@ -418,34 +419,68 @@ class SlackTransport(imirror.Transport):
         if msg.deleted:
             # TODO
             return
-        if isinstance(msg.text, imirror.RichText):
-            text = SlackRichText.to_mrkdwn(msg.text)
-        else:
-            text = msg.text
+        uploads = []
+        sent = []
+        types = []
+        for attach in msg.attachments:
+            if isinstance(attach, imirror.File):
+                # Upload each file to Slack.
+                data = FormData({"channels": channel.source})
+                img_resp = await attach.get_content(self._session)
+                data.add_field("file", img_resp.content, filename=attach.title or "file")
+                async with self._session.post("https://slack.com/api/files.upload",
+                                              params={"token": self._token}, data=data) as resp:
+                    json = await resp.json()
+                if not json.get("ok"):
+                    raise SlackAPIError(json.get("error"))
+                file = _Schema.file(json["file"])
+                uploads.append(file["id"])
+                types.append(file["pretty_type"])
+        for upload in uploads:
+            # Slack doesn't provide us with a message ID, so we have to find it ourselves.
+            params = {"token": self._token,
+                      "channel": channel.source,
+                      "limit": 100}
+            async with self._session.get("https://slack.com/api/conversations.history",
+                                         params=params) as resp:
+                # TODO: Schema.
+                json = await resp.json()
+            if not json.get("ok"):
+                raise SlackAPIError(json.get("error"))
+            for message in json["messages"]:
+                message = _Schema.message(message)
+                if message["subtype"] in ("file_share", "file_mention"):
+                    if message["file"]["id"] in uploads:
+                        sent.append(message["ts"])
+            if len(sent) < len(uploads):
+                log.debug("Missing some file upload messages")
         name = (msg.user.username or msg.user.real_name) if msg.user else self.fallback_name
         image = msg.user.avatar if msg.user else self.fallback_image
         data = {"channel": channel.source,
+                "as_user": False,
                 "username": name,
                 "icon_url": image}
-        attachments = []
-        for attach in msg.attachments:
-            if isinstance(attach, imirror.File) and attach.type == imirror.File.Type.image:
-                # TODO: Handle files with no source URL.
-                if not attach.source:
-                    continue
-                attachments.append({"fallback": attach.source,
-                                    "title": attach.title,
-                                    "image_url": attach.source})
-        if text:
-            data["text"] = text
-        if attachments:
-            data["attachments"] = json_dumps(attachments)
+        action = False
+        if msg.text:
+            if isinstance(msg.text, imirror.RichText):
+                data["text"] = SlackRichText.to_mrkdwn(msg.text)
+            else:
+                data["text"] = msg.text
+        elif types:
+            if len(types) == 1:
+                what = "this {}".format(types[0])
+            elif types.count(types[0]) == 1:
+                what = "{} {}s".format(len(types), types[0])
+            else:
+                what = "{} files".format(len(types))
+            data["text"] = "_shared {}_".format(what)
         resp = await self._session.post("https://slack.com/api/chat.postMessage",
                                         params={"token": self._token}, data=data)
         json = await resp.json()
         if not json.get("ok"):
             raise SlackAPIError(json.get("error"))
-        return [json.get("ts")]
+        sent.append(json["ts"])
+        return sent
 
     async def get(self):
         while True:
