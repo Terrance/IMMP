@@ -37,8 +37,9 @@ class _Schema(object):
                               Any(lambda v: _Schema.message(v), None),
                       Optional("photo", default=[]): [{"file_id": str,
                                                        "width": int}],
-                      Optional("new_chat_member", default=None): Any(user, None),
-                      Optional("left_chat_member", default=None): Any(user, None)},
+                      Optional("new_chat_members", default=[]): [user],
+                      Optional("left_chat_member", default=None): Any(user, None),
+                      Optional("new_chat_title", default=None): Any(str, None)},
                      extra=ALLOW_EXTRA, required=True)
 
     update = Schema({"update_id": int,
@@ -192,16 +193,50 @@ class TelegramMessage(imirror.Message):
                 Parsed message object.
         """
         message = _Schema.message(json)
+        text = None
+        user = None
+        action = False
         reply_to = None
-        joined = []
-        left = []
+        joined = None
+        left = None
         attachments = []
+        if message["from"]:
+            user = TelegramUser.from_user(telegram, message["from"])
+        if message["new_chat_title"]:
+            action = True
+        if message["new_chat_members"]:
+            joined = [TelegramUser.from_user(telegram, member)
+                      for member in message["new_chat_members"]]
+            action = True
+        if message["left_chat_member"]:
+            left = [TelegramUser.from_user(telegram, message["left_chat_member"])]
+            action = True
+        if message["text"]:
+            text = TelegramRichText.from_entities(message["text"], message["entities"])
+        elif message["new_chat_title"]:
+            text = TelegramRichText([TelegramSegment("changed group name to "),
+                                     TelegramSegment(message["new_chat_title"], bold=True)])
+        elif message["new_chat_members"]:
+            if joined == [user]:
+                text = TelegramRichText([TelegramSegment("joined group via invite link")])
+            else:
+                text = TelegramRichText([TelegramSegment("invited ")])
+                for join in joined:
+                    link = "https://t.me/{}".format(join.username) if join.username else None
+                    text.append(TelegramSegment(join.real_name, bold=(not link), link=link),
+                                TelegramSegment(", "))
+                text = text[:-1]
+        elif message["left_chat_member"]:
+            if left == [user]:
+                text = TelegramRichText([TelegramSegment("left group")])
+            else:
+                part = left[0]
+                link = "https://t.me/{}".format(part.username) if part.username else None
+                text = TelegramRichText([TelegramSegment("removed "),
+                                         TelegramSegment(part.real_name,
+                                                         bold=(not link), link=link)])
         if message["reply_to_message"]:
             reply_to = message["reply_to_message"]["message_id"]
-        if message["new_chat_member"]:
-            joined.append(TelegramUser.from_user(telegram, message["new_chat_member"]))
-        if message["left_chat_member"]:
-            left.append(TelegramUser.from_user(telegram, message["left_chat_member"]))
         if message["photo"]:
             # This is a list of resolutions, find the original sized one to return.
             photo = max(message["photo"], key=lambda photo: photo["height"])
@@ -214,8 +249,9 @@ class TelegramMessage(imirror.Message):
         return (telegram.host.resolve_channel(telegram, message["chat"]["id"]),
                 cls(id=message["message_id"],
                     at=datetime.fromtimestamp(message["date"]),
-                    text=TelegramRichText.from_entities(message["text"], message["entities"]),
-                    user=TelegramUser.from_user(telegram, message["from"]),
+                    text=text,
+                    user=user,
+                    action=action,
                     reply_to=reply_to,
                     joined=joined,
                     left=left,
