@@ -141,7 +141,8 @@ class HangoutsMessage(imirror.Message):
                      for part_id in event.participant_ids]
             if len(parts) == 1 and parts[0].id == user.id:
                 # Membership event is a user acting on themselves.
-                segments = [HangoutsSegment("{} the hangout".format("joined" if is_join else "left"))]
+                segments = [HangoutsSegment("{} the hangout"
+                                            .format("joined" if is_join else "left"))]
             else:
                 segments = [HangoutsSegment("added " if is_join else "removed ")]
                 for part in parts:
@@ -156,7 +157,8 @@ class HangoutsMessage(imirror.Message):
                 left = parts
         elif isinstance(event, hangups.OTREvent):
             action = True
-            is_history = event.new_otr_status == hangups.hangouts_pb2.OFF_THE_RECORD_STATUS_ON_THE_RECORD
+            is_history = (event.new_otr_status ==
+                          hangups.hangouts_pb2.OFF_THE_RECORD_STATUS_ON_THE_RECORD)
             segments = [HangoutsSegment("{}abled hangout message history"
                                         .format("en" if is_history else "dis"))]
         elif isinstance(event, hangups.RenameEvent):
@@ -264,9 +266,9 @@ class HangoutsTransport(imirror.Transport):
                 segment.is_italic = True
         msg_content = [seg.serialize() for seg in segments]
         request = hangouts_pb2.SendChatMessageRequest(
-                      request_header=self._client.get_request_header(),
-                      event_request_header=conv._get_event_request_header(),
-                      message_content=hangouts_pb2.MessageContent(segment=msg_content),
-                      existing_media=media)
+            request_header=self._client.get_request_header(),
+            event_request_header=conv._get_event_request_header(),
+            message_content=hangouts_pb2.MessageContent(segment=msg_content),
+            existing_media=media)
         sent = await self._client.send_chat_message(request)
         return [sent.created_event.event_id]

@@ -4,9 +4,8 @@ import logging
 from aiostream import stream
 
 from .error import ConfigError
-from .receiver import Receiver
-from .transport import Channel, Transport
-from .util import resolve_import, Base
+from .transport import Channel
+from .util import Base
 
 
 log = logging.getLogger(__name__)
@@ -53,10 +52,9 @@ class Host(Base):
                 Name of a previously registered transport instance to remove.
         """
         try:
-            transport = self.transports[name]
+            del self.transports[name]
         except KeyError:
             raise RuntimeError("Transport '{}' not registered to host".format(name)) from None
-        del self.transports[name]
 
     def add_channel(self, channel):
         """

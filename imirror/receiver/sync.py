@@ -1,5 +1,4 @@
 from asyncio import gather, BoundedSemaphore
-from collections import defaultdict
 import logging
 
 from voluptuous import Schema, All, Any, Length, Optional, ALLOW_EXTRA

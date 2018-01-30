@@ -2,7 +2,6 @@ from asyncio import sleep
 from collections import defaultdict
 from datetime import datetime
 from functools import partial
-from json import dumps as json_dumps
 import logging
 import re
 
@@ -36,29 +35,28 @@ class _Schema(object):
                    "url_private": str},
                   extra=ALLOW_EXTRA, required=True)
 
-    _edit_user = {Optional("user", default=None): Any(str, None)}
+    _base_msg = Schema({"ts": str,
+                        "type": "message",
+                        Optional("channel", default=None): Any(str, None),
+                        Optional("edited", default={"user": None}):
+                            {Optional("user", default=None): Any(str, None)},
+                        Optional("thread_ts", default=None): Any(str, None)},
+                       extra=ALLOW_EXTRA, required=True)
 
-    _base_message = Schema({"ts": str,
-                            "type": "message",
-                            Optional("channel", default=None): Any(str, None),
-                            Optional("edited", default={"user": None}): _edit_user,
-                            Optional("thread_ts", default=None): Any(str, None)},
-                           extra=ALLOW_EXTRA, required=True)
+    _plain_msg = _base_msg.extend({"user": str, "text": str})
 
-    _plain_message = _base_message.extend({"user": str, "text": str})
-
-    message = Schema(Any(_base_message.extend({"subtype": "bot_message",
-                                               "bot_id": str,
-                                               "text": str,
-                                               Optional("username", default=None): Any(str, None),
-                                               Optional("icons", default=dict): Any(dict, None)}),
-                         _base_message.extend({"subtype": "message_changed",
-                                               "message": lambda v: _Schema.message(v)}),
-                         _base_message.extend({"subtype": "message_deleted",
-                                               "deleted_ts": str}),
-                         _plain_message.extend({"subtype": Any("file_share", "file_mention"),
-                                                "file": file}),
-                         _plain_message.extend({Optional("subtype", default=None): Any(str, None)})))
+    message = Schema(Any(_base_msg.extend({"subtype": "bot_message",
+                                           "bot_id": str,
+                                           "text": str,
+                                           Optional("username", default=None): Any(str, None),
+                                           Optional("icons", default=dict): Any(dict, None)}),
+                         _base_msg.extend({"subtype": "message_changed",
+                                           "message": lambda v: _Schema.message(v)}),
+                         _base_msg.extend({"subtype": "message_deleted",
+                                           "deleted_ts": str}),
+                         _plain_msg.extend({"subtype": Any("file_share", "file_mention"),
+                                            "file": file}),
+                         _plain_msg.extend({Optional("subtype", default=None): Any(str, None)})))
 
     event = Schema(Any(message,
                        {"type": Any("team_join", "user_change"),
@@ -460,7 +458,6 @@ class SlackTransport(imirror.Transport):
                 "as_user": False,
                 "username": name,
                 "icon_url": image}
-        action = False
         if msg.text:
             if isinstance(msg.text, imirror.RichText):
                 data["text"] = SlackRichText.to_mrkdwn(msg.text)

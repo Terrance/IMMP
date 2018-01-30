@@ -4,7 +4,7 @@ from datetime import datetime
 import logging
 
 from aiohttp import ClientSession, ClientResponseError, FormData
-from voluptuous import Schema, Invalid, Any, All, Optional, ALLOW_EXTRA
+from voluptuous import Schema, Any, All, Optional, ALLOW_EXTRA
 
 import imirror
 
@@ -34,9 +34,8 @@ class _Schema(object):
                       Optional("text", default=None): Any(str, None),
                       Optional("entities", default=[]): [entity],
                       Optional("reply_to_message", default=None):
-                              Any(lambda v: _Schema.message(v), None),
-                      Optional("photo", default=[]): [{"file_id": str,
-                                                       "width": int}],
+                          Any(lambda v: _Schema.message(v), None),
+                      Optional("photo", default=[]): [{"file_id": str, "width": int}],
                       Optional("new_chat_members", default=[]): [user],
                       Optional("left_chat_member", default=None): Any(user, None),
                       Optional("new_chat_title", default=None): Any(str, None)},

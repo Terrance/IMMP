@@ -1,12 +1,10 @@
 from asyncio import get_event_loop
-from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
 from json import dumps
 import logging
 
 from aiohttp import ClientSession, FormData
 from discord import Client, Embed, File
-from voluptuous import Schema, Any, All, Optional, ALLOW_EXTRA
+from voluptuous import Schema, Optional, ALLOW_EXTRA
 
 import imirror
 
