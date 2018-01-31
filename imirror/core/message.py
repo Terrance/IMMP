@@ -264,8 +264,8 @@ class Message(Base):
             Whether this message should be presented as an action involving its user.
         deleted (bool):
             Whether the message was deleted from its source.
-        reply_to (str):
-            ID of the parent message, which this message replies to.
+        reply_to (.Message):
+            Parent message, which this message replies to.
         joined (.User list):
             Collection of users that just joined the channel.
         left (.User list):

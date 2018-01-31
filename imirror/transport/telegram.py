@@ -235,7 +235,7 @@ class TelegramMessage(imirror.Message):
                                          TelegramSegment(part.real_name,
                                                          bold=(not link), link=link)])
         if message["reply_to_message"]:
-            reply_to = message["reply_to_message"]["message_id"]
+            reply_to = (await cls.from_message(telegram, message["reply_to_message"]))[1]
         if message["photo"]:
             # This is a list of resolutions, find the original sized one to return.
             photo = max(message["photo"], key=lambda photo: photo["height"])

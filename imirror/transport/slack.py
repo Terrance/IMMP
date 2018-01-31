@@ -63,7 +63,8 @@ class _Schema(object):
                         "user": user},
                        {"type": Any("channel_joined", "group_joined", "im_created"),
                         "channel": {"id": str}},
-                       {"type": str},
+                       {"type": str,
+                        Optional("subtype", default=None): Any(str, None)},
                        extra=ALLOW_EXTRA, required=True))
 
     def _api(nested={}):
@@ -315,6 +316,7 @@ class SlackMessage(imirror.Message):
         original = None
         action = False
         deleted = False
+        reply_to = None
         joined = None
         left = None
         attachments = []
@@ -351,6 +353,15 @@ class SlackMessage(imirror.Message):
             # Own username at the start of the message, assume it's an action.
             action = True
             text = re.sub(r"^<@{}|.*?> ".format(user), "", text)
+        if event["thread_ts"] and event["thread_ts"] != event["ts"]:
+            # We have the parent ID, fetch the rest of the message to embed it.
+            params = {"channel": event["channel"],
+                      "latest": event["thread_ts"],
+                      "inclusive": "true",
+                      "limit": 1}
+            history = await slack._api("conversations.history", _Schema.history, params=params)
+            if history["messages"] and history["messages"][0]["ts"] ==  event["thread_ts"]:
+                reply_to = await cls.from_event(slack, history["messages"][0])[1]
         return (slack.host.resolve_channel(slack, event["channel"]),
                 cls(id=event["ts"],
                     at=datetime.fromtimestamp(int(float(event["ts"]))),
@@ -359,7 +370,7 @@ class SlackMessage(imirror.Message):
                     user=slack._users.get(user, SlackUser(id=user)) if user else None,
                     action=action,
                     deleted=deleted,
-                    reply_to=event["thread_ts"],
+                    reply_to=reply_to,
                     joined=joined,
                     left=left,
                     attachments=attachments,
@@ -517,6 +528,6 @@ class SlackTransport(imirror.Transport):
             elif event["type"] == "im_created":
                 # A DM appeared, add to our cache.
                 self._directs[event["channel"]["id"]] = event["channel"]
-            elif event["type"] == "message":
+            elif event["type"] == "message" and not event["subtype"] == "message_replied":
                 # A new message arrived, push it back to the host.
                 yield (await SlackMessage.from_event(self, event))
