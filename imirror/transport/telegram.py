@@ -319,23 +319,6 @@ class TelegramTransport(imirror.Transport):
         if msg.deleted:
             # TODO
             return []
-        text = None
-        if msg.text:
-            if isinstance(msg.text, imirror.RichText):
-                rich = msg.text.clone()
-            elif msg.text:
-                # Unformatted text received, make a basic rich text instance out of it.
-                rich = imirror.RichText([imirror.Segment(msg.text)])
-            else:
-                rich = imirror.RichText()
-            if msg.user:
-                name = msg.user.real_name or msg.user.username
-                prefix = ("{} " if msg.action else "{}: ").format(name)
-                rich.prepend(imirror.Segment(prefix, bold=True))
-            if msg.action:
-                for segment in rich:
-                    segment.italic = True
-            text = "".join(TelegramSegment.to_html(segment) for segment in rich)
         parts = []
         for attach in msg.attachments:
             if isinstance(attach, imirror.File) and attach.type == imirror.File.Type.image:
@@ -351,7 +334,9 @@ class TelegramTransport(imirror.Transport):
                     img_resp = await attach.get_content(self._session)
                     data.add_field("photo", img_resp.content, filename=attach.title or "photo")
                 parts.append(("sendPhoto", data))
-        if text:
+        if msg.text or msg.reply_to:
+            rich = msg.render(quote_reply=True)
+            text = "".join(TelegramSegment.to_html(segment) for segment in rich)
             parts.append(("sendMessage", {"chat_id": channel.source,
                                           "text": text,
                                           "parse_mode": "HTML"}))

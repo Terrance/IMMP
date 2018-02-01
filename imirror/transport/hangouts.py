@@ -243,15 +243,7 @@ class HangoutsTransport(imirror.Transport):
             # We can't delete messages on this side.
             return []
         conv = self._convs.get(channel.source)
-        segments = []
-        if isinstance(msg.text, imirror.RichText):
-            for segment in msg.text:
-                segments += HangoutsSegment.to_segments(segment)
-        elif msg.text:
-            # Unformatted text received, make a plain segment out of it.
-            segments = [hangups.ChatMessageSegment(msg.text)]
         media = None
-        action = msg.action
         for attach in msg.attachments:
             if isinstance(attach, imirror.File) and attach.type == imirror.File.Type.image:
                 # Upload an image file to Hangouts.
@@ -263,22 +255,15 @@ class HangoutsTransport(imirror.Transport):
                                                             filename=attach.title or "image.png")
                 media = hangouts_pb2.ExistingMedia(photo=hangouts_pb2.Photo(photo_id=photo))
                 # TODO: Handle more than one image attachment.
-                if not segments:
-                    segments = [hangups.ChatMessageSegment("sent an image")]
-                    action = True
                 break
-        if msg.user:
-            name = msg.user.real_name or msg.user.username
-            prefix = ("{} " if action else "{}: ").format(name)
-            segments.insert(0, hangups.ChatMessageSegment(prefix, is_bold=True))
-        if action:
-            for segment in segments:
-                segment.is_italic = True
-        msg_content = [seg.serialize() for seg in segments]
+        segments = []
+        for segment in msg.render(quote_reply=True):
+            segments += HangoutsSegment.to_segments(segment)
+        content = [segment.serialize() for segment in segments]
         request = hangouts_pb2.SendChatMessageRequest(
             request_header=self._client.get_request_header(),
             event_request_header=conv._get_event_request_header(),
-            message_content=hangouts_pb2.MessageContent(segment=msg_content),
+            message_content=hangouts_pb2.MessageContent(segment=content),
             existing_media=media)
         sent = await self._client.send_chat_message(request)
         return [sent.created_event.event_id]

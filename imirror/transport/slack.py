@@ -2,6 +2,7 @@ from asyncio import sleep
 from collections import defaultdict
 from datetime import datetime
 from functools import partial
+from json import dumps as json_dumps
 import logging
 import re
 
@@ -499,6 +500,34 @@ class SlackTransport(imirror.Transport):
         elif uploads:
             what = "{} files".format(len(uploads)) if len(uploads) > 1 else "this file"
             data["text"] = "_shared {}_".format(what)
+        if msg.reply_to:
+            quote = {"footer": ":speech_balloon:",
+                     "ts": msg.reply_to.at.timestamp()}
+            if msg.reply_to.user:
+                quote["author_name"] = msg.reply_to.user.real_name or msg.reply_to.user.username
+                quote["author_icon"] = msg.reply_to.user.avatar
+            quoted_rich = None
+            quoted_action = False
+            if msg.reply_to.text:
+                if isinstance(msg.reply_to.text, imirror.RichText):
+                    quoted_rich = msg.reply_to.text.clone()
+                else:
+                    quoted_rich = imirror.RichText([imirror.Segment(msg.reply_to.text)])
+            elif msg.reply_to.attachments:
+                action = True
+                count = len(msg.reply_to.attachments)
+                what = "{} files".format(count) if count > 1 else "this file"
+                if msg.reply_to.user:
+                    quoted_rich = imirror.RichText([imirror.Segment("sent {}".format(what))])
+                else:
+                    quoted_rich = imirror.RichText([imirror.Segment("{} were sent".format(what))])
+            if quoted_rich:
+                if quoted_action:
+                    for segment in quoted_rich:
+                        segment.italic = True
+                quote["text"] = SlackRichText.to_mrkdwn(quoted_rich)
+                quote["mrkdwn_in"] = ["text"]
+            data["attachments"] = json_dumps([quote])
         post = await self._api("chat.postMessage", _Schema.post, data=data)
         sent.append(post["ts"])
         return sent
