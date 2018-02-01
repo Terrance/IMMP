@@ -366,8 +366,14 @@ class Message(Base):
             else:
                 output.append(Segment("{} were sent".format(what)))
         if name:
-            output.prepend(Segment("{}{}".format(name, "" if action else ":"), bold=True),
-                           Segment(delimiter))
+            output.prepend(Segment(delimiter))
+            if not action:
+                output.prepend(Segment(":", bold=True))
+            if self.original:
+                output.prepend(Segment(" [edit]"))
+            output.prepend(Segment(name, bold=True))
+        elif self.original:
+            output.prepend(Segment("[edit] "))
         if action:
             for segment in output:
                 segment.italic = True
