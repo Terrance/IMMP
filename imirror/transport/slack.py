@@ -481,7 +481,7 @@ class SlackTransport(imirror.Transport):
             if len(sent) < len(uploads):
                 # Of the 100 messages we just looked at, at least one file wasn't found.
                 log.debug("Missing some file upload messages")
-        name = (msg.user.username or msg.user.real_name) if msg.user else self.fallback_name
+        name = (msg.user.real_name or msg.user.username) if msg.user else self.fallback_name
         image = msg.user.avatar if msg.user else self.fallback_image
         data = {"channel": channel.source,
                 "as_user": False,

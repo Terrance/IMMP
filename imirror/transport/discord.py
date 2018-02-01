@@ -192,7 +192,7 @@ class DiscordTransport(imirror.Transport):
         webhook = self.config["webhooks"].get(channel.name)
         name = image = rich = None
         if msg.user:
-            name = msg.user.username or msg.user.real_name
+            name = msg.user.real_name or msg.user.username
             image = msg.user.avatar
         if msg.text:
             if isinstance(msg.text, imirror.RichText):
