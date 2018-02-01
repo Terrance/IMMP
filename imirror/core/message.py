@@ -112,7 +112,7 @@ class RichText(Base):
     """
 
     def __init__(self, segments=None):
-        self._segments = list(segments) or []
+        self._segments = (list(segments) if segments else None) or []
 
     def normalise(self):
         """
@@ -168,6 +168,34 @@ class RichText(Base):
                 New segments to tail the message text.
         """
         self._segments += segments
+
+    def trim(self, length):
+        """
+        Reduce a long message text to a snippet with an ellipsis.
+
+        Args:
+            length (int):
+                Maximum length of the message text.
+
+        Returns:
+            .RichText:
+                Trimmed message text instance.
+        """
+        if len(self) <= length:
+            return self
+        clone = RichText()
+        total = 0
+        for segment in self:
+            if total + len(segment) < length:
+                clone.append(copy(segment))
+                total += len(segment)
+            else:
+                snip = (length - total) - 2
+                snipped = copy(segment)
+                snipped.text = "{}...".format(snipped.text[:snip])
+                clone.append(snipped)
+                break
+        return clone
 
     def __len__(self):
         return sum(len(segment) for segment in self._segments)
@@ -290,6 +318,64 @@ class Message(Base):
         self.left = left or []
         self.attachments = attachments or []
         self.raw = raw
+
+    def render(self, *, real_name=True, delimiter=" ", quote_reply=False, trim=None):
+        """
+        Add the sender's name (if present) to the start of the message text, suitable for sending
+        as-is on transports that need all the textual message content in the body.
+
+        Args:
+            real_name (bool):
+                ``True`` (default) to display real names, or ``False`` to prefer usernames.  If
+                only one kind of name is available, it will be used regardless of this setting.
+            delimiter (str):
+                Characters added between the sender's name and the message text (space by default).
+            quote_reply (bool):
+                ``True`` to quote the parent message before the current one, prefixed with ``>``
+                (not quoted by default).
+            trim (int):
+                Show an ellipsed snippet if the text exceeds this length, or ``None`` (default) for
+                no trimming.
+
+        Returns:
+            .RichText:
+                Rendered message body.
+        """
+        output = RichText()
+        name = None
+        action = self.action
+        if self.user:
+            if real_name:
+                name = self.user.real_name or self.user.username
+            else:
+                name = self.user.username or self.user.real_name
+        if self.text:
+            if isinstance(self.text, RichText):
+                text = self.text
+            else:
+                text = RichText([Segment(self.text)])
+            if trim:
+                text = text.trim(trim)
+            output.append(*text)
+        elif self.attachments:
+            action = True
+            count = len(self.attachments)
+            what = "{} files".format(count) if count > 1 else "this file"
+            if name:
+                output.append(Segment("sent {}".format(what)))
+            else:
+                output.append(Segment("{} were sent".format(what)))
+        if name:
+            output.prepend(Segment("{}{}".format(name, "" if action else ":"), bold=True),
+                           Segment(delimiter))
+        if action:
+            for segment in output:
+                segment.italic = True
+        if quote_reply and self.reply_to:
+            output.prepend(Segment("> "),
+                           *self.reply_to.render(real_name=real_name, trim=32),
+                           Segment("\n"))
+        return output
 
     def __eq__(self, other):
         return isinstance(other, self.__class__) and self.id == other.id
