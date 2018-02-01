@@ -49,8 +49,9 @@ class DiscordUser(imirror.User):
         """
         id = user.id
         username = user.name
+        real_name = getattr(user, "nick", None)
         avatar = user.avatar_url or None
-        return cls(id, username=username, avatar=avatar, raw=user)
+        return cls(id, username=username, real_name=real_name, avatar=avatar, raw=user)
 
 
 class DiscordRichText(imirror.RichText):

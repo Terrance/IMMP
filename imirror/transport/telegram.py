@@ -276,10 +276,10 @@ class TelegramMessage(imirror.Message):
             if update.get(key):
                 return await cls.from_message(telegram, update[key])
             elif update.get("edited_{}".format(key)):
-                msg = await cls.from_message(telegram, update["edited_{}".format(key)])
+                channel, msg = await cls.from_message(telegram, update["edited_{}".format(key)])
                 # Messages are edited in-place, no new ID is issued.
                 msg.original = msg.id
-                return msg
+                return (channel, msg)
 
 
 class TelegramTransport(imirror.Transport):

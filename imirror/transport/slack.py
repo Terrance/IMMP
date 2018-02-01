@@ -361,7 +361,7 @@ class SlackMessage(imirror.Message):
                       "limit": 1}
             history = await slack._api("conversations.history", _Schema.history, params=params)
             if history["messages"] and history["messages"][0]["ts"] ==  event["thread_ts"]:
-                reply_to = await cls.from_event(slack, history["messages"][0])[1]
+                reply_to = (await cls.from_event(slack, history["messages"][0]))[1]
         return (slack.host.resolve_channel(slack, event["channel"]),
                 cls(id=event["ts"],
                     at=datetime.fromtimestamp(int(float(event["ts"]))),
