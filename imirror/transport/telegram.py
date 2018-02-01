@@ -318,7 +318,7 @@ class TelegramTransport(imirror.Transport):
     async def put(self, channel, msg):
         if msg.deleted:
             # TODO
-            return
+            return []
         text = None
         if msg.text:
             if isinstance(msg.text, imirror.RichText):

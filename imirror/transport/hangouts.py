@@ -240,8 +240,8 @@ class HangoutsTransport(imirror.Transport):
 
     async def put(self, channel, msg):
         if msg.deleted:
-            # We can't delete the messages on this side.
-            return
+            # We can't delete messages on this side.
+            return []
         conv = self._convs.get(channel.source)
         segments = []
         if isinstance(msg.text, imirror.RichText):

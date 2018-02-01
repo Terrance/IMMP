@@ -456,7 +456,7 @@ class SlackTransport(imirror.Transport):
     async def put(self, channel, msg):
         if msg.deleted:
             # TODO
-            return
+            return []
         uploads = []
         sent = []
         for attach in msg.attachments:

@@ -187,7 +187,7 @@ class DiscordTransport(imirror.Transport):
             raise DiscordAPIError("No access to channel {}".format(channel.source))
         if msg.deleted:
             # TODO
-            return
+            return []
         webhook = self.config["webhooks"].get(channel.name)
         name = image = rich = None
         if msg.user:
