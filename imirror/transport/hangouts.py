@@ -67,24 +67,33 @@ class HangoutsSegment(imirror.Segment):
                    link=segment.link_target)
 
     @classmethod
-    def to_segment(cls, segment):
+    def _to_segment(cls, text, segment):
+        return hangups.ChatMessageSegment(text,
+                                          is_bold=segment.bold,
+                                          is_italic=segment.italic,
+                                          is_underline=segment.underline,
+                                          is_strikethrough=segment.strike,
+                                          link_target=segment.link)
+
+    @classmethod
+    def to_segments(cls, segment):
         """
-        Convert a :class:`.Segment` back into a :class:`hangups.ChatMessageSegment`.
+        Convert a :class:`.Segment` into one or more :class:`hangups.ChatMessageSegment` instances.
 
         Args:
             segment (.Segment)
                 Message segment created by another transport.
 
         Returns:
-            hangups.ChatMessageSegment:
-                Unparsed segment object.
+            hangups.ChatMessageSegment list:
+                Unparsed segment objects.
         """
-        return hangups.ChatMessageSegment(segment.text,
-                                          is_bold=segment.bold,
-                                          is_italic=segment.italic,
-                                          is_underline=segment.underline,
-                                          is_strikethrough=segment.strike,
-                                          link_target=segment.link)
+        parts = segment.text.split("\n")
+        segments = [cls._to_segment(parts[0], segment)]
+        for part in parts[1:]:
+            segments.append(hangups.ChatMessageSegment("\n", hangouts_pb2.SEGMENT_TYPE_LINE_BREAK))
+            segments.append(cls._to_segment(part, segment))
+        return [segment for segment in segments if segment.text]
 
 
 class HangoutsMessage(imirror.Message):
@@ -236,7 +245,8 @@ class HangoutsTransport(imirror.Transport):
         conv = self._convs.get(channel.source)
         segments = []
         if isinstance(msg.text, imirror.RichText):
-            segments = [HangoutsSegment.to_segment(segment) for segment in msg.text]
+            for segment in msg.text:
+                segments += HangoutsSegment.to_segments(segment)
         elif msg.text:
             # Unformatted text received, make a plain segment out of it.
             segments = [hangups.ChatMessageSegment(msg.text)]
