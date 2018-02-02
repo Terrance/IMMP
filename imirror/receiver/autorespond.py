@@ -3,6 +3,7 @@ import re
 from voluptuous import Schema, All, Optional, Length, ALLOW_EXTRA
 
 import imirror
+from imirror.receiver.command import Commandable
 
 
 class _Schema(object):
@@ -12,7 +13,7 @@ class _Schema(object):
                     extra=ALLOW_EXTRA, required=True)
 
 
-class AutoRespondReceiver(imirror.Receiver):
+class AutoRespondReceiver(imirror.Receiver, Commandable):
     """
     Remote control for a running IMirror host.
 
@@ -34,6 +35,18 @@ class AutoRespondReceiver(imirror.Receiver):
             except KeyError:
                 raise imirror.ConfigError("No channel '{}' on host".format(channel)) from None
         self._sent = []
+
+    def commands(self):
+        return {"ar-add": self.add,
+                "ar-remove": self.remove}
+
+    async def add(self, channel, match, response):
+        self.responses[match] = response
+        await channel.send(imirror.Message(None, text="\U00002705 Added"))
+
+    async def remove(self, channel, match):
+        del self.responses[match]
+        await channel.send(imirror.Message(None, text="\U00002705 Removed"))
 
     async def process(self, channel, msg):
         await super().process(channel, msg)
