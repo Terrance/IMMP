@@ -1,5 +1,4 @@
 from asyncio import get_event_loop
-from emoji import emojize
 from json import dumps as json_dumps
 import logging
 
@@ -219,7 +218,7 @@ class DiscordTransport(imirror.Transport):
                         embeds.append({"image": {"url": "attachment://{}".format(filename)}})
                         data.add_field("file_{}".format(i), img_resp.content, filename=filename)
             if msg.reply_to:
-                quote = {"footer": {"text": emojize(":speech_balloon:")},
+                quote = {"footer": {"text": "\U0001f4ac"},  # :speech_balloon:
                          "timestamp": msg.reply_to.at.isoformat()}
                 if msg.reply_to.user:
                     quote["author"] = {"name": (msg.reply_to.user.real_name or
@@ -233,13 +232,10 @@ class DiscordTransport(imirror.Transport):
                     else:
                         quoted_rich = imirror.RichText([imirror.Segment(msg.reply_to.text)])
                 elif msg.reply_to.attachments:
-                    action = True
+                    quoted_action = True
                     count = len(msg.reply_to.attachments)
                     what = "{} files".format(count) if count > 1 else "this file"
-                    if msg.reply_to.user:
-                        quoted_rich = imirror.RichText([imirror.Segment("sent {}".format(what))])
-                    else:
-                        quoted_rich = imirror.RichText([imirror.Segment("{} were sent".format(what))])
+                    quoted_rich = imirror.RichText([imirror.Segment("sent {}".format(what))])
                 if quoted_rich:
                     if quoted_action:
                         for segment in quoted_rich:

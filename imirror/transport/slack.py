@@ -361,7 +361,7 @@ class SlackMessage(imirror.Message):
                       "inclusive": "true",
                       "limit": 1}
             history = await slack._api("conversations.history", _Schema.history, params=params)
-            if history["messages"] and history["messages"][0]["ts"] ==  event["thread_ts"]:
+            if history["messages"] and history["messages"][0]["ts"] == event["thread_ts"]:
                 reply_to = (await cls.from_event(slack, history["messages"][0]))[1]
         return (slack.host.resolve_channel(slack, event["channel"]),
                 cls(id=event["ts"],
@@ -514,13 +514,10 @@ class SlackTransport(imirror.Transport):
                 else:
                     quoted_rich = imirror.RichText([imirror.Segment(msg.reply_to.text)])
             elif msg.reply_to.attachments:
-                action = True
+                quoted_action = True
                 count = len(msg.reply_to.attachments)
                 what = "{} files".format(count) if count > 1 else "this file"
-                if msg.reply_to.user:
-                    quoted_rich = imirror.RichText([imirror.Segment("sent {}".format(what))])
-                else:
-                    quoted_rich = imirror.RichText([imirror.Segment("{} were sent".format(what))])
+                quoted_rich = imirror.RichText([imirror.Segment("sent {}".format(what))])
             if quoted_rich:
                 if quoted_action:
                     for segment in quoted_rich:

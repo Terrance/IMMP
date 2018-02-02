@@ -361,10 +361,7 @@ class Message(Base):
             action = True
             count = len(self.attachments)
             what = "{} files".format(count) if count > 1 else "this file"
-            if name:
-                output.append(Segment("sent {}".format(what)))
-            else:
-                output.append(Segment("{} were sent".format(what)))
+            output.append(Segment("sent {}".format(what)))
         if name:
             output.prepend(Segment(delimiter))
             if not action:
