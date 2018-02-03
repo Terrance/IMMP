@@ -25,7 +25,7 @@ class User(Base):
             Optional transport-specific underlying user object.
     """
 
-    def __init__(self, id, username=None, real_name=None, avatar=None, raw=None):
+    def __init__(self, id=None, username=None, real_name=None, avatar=None, raw=None):
         self.id = id
         self.username = username
         self.real_name = real_name
@@ -304,7 +304,7 @@ class Message(Base):
             Optional transport-specific underlying message or event object.
     """
 
-    def __init__(self, id, at=None, original=None, text=None, user=None, action=False,
+    def __init__(self, id=None, at=None, original=None, text=None, user=None, action=False,
                  deleted=False, reply_to=None, joined=None, left=None, attachments=None, raw=None):
         self.id = id
         self.at = at or datetime.now()

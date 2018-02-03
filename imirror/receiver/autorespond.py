@@ -42,11 +42,11 @@ class AutoRespondReceiver(imirror.Receiver, Commandable):
 
     async def add(self, channel, match, response):
         self.responses[match] = response
-        await channel.send(imirror.Message(None, text="\U00002705 Added"))
+        await channel.send(imirror.Message(text="\U00002705 Added"))
 
     async def remove(self, channel, match):
         del self.responses[match]
-        await channel.send(imirror.Message(None, text="\U00002705 Removed"))
+        await channel.send(imirror.Message(text="\U00002705 Removed"))
 
     async def process(self, channel, msg):
         await super().process(channel, msg)
@@ -59,5 +59,5 @@ class AutoRespondReceiver(imirror.Receiver, Commandable):
         text = str(msg.text)
         for match, response in self.responses.items():
             if re.search(match, text, re.I):
-                for id in await channel.send(imirror.Message(None, text=response)):
+                for id in await channel.send(imirror.Message(text=response)):
                     self._sent.append((channel, id))
