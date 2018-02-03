@@ -1,4 +1,4 @@
-from asyncio import ensure_future
+from asyncio import Condition, ensure_future
 from io import BytesIO
 import logging
 import re
@@ -209,6 +209,7 @@ class HangoutsTransport(imirror.Transport):
         except KeyError:
             raise imirror.ConfigError("Hangouts cookie file not specified") from None
         self._client = None
+        self._starting = Condition()
 
     async def connect(self):
         await super().connect()
@@ -216,12 +217,17 @@ class HangoutsTransport(imirror.Transport):
         self._client.on_connect.add_observer(self._connect)
         log.debug("Connecting client")
         ensure_future(self._client.connect())
+        with await self._starting:
+            # Block until users and conversations are loaded.
+            await self._starting.wait()
+        log.debug("Listening for events")
 
     async def _connect(self):
         log.debug("Retrieving users and conversations")
         self._users, self._convs = await hangups.build_user_conversation_list(self._client)
         self._convs.on_event.add_observer(self._event)
-        log.debug("Listening for events")
+        with await self._starting:
+            self._starting.notify_all()
 
     async def _event(self, event):
         try:
