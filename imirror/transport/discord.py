@@ -179,10 +179,8 @@ class DiscordTransport(imirror.Transport):
             self._client = None
 
     async def put(self, channel, msg):
-        for dc_channel in self._client.get_all_channels():
-            if channel.source == dc_channel.id:
-                break
-        else:
+        dc_channel = self._client.get_channel(channel.source)
+        if not dc_channel:
             raise DiscordAPIError("No access to channel {}".format(channel.source))
         if msg.deleted:
             # TODO
@@ -198,7 +196,7 @@ class DiscordTransport(imirror.Transport):
             else:
                 # Unformatted text received, make a basic rich text instance out of it.
                 rich = imirror.RichText([imirror.Segment(msg.text)])
-            if not webhook:
+            if msg.user and not webhook:
                 # Can't customise the author name, so put it in the message body.
                 prefix = ("{} " if msg.action else "{}: ").format(name)
                 rich.prepend(imirror.Segment(prefix, bold=True))
