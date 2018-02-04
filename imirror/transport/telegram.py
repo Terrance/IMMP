@@ -335,15 +335,26 @@ class TelegramTransport(imirror.Transport):
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
-        try:
-            self._token = config["token"]
-        except KeyError:
-            raise imirror.ConfigError("Telegram token not specified") from None
-        self._base = "https://api.telegram.org/bot{}".format(self._token)
+        config = _Schema.config(config)
+        self._token = config["token"]
         # Connection objects that need to be closed on disconnect.
         self._session = None
         # Update ID from which to retrieve the next batch.  Should be one higher than the max seen.
         self._offset = 0
+
+    async def _api(self, endpoint, schema, **kwargs):
+        url = "https://api.telegram.org/bot{}/{}".format(self._token, endpoint)
+        async with self._session.post(url, **kwargs) as resp:
+            try:
+                resp.raise_for_status()
+            except ClientResponseError as e:
+                raise TelegramAPIError("Unexpected response code: {}".format(resp.status)) from e
+            else:
+                json = await resp.json()
+            result = _Schema.api(json, schema)
+            if not result["ok"]:
+                raise TelegramAPIError(json["description"], json["error_code"])
+            return result["result"]
 
     async def connect(self):
         await super().connect()
@@ -384,29 +395,27 @@ class TelegramTransport(imirror.Transport):
                                           "parse_mode": "HTML"}))
         sent = []
         for endpoint, data in parts:
-            async with self._session.post("{}/{}".format(self._base, endpoint), data=data) as resp:
-                json = _Schema.api(await resp.json(), _Schema.send)
-                if not json["ok"]:
-                    raise TelegramAPIError(json["description"], json["error_code"])
-                sent.append(json["result"]["message_id"])
+            result = await self._api(endpoint, _Schema.send, data=data)
+            sent.append(result["message_id"])
         return sent
 
     async def get(self):
         while True:
             log.debug("Making long-poll request")
-            async with self._session.get("{}/getUpdates".format(self._base),
-                                         params={"offset": self._offset or "",
-                                                 "timeout": 240}) as resp:
+            params = {"offset": self._offset,
+                      "timeout": 240}
+            for retry in range(3):
                 try:
-                    resp.raise_for_status()
-                except ClientResponseError:
-                    log.debug("Unexpected response code: {}".format(resp.status))
-                    await sleep(3)
-                    continue
-                json = _Schema.api(await resp.json(), [_Schema.update])
-            if not json["ok"]:
-                raise TelegramAPIError(json["description"], json["error_code"])
-            for update in json["result"]:
+                    result = await self._api("getUpdates", [_Schema.update], params=params)
+                except TelegramAPIError:
+                    log.debug("Unexpected response or timeout")
+                    if retry == 2:
+                        raise
+                    else:
+                        await sleep(3)
+                else:
+                    break
+            for update in result:
                 log.debug("Received a message")
                 if any(key in update or "edited_{}".format(key) in update
                        for key in ("message", "channel_post")):
