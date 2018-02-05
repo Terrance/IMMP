@@ -47,17 +47,19 @@ class _Schema(object):
                                   "channel_post", "edited_channel_post")): message},
                     extra=ALLOW_EXTRA, required=True)
 
-    file = Schema({"file_path": str}, extra=ALLOW_EXTRA, required=True)
-
-    send = Schema({"message_id": int}, extra=ALLOW_EXTRA, required=True)
-
-    def api(value, nested=All()):
+    def _api(nested=All()):
         return Schema(Any({"ok": True,
                            "result": nested},
                           {"ok": False,
                            "description": str,
-                           "error_code": int}),
-                      extra=ALLOW_EXTRA, required=True)(value)
+                           "error_code": int},
+                          extra=ALLOW_EXTRA, required=True))
+
+    file = _api({"file_path": str})
+
+    send = _api({"message_id": int})
+
+    updates = _api([update])
 
 
 class TelegramAPIError(imirror.TransportError):
@@ -281,11 +283,10 @@ class TelegramMessage(imirror.Message):
         if message["photo"]:
             # This is a list of resolutions, find the original sized one to return.
             photo = max(message["photo"], key=lambda photo: photo["height"])
-            async with telegram._session.get("{}/getFile".format(telegram._base),
-                                             params={"file_id": photo["file_id"]}) as resp:
-                file_json = _Schema.api(await resp.json(), _Schema.file)
+            params = {"file_id": photo["file_id"]}
+            file = await telegram._api("getFile", _Schema.file, params=params)
             url = ("https://api.telegram.org/file/bot{}/{}"
-                   .format(telegram._token, file_json["result"]["file_path"]))
+                   .format(telegram._token, file["file_path"]))
             attachments.append(imirror.File(type=imirror.File.Type.image, source=url))
         return (telegram.host.resolve_channel(telegram, message["chat"]["id"]),
                 cls(id=message["message_id"],
@@ -342,7 +343,7 @@ class TelegramTransport(imirror.Transport):
         # Update ID from which to retrieve the next batch.  Should be one higher than the max seen.
         self._offset = 0
 
-    async def _api(self, endpoint, schema, **kwargs):
+    async def _api(self, endpoint, schema=_Schema._api(), **kwargs):
         url = "https://api.telegram.org/bot{}/{}".format(self._token, endpoint)
         async with self._session.post(url, **kwargs) as resp:
             try:
@@ -351,10 +352,10 @@ class TelegramTransport(imirror.Transport):
                 raise TelegramAPIError("Unexpected response code: {}".format(resp.status)) from e
             else:
                 json = await resp.json()
-            result = _Schema.api(json, schema)
-            if not result["ok"]:
-                raise TelegramAPIError(json["description"], json["error_code"])
-            return result["result"]
+            data = schema(json)
+            if not data["ok"]:
+                raise TelegramAPIError(data["description"], data["error_code"])
+            return data["result"]
 
     async def connect(self):
         await super().connect()
@@ -406,7 +407,7 @@ class TelegramTransport(imirror.Transport):
                       "timeout": 240}
             for retry in range(3):
                 try:
-                    result = await self._api("getUpdates", [_Schema.update], params=params)
+                    result = await self._api("getUpdates", _Schema.updates, params=params)
                 except TelegramAPIError:
                     log.debug("Unexpected response or timeout")
                     if retry == 2:
