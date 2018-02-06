@@ -3,7 +3,7 @@ from json import dumps as json_dumps
 import logging
 
 from aiohttp import ClientSession, FormData
-from discord import Client, Embed, File
+import discord
 from voluptuous import Schema, Optional, ALLOW_EXTRA
 
 import imirror
@@ -126,7 +126,7 @@ class DiscordMessage(imirror.Message):
                     raw=message))
 
 
-class DiscordClient(Client):
+class DiscordClient(discord.Client):
     """
     Subclass of the underlying client to bind events.
     """
@@ -177,6 +177,14 @@ class DiscordTransport(imirror.Transport):
             log.debug("Closing client")
             await self._client.close()
             self._client = None
+
+    async def private_channel(self, user):
+        if not isinstance(user, DiscordUser):
+            return None
+        if not isinstance(user.raw, (discord.Member, discord.User)):
+            return None
+        dm = user.raw.dm_channel or (await user.raw.create_dm())
+        return imirror.Channel(None, self, dm.id)
 
     async def put(self, channel, msg):
         dc_channel = self._client.get_channel(channel.source)
@@ -263,9 +271,9 @@ class DiscordTransport(imirror.Transport):
                     if isinstance(attach, imirror.File) and attach.type == imirror.File.Type.image:
                         img_resp = await attach.get_content(self._session)
                         filename = attach.title or "image"
-                        embed = Embed()
+                        embed = discord.Embed()
                         embed.set_image(url="attachment://{}".format(filename))
-                        file = File(img_resp.content, filename)
+                        file = discord.File(img_resp.content, filename)
                         # TODO: Handle multiple attachments.
                         break
                 if embed and not rich:

@@ -244,6 +244,16 @@ class HangoutsTransport(imirror.Transport):
             log.debug("Requesting client disconnect")
             await self._client.disconnect()
 
+    async def private_channel(self, user):
+        if not isinstance(user, HangoutsUser) or not isinstance(user.raw, hangups.user.User):
+            return None
+        for conv in self._convs.get_all(include_archived=True):
+            if conv._conversation.type == hangouts_pb2.CONVERSATION_TYPE_ONE_TO_ONE:
+                if any(part.id_.chat_id == user.id for part in conv.users):
+                    return imirror.Channel(None, self, conv.id_)
+        # TODO: Create conversation.
+        return None
+
     async def put(self, channel, msg):
         if msg.deleted:
             # We can't delete messages on this side.

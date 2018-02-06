@@ -369,6 +369,17 @@ class TelegramTransport(imirror.Transport):
             self._session = None
         self._offset = 0
 
+    async def private_channel(self, user):
+        if not isinstance(user, TelegramUser):
+            return None
+        try:
+            await self._api("getChat", params={"chat_id": user.id})
+        except TelegramAPIError:
+            # Can't create private channels, users must initiate conversations with bots.
+            return None
+        else:
+            return imirror.Channel(None, self, user.id)
+
     async def put(self, channel, msg):
         if msg.deleted:
             # TODO

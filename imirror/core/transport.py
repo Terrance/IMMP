@@ -84,6 +84,21 @@ class Transport(Base):
         """
         self.connected = False
 
+    async def private_channel(self, user):
+        """
+        Retrieve a :class:`.Channel` representing a private (one-to-one) conversation between a
+        given user and the service.  Returns ``None`` if the user does not have a private channel.
+
+        Args:
+            user (.User):
+                Requested user instance.
+
+        Returns:
+            .Channel:
+                Private channel for this user.
+        """
+        return None
+
     def queue(self, channel, msg):
         """
         Add a new message to the receiver queue.

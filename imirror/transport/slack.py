@@ -30,6 +30,14 @@ class _Schema(object):
                                Optional("bot_id", default=None): Any(str, None)}},
                   extra=ALLOW_EXTRA, required=True)
 
+    channel = Schema({"id": str,
+                      "name": str},
+                     extra=ALLOW_EXTRA, required=True)
+
+    direct = Schema({"id": str,
+                     "user": str},
+                    extra=ALLOW_EXTRA, required=True)
+
     file = Schema({"id": str,
                    "name": Any(str, None),
                    "pretty_type": str,
@@ -76,10 +84,12 @@ class _Schema(object):
     rtm = _api({"url": str,
                 "team": dict,
                 "users": [user],
-                "channels": [{"id": str}],
-                "groups": [{"id": str}],
-                "ims": [{"id": str}],
+                "channels": [channel],
+                "groups": [channel],
+                "ims": [direct],
                 "bots": [{"id": str}]})
+
+    im_open = _api({"channel": direct})
 
     post = _api({"ts": str})
 
@@ -453,6 +463,18 @@ class SlackTransport(imirror.Transport):
             log.debug("Closing session")
             await self._session.close()
             self._session = None
+
+    async def private_channel(self, user):
+        if not isinstance(user, SlackUser):
+            return
+        for direct in self._directs.values():
+            if direct["user"] == user.id:
+                return imirror.Channel(None, self, direct["id"])
+        # Private channel doesn't exist yet or isn't cached.
+        params = {"user": user.id,
+                  "return_im": "true"}
+        opened = await self._api("im.open", _Schema.im_open, params=params)
+        return imirror.Channel(None, self, opened["channel"]["id"])
 
     async def put(self, channel, msg):
         if msg.deleted:
