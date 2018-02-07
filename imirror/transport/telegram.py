@@ -1,7 +1,6 @@
 from asyncio import sleep
 from collections import defaultdict
 from datetime import datetime
-from html.parser import HTMLParser
 import logging
 
 from aiohttp import ClientSession, ClientResponseError, FormData
@@ -68,50 +67,10 @@ class TelegramAPIError(imirror.TransportError):
     """
 
 
-class _AvatarParser(HTMLParser):
-    # Telegram doesn't provide API access to public avatar URLs (cdnX.telesco.pe).  Instead, we'll
-    # inspect the og:image meta property on users' profile pages and cache it for later use.
-
-    @classmethod
-    def parse_avatar(cls, html):
-        parser = cls()
-        try:
-            parser.feed(html)
-        except StopIteration:
-            pass
-        return parser.url
-
-    def __init__(self):
-        super().__init__()
-        self.url = None
-
-    def handle_starttag(self, tag, attrs):
-        super().handle_starttag(tag, attrs)
-        attrs = dict(attrs)
-        if tag == "meta" and attrs.get("property") == "og:image":
-            self.url = attrs.get("content")
-            # Stop processing the rest of the document.
-            raise StopIteration
-
-
 class TelegramUser(imirror.User):
     """
     User present in Telegram.
     """
-
-    _avatar_cache = {}
-
-    @classmethod
-    async def get_avatar(cls, telegram, username):
-        if not username:
-            # Users without a public username can't be looked up.
-            return None
-        if username not in cls._avatar_cache:
-            log.debug("Fetching avatar for username '{}'".format(username))
-            async with telegram._session.get("https://t.me/{}".format(username)) as resp:
-                html = await resp.text()
-            cls._avatar_cache[username] = _AvatarParser.parse_avatar(html)
-        return cls._avatar_cache[username]
 
     @classmethod
     async def from_user(cls, telegram, json):
@@ -131,10 +90,13 @@ class TelegramUser(imirror.User):
         if json is None:
             return None
         user = _Schema.user(json)
+        avatar = None
+        if user["username"]:
+            avatar = "https://t.me/i/userpic/320/{}.jpg".format(user["username"])
         return cls(id=user["id"],
                    username=user["username"],
                    real_name=" ".join(filter(None, [user["first_name"], user["last_name"]])),
-                   avatar=(await cls.get_avatar(telegram, user["username"])),
+                   avatar=avatar,
                    raw=user)
 
 
