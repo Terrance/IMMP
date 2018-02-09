@@ -1,7 +1,8 @@
-from .util import Base
+from .util import pretty_str
 
 
-class Receiver(Base):
+@pretty_str
+class Receiver:
     """
     Base of all receiver classes, performs any form of processing on messages from all connected
     transports, via the provided host instance.

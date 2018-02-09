@@ -1,10 +1,11 @@
 from asyncio import BoundedSemaphore, Queue
 
 from .error import TransportError
-from .util import Base
+from .util import pretty_str
 
 
-class Channel(Base):
+@pretty_str
+class Channel:
     """
     Container class that holds a (:class:`.Transport`, :class:`str`) pair reoresenting a room
     inside the transport's network.
@@ -44,7 +45,8 @@ class Channel(Base):
                                            self.transport.name)
 
 
-class Transport(Base):
+@pretty_str
+class Transport:
     """
     Base of all transport classes, handles communication with an external network by converting
     outside data into standardised message objects, and pushing new messages into the network.

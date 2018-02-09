@@ -5,13 +5,14 @@ from aiostream import stream
 
 from .error import ConfigError
 from .transport import Channel
-from .util import Base
+from .util import pretty_str
 
 
 log = logging.getLogger(__name__)
 
 
-class Host(Base):
+@pretty_str
+class Host:
     """
     Main class responsible for starting, stopping, and interacting with transports.
 

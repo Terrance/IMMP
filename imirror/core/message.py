@@ -5,10 +5,11 @@ import re
 
 import aiohttp
 
-from .util import Base
+from .util import pretty_str
 
 
-class User(Base):
+@pretty_str
+class User:
     """
     Generic class to represent senders of messages.
 
@@ -43,7 +44,7 @@ class User(Base):
                                     repr(self.real_name or self.username))
 
 
-class Segment(Base):
+class Segment:
     """
     Substring of message text with consistent formatting.
 
@@ -99,7 +100,7 @@ class Segment(Base):
         return "<{}: {}{}>".format(self.__class__.__name__, repr(self.text), "".join(attrs))
 
 
-class RichText(Base):
+class RichText:
     """
     Common standard for formatted message text, akin to Hangouts' message segments.  This is a
     container designed to hold instances of :class:`.Segment`.
@@ -222,7 +223,8 @@ class RichText(Base):
         return "<{}: {}>".format(self.__class__.__name__, repr(self._segments))
 
 
-class Attachment(Base):
+@pretty_str
+class Attachment:
     """
     Base class for secondary data attached to a message.
     """
@@ -273,7 +275,8 @@ class File(Attachment):
         return "<{}: {} {}>".format(self.__class__.__name__, repr(self.title), self.type.name)
 
 
-class Message(Base):
+@pretty_str
+class Message:
     """
     Base message object, understood by all transports.
 
