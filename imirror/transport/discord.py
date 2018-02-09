@@ -1,4 +1,4 @@
-from asyncio import get_event_loop
+from asyncio import get_event_loop, Condition
 from json import dumps as json_dumps
 import logging
 
@@ -135,6 +135,10 @@ class DiscordClient(discord.Client):
         super().__init__(**kwargs)
         self._transport = transport
 
+    async def on_ready(self):
+        with await self._transport._starting:
+            self._transport._starting.notify_all()
+
     async def on_message(self, message):
         channel, msg = DiscordMessage.from_message(self._transport, message)
         self._transport.queue(channel, msg)
@@ -158,6 +162,7 @@ class DiscordTransport(imirror.Transport):
         self._token = config["token"]
         # Connection objects that need to be closed on disconnect.
         self._client = self._session = None
+        self._starting = Condition()
 
     async def connect(self):
         await super().connect()
@@ -166,6 +171,9 @@ class DiscordTransport(imirror.Transport):
         log.debug("Starting client")
         self._client = DiscordClient(self)
         get_event_loop().create_task(self._client.start(self._token))
+        with await self._starting:
+            # Block until the client is ready.
+            await self._starting.wait()
 
     async def disconnect(self):
         await super().disconnect()
