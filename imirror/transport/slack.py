@@ -1,4 +1,4 @@
-from asyncio import sleep
+from asyncio import sleep, ensure_future, CancelledError
 from collections import defaultdict
 from datetime import datetime
 from functools import partial
@@ -392,7 +392,7 @@ class SlackTransport(imirror.Transport):
     """
     Transport for a `Slack <https://slack.com>`_ team.
 
-    Config
+    Config:
         token (str):
             Slack API token for a bot user (usually starts ``xoxb-``).
         fallback-name (str):
@@ -409,7 +409,7 @@ class SlackTransport(imirror.Transport):
         self.fallback_image = config["fallback-image"]
         self._team = self._users = self._channels = self._directs = self._bots = None
         # Connection objects that need to be closed on disconnect.
-        self._session = self._socket = None
+        self._session = self._socket = self._receive = None
         self._closing = False
 
     async def _api(self, endpoint, schema, params=None, **kwargs):
@@ -446,14 +446,14 @@ class SlackTransport(imirror.Transport):
         self._socket = await self._session.ws_connect(rtm["url"])
         log.debug("Connected to websocket")
 
-    async def connect(self):
-        await super().connect()
+    async def start(self):
+        await super().start()
         self._closing = False
         self._session = ClientSession()
         await self._rtm()
 
-    async def disconnect(self):
-        await super().disconnect()
+    async def stop(self):
+        await super().stop()
         self._closing = True
         if self._socket:
             log.debug("Closing websocket")
@@ -552,9 +552,13 @@ class SlackTransport(imirror.Transport):
         return sent
 
     async def get(self):
-        while True:
+        while self.state == imirror.OpenState.active and not self._closing:
+            self._receive = ensure_future(self._socket.receive_json())
             try:
-                json = await self._socket.receive_json()
+                json = await self._receive
+            except CancelledError:
+                log.debug("Cancel request for transport '{}' getter".format(self.name))
+                return
             except TypeError as e:
                 if self._closing:
                     return
@@ -565,6 +569,8 @@ class SlackTransport(imirror.Transport):
                 await sleep(3)
                 await self._rtm()
                 continue
+            finally:
+                self._receive = None
             event = _Schema.event(json)
             log.debug("Received a '{}' event".format(event["type"]))
             if event["type"] in ("team_join", "user_change"):
@@ -579,3 +585,8 @@ class SlackTransport(imirror.Transport):
             elif event["type"] == "message" and not event["subtype"] == "message_replied":
                 # A new message arrived, push it back to the host.
                 yield (await SlackMessage.from_event(self, event))
+
+    async def exit(self):
+        self._closing = True
+        if self._receive:
+            self._receive.cancel()

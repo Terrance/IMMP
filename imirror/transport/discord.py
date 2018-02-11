@@ -1,4 +1,4 @@
-from asyncio import get_event_loop, Condition
+from asyncio import ensure_future, Condition
 from json import dumps as json_dumps
 import logging
 
@@ -148,7 +148,7 @@ class DiscordTransport(imirror.Transport):
     """
     Transport for a `Discord <https://discordapp.com>`_ server.
 
-    Config
+    Config:
         token (str):
             Discord token for a bot user.
         webhooks (dict):
@@ -161,30 +161,30 @@ class DiscordTransport(imirror.Transport):
         config = _Schema.config(config)
         self._token = config["token"]
         # Connection objects that need to be closed on disconnect.
-        self._client = self._session = None
+        self._client = self._task = self._session = None
         self._starting = Condition()
 
-    async def connect(self):
-        await super().connect()
+    async def start(self):
+        await super().start()
         if self.config["webhooks"]:
             self._session = ClientSession()
         log.debug("Starting client")
         self._client = DiscordClient(self)
-        get_event_loop().create_task(self._client.start(self._token))
+        self._task = ensure_future(self._client.start(self._token))
         with await self._starting:
             # Block until the client is ready.
             await self._starting.wait()
 
-    async def disconnect(self):
-        await super().disconnect()
-        if self._session:
-            log.debug("Closing session")
-            await self._session.close()
-            self._session = None
+    async def stop(self):
+        await super().stop()
         if self._client:
             log.debug("Closing client")
             await self._client.close()
             self._client = None
+        if self._session:
+            log.debug("Closing session")
+            await self._session.close()
+            self._session = None
 
     async def private_channel(self, user):
         if not isinstance(user, DiscordUser):

@@ -1,3 +1,5 @@
+from asyncio import Condition
+from enum import Enum
 import importlib
 
 
@@ -37,3 +39,64 @@ def pretty_str(cls):
 
     cls.__str__ = __str__
     return cls
+
+
+class OpenState(Enum):
+    """
+    Readiness status for instances of :class:`Openable`.
+    """
+    inactive = 0
+    starting = 1
+    active = 2
+    stopping = 3
+
+
+class Openable(object):
+    """
+    Abstract class to provide open and close hooks.  Subclasses should implement :meth:`start`
+    and :meth:`stop`, whilst users should make use of :meth:`open` and :meth:`close`.
+
+    Attributes:
+        state (.OpenState):
+            Current status of this resource.
+    """
+
+    def __init__(self):
+        self.state = OpenState.inactive
+        self._changing = Condition()
+
+    async def open(self):
+        """
+        Open this resource ready for use.  Does nothing if already open, but raises
+        :class:`RuntimeError` if currently changing state.
+        """
+        if self.state == OpenState.active:
+            return
+        elif self.state != OpenState.inactive:
+            raise RuntimeError("Can't open when already closing")
+        self.state = OpenState.starting
+        await self.start()
+        self.state = OpenState.active
+
+    async def start(self):
+        """
+        Perform any operations needed to open this resource.
+        """
+
+    async def close(self):
+        """
+        Close this resource after it's used.  Does nothing if already closed, but raises
+        :class:`RuntimeError` if currently changing state.
+        """
+        if self.state == OpenState.inactive:
+            return
+        elif self.state != OpenState.active:
+            raise RuntimeError("Can't close when already opening/closing")
+        self.state = OpenState.stopping
+        await self.stop()
+        self.state = OpenState.inactive
+
+    async def stop(self):
+        """
+        Perform any operations needed to close this resource.
+        """

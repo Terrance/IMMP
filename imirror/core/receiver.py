@@ -1,8 +1,8 @@
-from .util import pretty_str
+from .util import pretty_str, Openable
 
 
 @pretty_str
-class Receiver:
+class Receiver(Openable):
     """
     Base of all receiver classes, performs any form of processing on messages from all connected
     transports, via the provided host instance.
@@ -19,6 +19,7 @@ class Receiver:
     """
 
     def __init__(self, name, config, host):
+        super().__init__()
         self.name = name
         self.config = config
         self.host = host

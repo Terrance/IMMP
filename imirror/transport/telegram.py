@@ -1,4 +1,4 @@
-from asyncio import sleep
+from asyncio import sleep, ensure_future, CancelledError
 from collections import defaultdict
 from datetime import datetime
 import logging
@@ -291,7 +291,7 @@ class TelegramTransport(imirror.Transport):
     """
     Transport for a `Telegram <https://telegram.org>`_ bot.
 
-    Config
+    Config:
         token (str):
             Telegram API token for a bot user (obtained from ``@BotFather``).
     """
@@ -301,7 +301,8 @@ class TelegramTransport(imirror.Transport):
         config = _Schema.config(config)
         self._token = config["token"]
         # Connection objects that need to be closed on disconnect.
-        self._session = None
+        self._session = self._receive = None
+        self._closing = False
         # Update ID from which to retrieve the next batch.  Should be one higher than the max seen.
         self._offset = 0
 
@@ -319,12 +320,12 @@ class TelegramTransport(imirror.Transport):
                 raise TelegramAPIError(data["description"], data["error_code"])
             return data["result"]
 
-    async def connect(self):
-        await super().connect()
+    async def start(self):
+        await super().start()
         self._session = ClientSession()
 
-    async def disconnect(self):
-        await super().disconnect()
+    async def stop(self):
+        await super().stop()
         if self._session:
             log.debug("Closing session")
             await self._session.close()
@@ -374,24 +375,31 @@ class TelegramTransport(imirror.Transport):
         return sent
 
     async def get(self):
-        while True:
+        while self.state == imirror.OpenState.active and not self._closing:
             log.debug("Making long-poll request")
             params = {"offset": self._offset,
                       "timeout": 240}
-            for retry in range(3):
-                try:
-                    result = await self._api("getUpdates", _Schema.updates, params=params)
-                except TelegramAPIError:
-                    log.debug("Unexpected response or timeout")
-                    if retry == 2:
-                        raise
-                    else:
-                        await sleep(3)
-                else:
-                    break
+            self._receive = ensure_future(self._api("getUpdates", _Schema.updates, params=params))
+            try:
+                result = await self._receive
+            except CancelledError:
+                log.debug("Cancel request for transport '{}' getter".format(self.name))
+                return
+            except TelegramAPIError as e:
+                log.debug("Unexpected response or timeout: {}".format(e))
+                log.debug("Reconnecting in 3 seconds")
+                await sleep(3)
+                continue
+            finally:
+                self._receive = None
             for update in result:
                 log.debug("Received a message")
                 if any(key in update or "edited_{}".format(key) in update
                        for key in ("message", "channel_post")):
                     yield await TelegramMessage.from_update(self, update)
                 self._offset = max(update["update_id"] + 1, self._offset)
+
+    async def exit(self):
+        self._closing = True
+        if self._receive:
+            self._receive.cancel()

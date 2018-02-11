@@ -1,8 +1,6 @@
-from asyncio import sleep
+from asyncio import sleep, ensure_future
 from itertools import count
 import logging
-
-from aiostream import stream
 
 import imirror
 
@@ -19,6 +17,16 @@ class DummyTransport(imirror.Transport):
         super().__init__(name, config, host)
         self.counter = count()
         self.user = imirror.User(id="dummy", real_name=name)
+        self.channel = self.host.resolve_channel(self, "dummy")
+        self._task = None
+
+    async def start(self):
+        self._task = ensure_future(self._timer())
+
+    async def stop(self):
+        if self._task:
+            self._task.cancel()
+            self._task = None
 
     async def put(self, channel, msg):
         # Make a clone of the message to echo back out of the generator.
@@ -35,17 +43,11 @@ class DummyTransport(imirror.Transport):
         # Don't return the clone ID, let it be delivered as a new message.
         return []
 
-    async def _receive_timer(self):
+    async def _timer(self):
         while True:
             await sleep(10)
             log.debug("Creating next test message")
-            yield (self.channel,
-                   imirror.Message(id=next(self.counter),
-                                   text="Test",
-                                   user=self.user))
-
-    async def get(self):
-        self.channel = self.host.resolve_channel(self, "dummy")
-        async with stream.merge(self._receive_timer(), super().get()).stream() as streamer:
-            async for channel, msg in streamer:
-                yield (channel, msg)
+            self.queue(self.channel,
+                       imirror.Message(id=next(self.counter),
+                                       text="Test",
+                                       user=self.user))

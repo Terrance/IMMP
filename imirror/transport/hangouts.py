@@ -197,7 +197,7 @@ class HangoutsTransport(imirror.Transport):
     """
     Transport for `Google Hangouts <https://hangouts.google.com>`_.
 
-    Config
+    Config:
         cookie (str):
             Path to a cookie text file read/written by :func:`hangups.get_auth_stdin`.
     """
@@ -211,8 +211,8 @@ class HangoutsTransport(imirror.Transport):
         self._client = None
         self._starting = Condition()
 
-    async def connect(self):
-        await super().connect()
+    async def start(self):
+        await super().start()
         self._client = hangups.Client(hangups.get_auth_stdin(self._cookie))
         self._client.on_connect.add_observer(self._connect)
         log.debug("Connecting client")
@@ -238,8 +238,8 @@ class HangoutsTransport(imirror.Transport):
             log.debug("Queueing new message event")
             self.queue(channel, msg)
 
-    async def disconnect(self):
-        await super().disconnect()
+    async def stop(self):
+        await super().stop()
         if self._client:
             log.debug("Requesting client disconnect")
             await self._client.disconnect()

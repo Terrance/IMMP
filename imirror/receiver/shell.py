@@ -107,15 +107,24 @@ class AsyncShellReceiver(imirror.Receiver):
             raise imirror.TransportError("'aioconsole' module not installed")
         self.port = config["port"]
         self.buffer = deque(maxlen=config["buffer"])
+        self._server = None
 
     @property
     def last(self):
         return self.buffer[-1]
 
     async def start(self):
+        await super().start()
         log.debug("Launching console on port {}".format(self.port))
-        await aioconsole.start_interactive_server(factory=self._factory,
-                                                  host="localhost", port=self.port)
+        self._server = await aioconsole.start_interactive_server(factory=self._factory,
+                                                                 host="localhost", port=self.port)
+
+    async def stop(self):
+        await super().stop()
+        if self._server:
+            log.debug("Stopping console server")
+            self._server.close()
+            self._server = None
 
     def _factory(self, streams=None):
         return aioconsole.AsynchronousConsole(locals={"host": self.host, "shell": self},

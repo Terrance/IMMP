@@ -1,10 +1,8 @@
-from asyncio import wait
+from asyncio import wait, ensure_future, CancelledError
 import logging
 
-from aiostream import stream
-
 from .error import ConfigError
-from .transport import Channel
+from .transport import Channel, TransportStream
 from .util import pretty_str
 
 
@@ -15,6 +13,12 @@ log = logging.getLogger(__name__)
 class Host:
     """
     Main class responsible for starting, stopping, and interacting with transports.
+
+    To run as the main coroutine for an application, use :meth:`run` in conjunction with
+    :func:`.AbstractEventLoop.run_until_complete`.  To stop a running host in an async context,
+    await :meth:`quit`.
+
+    For finer control, you can call :meth:`open`, :meth:`process` and :meth:`close` explicitly.
 
     Attributes:
         transports ((str, .Transport) dict):
@@ -29,11 +33,34 @@ class Host:
         self.transports = {}
         self.channels = {}
         self.receivers = {}
-        self.running = False
+        self._stream = self._process = None
+
+    @property
+    def running(self):
+        # This is the "public" status that external code can query.
+        return self._stream is not None
 
     def add_transport(self, transport):
         """
         Register a transport to the host.
+
+        If the host is already running, use :meth:`join_transport` instead, which will start the
+        transport and begin processing messages straight away.
+
+        Args:
+            transport (.Transport):
+                Existing transport instance to add.
+        """
+        if self._stream:
+            raise RuntimeError("Host is already running, use join_transport() instead")
+        if transport.name in self.transports:
+            raise ConfigError("Transport name '{}' already registered".format(transport.name))
+        log.debug("Adding transport: {}".format(transport.name))
+        self.transports[transport.name] = transport
+
+    async def join_transport(self, transport):
+        """
+        Register a transport to the host, and connect it if the host is running.
 
         Args:
             transport (.Transport):
@@ -41,21 +68,31 @@ class Host:
         """
         if transport.name in self.transports:
             raise ConfigError("Transport name '{}' already registered".format(transport.name))
-        log.debug("Adding transport: {}".format(transport.name))
+        log.debug("Joining transport: {}".format(transport.name))
         self.transports[transport.name] = transport
+        if self._stream:
+            await transport.open()
+            self._stream.add(transport)
 
     def remove_transport(self, name):
         """
         Unregister an existing transport.
+
+        .. warning::
+            This will not notify any receivers with a reference to this transport, nor will it
+            attempt to remove it from their state.
 
         Args:
             name (str):
                 Name of a previously registered transport instance to remove.
         """
         try:
-            del self.transports[name]
+            transport = self.transports[name]
         except KeyError:
             raise RuntimeError("Transport '{}' not registered to host".format(name)) from None
+        if self._stream and self._stream.has(transport):
+            raise RuntimeError("Host and transport are still running")
+        del self.transports[name]
 
     def add_channel(self, channel):
         """
@@ -133,31 +170,56 @@ class Host:
         log.debug("Channel transport/source not found: {}/{}".format(transport.name, source))
         return Channel(None, transport, source)
 
-    async def run(self):
+    async def open(self):
         """
-        Connect all transports, and distribute messages to receivers.
+        Connect all open transports and start all receivers.
         """
-        if self.transports:
-            log.debug("Connecting transports")
-            await wait([transport.connect() for transport in self.transports.values()])
-        else:
-            log.warn("No transports registered")
-        if self.receivers:
-            log.debug("Starting receivers")
-            await wait([receiver.start() for receiver in self.receivers.values()])
-        else:
-            log.warn("No receivers registered")
-        self.running = True
-        getters = (transport.receive() for transport in self.transports.values())
-        async with stream.merge(*getters).stream() as streamer:
-            async for channel, msg in streamer:
-                log.debug("Received: {} {}".format(repr(channel), repr(msg)))
-                await wait([receiver.process(channel, msg)
-                            for receiver in self.receivers.values()])
+        await wait([transport.open() for transport in self.transports.values()])
+        await wait([receiver.open() for receiver in self.receivers.values()])
 
     async def close(self):
         """
-        Disconnect all open transports.
+        Disconnect all open transports and stop all receivers.
         """
-        await wait([receiver.stop() for receiver in self.receivers.values()])
-        await wait([transport.disconnect() for transport in self.transports.values()])
+        await wait([receiver.close() for receiver in self.receivers.values()])
+        await wait([transport.close() for transport in self.transports.values()])
+
+    async def _callback(self, channel, msg):
+        await wait([receiver.process(channel, msg) for receiver in self.receivers.values()])
+
+    async def process(self):
+        """
+        Retrieve messages from transports, and distribute them to receivers.
+        """
+        if self._stream:
+            raise RuntimeError("Host is already processing")
+        self._stream = TransportStream(self._callback, *self.transports.values())
+        try:
+            await self._stream.process()
+        finally:
+            self._stream = None
+
+    async def run(self):
+        """
+        Main entry point for running a host as a full application.  Opens all transports and
+        receivers, blocks (when awaited) for the duration of :meth:`process`, and closes all
+        openables during shutdown.
+        """
+        if self._process:
+            raise RuntimeError("Host is already running")
+        await self.open()
+        try:
+            self._process = ensure_future(self.process())
+            await self._process
+        except CancelledError:
+            log.debug("Host run cancelled")
+        finally:
+            self._process = None
+            await self.close()
+
+    async def quit(self):
+        """
+        Request the running host to stop processing.  This only works if started via :meth:`run`.
+        """
+        if self._process:
+            self._process.cancel()

@@ -31,14 +31,15 @@ def main(config):
         cls = resolve_import(spec["path"])
         host.add_receiver(cls(name, spec["config"], host))
     loop = asyncio.get_event_loop()
+    task = loop.create_task(host.run())
     try:
         log.debug("Starting host")
-        loop.run_until_complete(host.run())
+        loop.run_until_complete(task)
     except KeyboardInterrupt:
         log.debug("Interrupt received")
+        task.cancel()
+        loop.run_until_complete(task)
     finally:
-        log.debug("Closing host")
-        loop.run_until_complete(host.close())
         loop.close()
 
 
