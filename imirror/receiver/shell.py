@@ -86,8 +86,8 @@ class AsyncShellReceiver(imirror.Receiver):
 
     Config:
         port (int):
-            Port to bind the console on.  Once running, one can connect using e.g. netcat.  The
-            `aioconsole's docs <https://aioconsole.readthedocs.io/en/latest/#serving-the-console>`
+            Port to bind the console on.  Once running, one can connect using e.g. netcat.  See
+            `aioconsole's docs <https://aioconsole.readthedocs.io/en/latest/#serving-the-console>`_
             for more info.
         buffer (int):
             Number of received messages to keep at any one time (default: no limit).  When a new

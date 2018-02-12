@@ -15,13 +15,19 @@ class _Schema(object):
 
 class AutoRespondReceiver(imirror.Receiver, Commandable):
     """
-    Remote control for a running IMirror host.
+    Basic text responses for given trigger words and phrases.
 
     Config:
         channels (str list):
             List of channels to process responses in.
         responses (dict):
             Mapping from match regex to response text.
+
+    Commands:
+        ar-add <match> <response>:
+            Add a new trigger / response pair.
+        ar-remove <match>:
+            Remove an existing trigger.
     """
 
     def __init__(self, name, config, host):

@@ -15,7 +15,7 @@ class Host:
     Main class responsible for starting, stopping, and interacting with transports.
 
     To run as the main coroutine for an application, use :meth:`run` in conjunction with
-    :func:`.AbstractEventLoop.run_until_complete`.  To stop a running host in an async context,
+    :meth:`.AbstractEventLoop.run_until_complete`.  To stop a running host in an async context,
     await :meth:`quit`.
 
     For finer control, you can call :meth:`open`, :meth:`process` and :meth:`close` explicitly.

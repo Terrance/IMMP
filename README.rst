@@ -12,7 +12,6 @@ asynchronous generators), and therefore requires at least **Python 3.6**.
 The following extra modules are required:
 
 - `aiohttp <https://aiohttp.readthedocs.io>`_
-- `aiostream <https://pythonhosted.org/aiostream/>`_
 - `voluptuous <https://alecthomas.github.io/voluptuous/docs/_build/html/>`_
 
 Further modules may also be needed for certain features:
