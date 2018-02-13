@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import datetime
 import logging
 
-from aiohttp import ClientSession, ClientResponseError, FormData
+from aiohttp import ClientSession, ClientError, ClientResponseError, FormData
 from voluptuous import Schema, Any, All, Optional, ALLOW_EXTRA
 
 import imirror
@@ -308,17 +308,20 @@ class TelegramTransport(imirror.Transport):
 
     async def _api(self, endpoint, schema=_Schema._api(), **kwargs):
         url = "https://api.telegram.org/bot{}/{}".format(self._token, endpoint)
-        async with self._session.post(url, **kwargs) as resp:
-            try:
-                resp.raise_for_status()
-            except ClientResponseError as e:
-                raise TelegramAPIError("Unexpected response code: {}".format(resp.status)) from e
-            else:
-                json = await resp.json()
-            data = schema(json)
-            if not data["ok"]:
-                raise TelegramAPIError(data["description"], data["error_code"])
-            return data["result"]
+        try:
+            async with self._session.post(url, **kwargs) as resp:
+                try:
+                    resp.raise_for_status()
+                except ClientResponseError as e:
+                    raise TelegramAPIError("Bad response code: {}".format(resp.status)) from e
+                else:
+                    json = await resp.json()
+        except ClientError as e:
+            raise TelegramAPIError("Request failed") from e
+        data = schema(json)
+        if not data["ok"]:
+            raise TelegramAPIError(data["description"], data["error_code"])
+        return data["result"]
 
     async def start(self):
         await super().start()
