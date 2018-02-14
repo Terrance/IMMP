@@ -346,6 +346,9 @@ class TelegramTransport(imirror.Transport):
         else:
             return imirror.Channel(None, self, user.id)
 
+    # channel_members: TG provides no API to get a current member list, and join/part messages are
+    # unreliable for tracking membership as they're sent inconsistently.
+
     async def put(self, channel, msg):
         if msg.deleted:
             # TODO

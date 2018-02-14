@@ -194,6 +194,15 @@ class DiscordTransport(imirror.Transport):
         dm = user.raw.dm_channel or (await user.raw.create_dm())
         return imirror.Channel(None, self, dm.id)
 
+    async def channel_members(self, channel):
+        if channel.transport is not self:
+            return None
+        dc_channel = self._client.get_channel(channel.source)
+        if dc_channel:
+            return [DiscordUser.from_user(self, member) for member in dc_channel.members]
+        else:
+            return []
+
     async def put(self, channel, msg):
         dc_channel = self._client.get_channel(channel.source)
         if not dc_channel:

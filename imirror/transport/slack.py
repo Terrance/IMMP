@@ -77,8 +77,12 @@ class _Schema(object):
                        extra=ALLOW_EXTRA, required=True))
 
     def _api(nested={}):
-        return Schema(Any({"ok": True, **nested},
-                          {"ok": False, "error": str},
+        return Schema(Any({"ok": True,
+                           Optional("response_metadata", default={"next_cursor": ""}):
+                               {Optional("next_cursor", default=""): str},
+                           **nested},
+                          {"ok": False,
+                           "error": str},
                           extra=ALLOW_EXTRA, required=True))
 
     rtm = _api({"url": str,
@@ -90,6 +94,8 @@ class _Schema(object):
                 "bots": [{"id": str}]})
 
     im_open = _api({"channel": direct})
+
+    members = _api({"members": [str]})
 
     post = _api({"ts": str})
 
@@ -415,6 +421,7 @@ class SlackTransport(imirror.Transport):
     async def _api(self, endpoint, schema, params=None, **kwargs):
         params = params or {}
         params["token"] = self._token
+        log.debug("Making API request to '{}'".format(endpoint))
         async with self._session.post("https://slack.com/api/{}".format(endpoint),
                                       params=params, **kwargs) as resp:
             try:
@@ -427,6 +434,19 @@ class SlackTransport(imirror.Transport):
         if not data["ok"]:
             raise SlackAPIError(data["error"])
         return data
+
+    async def _paged(self, endpoint, schema, key, params=None, **kwargs):
+        params = params or {}
+        params["token"] = self._token
+        items = []
+        while True:
+            data = await self._api(endpoint, schema, params, **kwargs)
+            items += data[key]
+            if data["response_metadata"]["next_cursor"]:
+                params["cursor"] = data["response_metadata"]["next_cursor"]
+            else:
+                break
+        return items
 
     async def _rtm(self):
         log.debug("Requesting RTM session")
@@ -476,6 +496,13 @@ class SlackTransport(imirror.Transport):
         opened = await self._api("im.open", _Schema.im_open, params=params)
         return imirror.Channel(None, self, opened["channel"]["id"])
 
+    async def channel_members(self, channel):
+        if channel.transport is not self:
+            return None
+        members = await self._paged("conversations.members", _Schema.members, "members",
+                                    data={"channel": channel.source})
+        return [self._users[member] for member in members]
+
     async def put(self, channel, msg):
         if msg.deleted:
             # TODO
@@ -493,8 +520,7 @@ class SlackTransport(imirror.Transport):
                 uploads.append(upload["file"]["id"])
         for upload in uploads:
             # Slack doesn't provide us with a message ID, so we have to find it ourselves.
-            params = {"token": self._token,
-                      "channel": channel.source,
+            params = {"channel": channel.source,
                       "limit": 100}
             history = await self._api("conversations.history", _Schema.history, params=params)
             for message in history["messages"]:

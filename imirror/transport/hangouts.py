@@ -254,6 +254,16 @@ class HangoutsTransport(imirror.Transport):
         # TODO: Create conversation.
         return None
 
+    async def channel_members(self, channel):
+        if channel.transport is not self:
+            return None
+        try:
+            conv = self._convs.get(channel.source)
+        except KeyError:
+            return []
+        else:
+            return [HangoutsUser.from_user(self, user) for user in conv.users]
+
     async def put(self, channel, msg):
         if msg.deleted:
             # We can't delete messages on this side.

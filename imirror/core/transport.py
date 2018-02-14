@@ -190,6 +190,21 @@ class Transport(Openable):
         """
         return None
 
+    async def channel_members(self, channel):
+        """
+        Retrieve a :class:`.User` list representing all members of the given channel.  May return
+        ``None`` if the transport doesn't recognise the channel, or is unable to query members.
+
+        Args:
+            channel (.Channel):
+                Requested channel instance.
+
+        Returns:
+            .User list:
+                Members present in the channel.
+        """
+        return None
+
     def queue(self, channel, msg):
         """
         Add a new message to the queue, picked up from :meth:`get` by default.
