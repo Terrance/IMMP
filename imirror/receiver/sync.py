@@ -4,6 +4,7 @@ import logging
 from voluptuous import Schema, All, Any, Length, Optional, ALLOW_EXTRA
 
 import imirror
+from imirror.receiver.command import Commandable
 
 
 log = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ class SyncTransport(imirror.Transport):
             return await self._receiver.send(msg)
 
 
-class SyncReceiver(imirror.Receiver):
+class SyncReceiver(imirror.Receiver, Commandable):
     """
     A receiver to propagate messages between two or more channels.
 
@@ -73,6 +74,21 @@ class SyncReceiver(imirror.Receiver):
             host.add_channel(self.channel)
         else:
             self.transport = None
+
+    def commands(self):
+        return {"sync-members": self.members}
+
+    async def members(self, channel):
+        members = []
+        for synced in self.channels:
+            local = (await synced.transport.channel_members(synced))
+            if local:
+                members += local
+        if not members:
+            return
+        names = [member.real_name or member.username for member in members]
+        text = "Members of this conversation:\n{}".format("\n".join(names))
+        await channel.send(imirror.Message(user=imirror.User(real_name="Sync"), text=text))
 
     async def _noop_send(self, msg):
         return [msg.id]
