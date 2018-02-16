@@ -48,8 +48,8 @@ class DiscordUser(imirror.User):
                 Parsed user object.
         """
         id = user.id
-        username = user.name
-        real_name = getattr(user, "nick", None)
+        username = "{}#{}".format(user.name, user.discriminator)
+        real_name = getattr(user, "nick", None) or user.name
         avatar = user.avatar_url or None
         return cls(id, username=username, real_name=real_name, avatar=avatar, raw=user)
 
