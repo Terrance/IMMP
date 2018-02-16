@@ -80,14 +80,27 @@ class SyncReceiver(imirror.Receiver, Commandable):
 
     async def members(self, channel, mag):
         members = []
+        missing = False
         for synced in self.channels:
             local = (await synced.transport.channel_members(synced))
             if local:
                 members += local
+            else:
+                missing = True
         if not members:
             return
-        names = [member.real_name or member.username for member in members]
-        text = "Members of this conversation:\n{}".format("\n".join(names))
+        text = imirror.RichText([imirror.Segment("Members of this conversation:")])
+        for member in members:
+            text.append(imirror.Segment("\n"))
+            if member.link:
+                text.append(imirror.Segment(member.real_name or member.username, link=member.link))
+            elif member.real_name and member.username:
+                text.append(imirror.Segment("{} [{}]".format(member.real_name, member.username)))
+            else:
+                text.append(imirror.Segment(member.real_name or member.username))
+        if missing:
+            text.append(imirror.Segment("\n"),
+                        imirror.Segment("(list may be incomplete)"))
         await channel.send(imirror.Message(user=imirror.User(real_name="Sync"), text=text))
 
     async def _noop_send(self, msg):
