@@ -78,7 +78,7 @@ class SyncReceiver(imirror.Receiver, Commandable):
     def commands(self):
         return {"sync-members": self.members}
 
-    async def members(self, channel):
+    async def members(self, channel, mag):
         members = []
         for synced in self.channels:
             local = (await synced.transport.channel_members(synced))

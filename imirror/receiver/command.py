@@ -78,4 +78,4 @@ class CommandReceiver(imirror.Receiver):
         except ValueError:
             return
         if command[0] in self.commands:
-            await self.commands[command[0]](channel, *command[1:])
+            await self.commands[command[0]](channel, msg, *command[1:])

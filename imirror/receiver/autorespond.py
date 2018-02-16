@@ -46,11 +46,11 @@ class AutoRespondReceiver(imirror.Receiver, Commandable):
         return {"ar-add": self.add,
                 "ar-remove": self.remove}
 
-    async def add(self, channel, match, response):
+    async def add(self, channel, msg, match, response):
         self.responses[match] = response
         await channel.send(imirror.Message(text="\U00002705 Added"))
 
-    async def remove(self, channel, match):
+    async def remove(self, channel, msg, match):
         del self.responses[match]
         await channel.send(imirror.Message(text="\U00002705 Removed"))
 
