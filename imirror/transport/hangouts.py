@@ -1,7 +1,9 @@
 from asyncio import Condition, ensure_future
+from copy import copy
 from io import BytesIO
 import logging
 import re
+from urllib.parse import unquote
 
 import hangups
 from hangups import hangouts_pb2
@@ -58,22 +60,37 @@ class HangoutsSegment(imirror.Segment):
             .HangoutsSegment:
                 Parsed segment object.
         """
-        # Segment is modelled on hangups, so not much to do here.
+        link = segment.link_target
+        if segment.link_target:
+            match = re.match(r"https://www.google.com/url\?(?:[^&]+&)*q=([^&]+)",
+                             segment.link_target)
+            if match:
+                # Strip Google link redirect.
+                link = unquote(match[1])
         return cls(segment.text,
                    bold=segment.is_bold,
                    italic=segment.is_italic,
                    underline=segment.is_underline,
                    strike=segment.is_strikethrough,
-                   link=segment.link_target)
+                   link=link)
 
     @classmethod
-    def _to_segment(cls, text, segment):
-        return hangups.ChatMessageSegment(text,
-                                          is_bold=segment.bold,
-                                          is_italic=segment.italic,
-                                          is_underline=segment.underline,
-                                          is_strikethrough=segment.strike,
-                                          link_target=segment.link)
+    def _hangups_segments(cls, text, segment):
+        if segment.link and not text == segment.link:
+            # Hangouts won't render links unless the text matches.
+            # Fall back to multiple segments showing the text and the link separately.
+            clone = copy(segment)
+            clone.link = None
+            return (cls._hangups_segments("{} [".format(text), clone) +
+                    cls._hangups_segments(segment.link, segment) +
+                    cls._hangups_segments("]", clone))
+        else:
+            return [hangups.ChatMessageSegment(text,
+                                               is_bold=segment.bold,
+                                               is_italic=segment.italic,
+                                               is_underline=segment.underline,
+                                               is_strikethrough=segment.strike,
+                                               link_target=segment.link)]
 
     @classmethod
     def to_segments(cls, segment):
@@ -89,10 +106,10 @@ class HangoutsSegment(imirror.Segment):
                 Unparsed segment objects.
         """
         parts = segment.text.split("\n")
-        segments = [cls._to_segment(parts[0], segment)]
+        segments = cls._hangups_segments(parts[0], segment)
         for part in parts[1:]:
             segments.append(hangups.ChatMessageSegment("\n", hangouts_pb2.SEGMENT_TYPE_LINE_BREAK))
-            segments.append(cls._to_segment(part, segment))
+            segments += cls._hangups_segments(part, segment)
         return [segment for segment in segments if segment.text]
 
 
