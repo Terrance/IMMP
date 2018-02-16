@@ -74,7 +74,10 @@ class DiscordRichText(imirror.RichText):
                 if getattr(segment, attr) and tag not in active:
                     text += tag
                     active.append(tag)
-            text += segment.text
+            if segment.link:
+                text += "[{}]({})".format(segment.text, segment.link)
+            else:
+                text += segment.text
         for tag in reversed(active):
             # Close all remaining tags.
             text += tag
