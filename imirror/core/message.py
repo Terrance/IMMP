@@ -22,15 +22,22 @@ class User:
             User's preferred and/or family name.
         avatar (str):
             URL of the user's profile picture.
+        link (str):
+            Public profile URL, or identifier used for invites.
         raw:
             Optional transport-specific underlying user object.
     """
 
-    def __init__(self, id=None, username=None, real_name=None, avatar=None, raw=None):
+    def __init__(self, id=None, username=None, real_name=None, avatar=None, link=None, raw=None):
         self.id = id
         self.username = username
         self.real_name = real_name
         self.avatar = avatar
+        try:
+            self.link = link
+        except AttributeError:
+            # Subclasses may implement link as a property, in which case the link here is None.
+            pass
         self.raw = raw
 
     def __eq__(self, other):

@@ -99,6 +99,11 @@ class TelegramUser(imirror.User):
                    avatar=avatar,
                    raw=user)
 
+    @property
+    def link(self):
+        if self.username:
+            return "https://t.me/{}".format(self.username)
+
 
 class TelegramSegment(imirror.Segment):
     """

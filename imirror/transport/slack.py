@@ -86,7 +86,7 @@ class _Schema(object):
                           extra=ALLOW_EXTRA, required=True))
 
     rtm = _api({"url": str,
-                "team": dict,
+                "team": {"domain": str},
                 "users": [user],
                 "channels": [channel],
                 "groups": [channel],
@@ -119,9 +119,16 @@ class SlackUser(imirror.User):
             Reference to the Slack integration app for a bot user.
     """
 
-    def __init__(self, id, username=None, real_name=None, avatar=None, bot_id=None, raw=None):
-        super().__init__(id, username=username, real_name=real_name, avatar=avatar, raw=raw)
+    def __init__(self, id=None, username=None, real_name=None, avatar=None, bot_id=None,
+                 workspace=None, raw=None):
+        super().__init__(id=id, username=username, real_name=real_name, avatar=avatar, raw=raw)
         self.bot_id = bot_id
+        self._workspace = workspace
+
+    @property
+    def link(self):
+        if self._workspace:
+            return "https://{}.slack.com/team/{}".format(self._workspace, self.id)
 
     @classmethod
     def _best_image(cls, profile):
@@ -151,6 +158,7 @@ class SlackUser(imirror.User):
                    real_name=member["profile"]["real_name"],
                    avatar=cls._best_image(member["profile"]),
                    bot_id=member["profile"]["bot_id"],
+                   workspace=slack._team["domain"],
                    raw=json)
 
 
