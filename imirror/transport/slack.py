@@ -91,7 +91,8 @@ class _Schema(object):
                 "channels": [channel],
                 "groups": [channel],
                 "ims": [direct],
-                "bots": [{"id": str}]})
+                "bots": [{"id": str,
+                          "deleted": bool}]})
 
     im_open = _api({"channel": direct})
 
@@ -121,7 +122,8 @@ class SlackUser(imirror.User):
 
     def __init__(self, id=None, transport=None, username=None, real_name=None, avatar=None,
                  bot_id=None, raw=None):
-        super().__init__(id=id, username=username, real_name=real_name, avatar=avatar, raw=raw)
+        super().__init__(id=id, transport=transport, username=username, real_name=real_name,
+                         avatar=avatar, raw=raw)
         self.bot_id = bot_id
         self._workspace = transport._team["domain"]
 
@@ -347,37 +349,40 @@ class SlackMessage(imirror.Message):
         attachments = []
         if event["subtype"] == "bot_message":
             # Event has the bot's app ID, not user ID.
-            user = slack._bot_to_user.get(event["bot_id"])
+            author = slack._bot_to_user.get(event["bot_id"])
             text = event["text"]
         elif event["subtype"] == "message_changed":
             # Original message details are under a nested "message" key.
             original = event["message"]["ts"]
             text = event["message"]["text"]
             # NB: Editing user may be different to the original sender.
-            user = event["message"]["edited"]["user"] or event["message"]["user"]
+            author = event["message"]["edited"]["user"] or event["message"]["user"]
         elif event["subtype"] == "message_deleted":
             original = event["deleted_ts"]
-            user = None
+            author = None
             text = None
             deleted = True
         else:
-            user = event["user"]
+            author = event["user"]
             text = event["text"]
-            if event["subtype"] in ("file_share", "file_mention"):
-                action = True
-                attachments.append(SlackFile.from_file(slack, event["file"]))
-            elif event["subtype"] in ("channel_join", "group_join"):
-                action = True
-                joined = [user]
-            elif event["subtype"] in ("channel_leave", "group_leave"):
-                action = True
-                left = [user]
-            elif event["subtype"] == "me_message":
-                action = True
-        if user and text and re.match(r"<@{}(\|.*?)?> ".format(user), text):
+        user = None
+        if author:
+            user = slack._users.get(author, SlackUser(id=author, transport=slack))
+        if event["subtype"] in ("file_share", "file_mention"):
+            action = True
+            attachments.append(SlackFile.from_file(slack, event["file"]))
+        elif event["subtype"] in ("channel_join", "group_join"):
+            action = True
+            joined = [user]
+        elif event["subtype"] in ("channel_leave", "group_leave"):
+            action = True
+            left = [user]
+        elif event["subtype"] == "me_message":
+            action = True
+        if author and text and re.match(r"<@{}(\|.*?)?> ".format(author), text):
             # Own username at the start of the message, assume it's an action.
             action = True
-            text = re.sub(r"^<@{}|.*?> ".format(user), "", text)
+            text = re.sub(r"^<@{}|.*?> ".format(author), "", text)
         if event["thread_ts"] and event["thread_ts"] != event["ts"]:
             # We have the parent ID, fetch the rest of the message to embed it.
             params = {"channel": event["channel"],
@@ -392,7 +397,7 @@ class SlackMessage(imirror.Message):
                     at=datetime.fromtimestamp(int(float(event["ts"]))),
                     original=original,
                     text=SlackRichText.from_mrkdwn(slack, text) if text else None,
-                    user=slack._users.get(user, SlackUser(id=user)) if user else None,
+                    user=user,
                     action=action,
                     deleted=deleted,
                     reply_to=reply_to,
@@ -461,13 +466,13 @@ class SlackTransport(imirror.Transport):
         rtm = await self._api("rtm.start", _Schema.rtm)
         # Cache useful information about users and channels, to save on queries later.
         self._team = rtm["team"]
-        self._users = {u.get("id"): SlackUser.from_member(self, u) for u in rtm["users"]}
+        self._users = {u["id"]: SlackUser.from_member(self, u) for u in rtm["users"]}
         log.debug("Users ({}): {}".format(len(self._users), ", ".join(self._users.keys())))
-        self._channels = {c.get("id"): c for c in rtm["channels"] + rtm["groups"]}
+        self._channels = {c["id"]: c for c in rtm["channels"] + rtm["groups"]}
         log.debug("Channels ({}): {}".format(len(self._channels), ", ".join(self._channels.keys())))
-        self._directs = {c.get("id"): c for c in rtm["ims"]}
+        self._directs = {c["id"]: c for c in rtm["ims"]}
         log.debug("Directs ({}): {}".format(len(self._directs), ", ".join(self._directs.keys())))
-        self._bots = {b.get("id"): b for b in rtm["bots"] if not b.get("deleted")}
+        self._bots = {b["id"]: b for b in rtm["bots"] if not b["deleted"]}
         log.debug("Bots ({}): {}".format(len(self._bots), ", ".join(self._bots.keys())))
         # Create a map of bot IDs to users, as the bot cache doesn't contain references to them.
         self._bot_to_user = {user.bot_id: user.id for user in self._users.values() if user.bot_id}
@@ -609,7 +614,7 @@ class SlackTransport(imirror.Transport):
             log.debug("Received a '{}' event".format(event["type"]))
             if event["type"] in ("team_join", "user_change"):
                 # A user appeared or changed, update our cache.
-                self._users[event["user"]["id"]] = event["user"]
+                self._users[event["user"]["id"]] = SlackUser.from_member(self, event["user"])
             elif event["type"] in ("channel_joined", "group_joined"):
                 # A group or channel appeared, add to our cache.
                 self._channels[event["channel"]["id"]] = event["channel"]
