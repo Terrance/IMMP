@@ -47,11 +47,15 @@ class DiscordUser(imirror.User):
             .DiscordUser:
                 Parsed user object.
         """
-        id = user.id
         username = "{}#{}".format(user.name, user.discriminator)
         real_name = getattr(user, "nick", None) or user.name
         avatar = user.avatar_url or None
-        return cls(id, username=username, real_name=real_name, avatar=avatar, raw=user)
+        return cls(id=user.id,
+                   transport=discord,
+                   username=username,
+                   real_name=real_name,
+                   avatar=avatar,
+                   raw=user)
 
 
 class DiscordRichText(imirror.RichText):

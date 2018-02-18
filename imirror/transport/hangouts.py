@@ -35,15 +35,18 @@ class HangoutsUser(imirror.User):
             .HangoutsUser:
                 Parsed user object.
         """
-        id = user.id_.chat_id
         # No usernames here, just the ID.
-        real_name = user.full_name
         avatar = re.sub("^//", "https://", user.photo_url)
-        return cls(id, real_name=real_name, avatar=avatar, raw=user)
+        return cls(id=user.id_.chat_id,
+                   transport=hangouts,
+                   real_name=user.full_name,
+                   avatar=avatar,
+                   raw=user)
 
     @property
     def link(self):
-        return "https://hangouts.google.com/chat/person/{}".format(self.id)
+        if self.id:
+            return "https://hangouts.google.com/chat/person/{}".format(self.id)
 
 
 class HangoutsSegment(imirror.Segment):

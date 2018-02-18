@@ -87,15 +87,17 @@ class TelegramUser(imirror.User):
             .TelegramUser:
                 Parsed user object.
         """
-        if json is None:
-            return None
         user = _Schema.user(json)
+        real_name = user["first_name"]
+        if user["last_name"]:
+            real_name = "{} {}".format(real_name, user["last_name"])
         avatar = None
         if user["username"]:
             avatar = "https://t.me/i/userpic/320/{}.jpg".format(user["username"])
         return cls(id=user["id"],
+                   transport=telegram,
                    username=user["username"],
-                   real_name=" ".join(filter(None, [user["first_name"], user["last_name"]])),
+                   real_name=real_name,
                    avatar=avatar,
                    raw=user)
 

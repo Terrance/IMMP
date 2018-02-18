@@ -119,15 +119,15 @@ class SlackUser(imirror.User):
             Reference to the Slack integration app for a bot user.
     """
 
-    def __init__(self, id=None, username=None, real_name=None, avatar=None, bot_id=None,
-                 workspace=None, raw=None):
+    def __init__(self, id=None, transport=None, username=None, real_name=None, avatar=None,
+                 bot_id=None, raw=None):
         super().__init__(id=id, username=username, real_name=real_name, avatar=avatar, raw=raw)
         self.bot_id = bot_id
-        self._workspace = workspace
+        self._workspace = transport._team["domain"]
 
     @property
     def link(self):
-        if self._workspace:
+        if self.id and self._workspace:
             return "https://{}.slack.com/team/{}".format(self._workspace, self.id)
 
     @classmethod
@@ -154,11 +154,11 @@ class SlackUser(imirror.User):
         """
         member = _Schema.user(json)
         return cls(id=member["id"],
+                   transport=slack,
                    username=member["name"],
                    real_name=member["profile"]["real_name"],
                    avatar=cls._best_image(member["profile"]),
                    bot_id=member["profile"]["bot_id"],
-                   workspace=slack._team["domain"],
                    raw=json)
 
 

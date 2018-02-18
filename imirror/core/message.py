@@ -16,6 +16,8 @@ class User:
     Attributes:
         id (str):
             Transport-specific user identifier.
+        transport (.Transport):
+            Source transport instance, representing the domain this user comes from.
         username (str):
             User's chosen or allocated display name.
         real_name (str):
@@ -28,16 +30,16 @@ class User:
             Optional transport-specific underlying user object.
     """
 
-    def __init__(self, id=None, username=None, real_name=None, avatar=None, link=None, raw=None):
+    def __init__(self, *, id=None, transport=None, username=None, real_name=None, avatar=None,
+                 link=None, raw=None):
         self.id = id
+        self.transport = transport
         self.username = username
         self.real_name = real_name
         self.avatar = avatar
-        try:
+        if not (hasattr(self.__class__, "link") and isinstance(self.__class__.link, property)):
+            # Subclasses may implement as a property, in which case the attribute set would fail.
             self.link = link
-        except AttributeError:
-            # Subclasses may implement link as a property, in which case the link here is None.
-            pass
         self.raw = raw
 
     def __eq__(self, other):
