@@ -303,6 +303,9 @@ class TelegramTransport(imirror.Transport):
             Telegram API token for a bot user (obtained from ``@BotFather``).
     """
 
+    class Meta(imirror.Transport.Meta):
+        network = "Telegram"
+
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         config = _Schema.config(config)

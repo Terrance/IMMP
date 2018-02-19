@@ -122,8 +122,12 @@ class SlackUser(imirror.User):
 
     def __init__(self, id=None, transport=None, username=None, real_name=None, avatar=None,
                  bot_id=None, raw=None):
-        super().__init__(id=id, transport=transport, username=username, real_name=real_name,
-                         avatar=avatar, raw=raw)
+        super().__init__(id=id,
+                         transport=transport,
+                         username=username,
+                         real_name=real_name,
+                         avatar=avatar,
+                         raw=raw)
         self.bot_id = bot_id
         self._workspace = transport._team["domain"]
 
@@ -419,6 +423,9 @@ class SlackTransport(imirror.Transport):
         fallback-image (str):
             Avatar to display for incoming messages without a user or image (default: none).
     """
+
+    class Meta(imirror.Transport.Meta):
+        network = "Slack"
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)

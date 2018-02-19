@@ -1,4 +1,5 @@
 from asyncio import gather, BoundedSemaphore
+from collections import defaultdict
 import logging
 
 from voluptuous import Schema, All, Any, Length, Optional, ALLOW_EXTRA
@@ -79,25 +80,29 @@ class SyncReceiver(imirror.Receiver, Commandable):
         return {"sync-members": self.members}
 
     async def members(self, channel, mag):
-        members = []
+        members = defaultdict(list)
         missing = False
         for synced in self.channels:
             local = (await synced.transport.channel_members(synced))
             if local:
-                members += local
+                members[synced.transport.Meta.network] += local
             else:
                 missing = True
         if not members:
             return
         text = imirror.RichText([imirror.Segment("Members of this conversation:")])
-        for member in members:
-            text.append(imirror.Segment("\n"))
-            if member.link:
-                text.append(imirror.Segment(member.real_name or member.username, link=member.link))
-            elif member.real_name and member.username:
-                text.append(imirror.Segment("{} [{}]".format(member.real_name, member.username)))
-            else:
-                text.append(imirror.Segment(member.real_name or member.username))
+        for network in sorted(members):
+            text.append(imirror.Segment("\n{}".format(network), bold=True))
+            for member in sorted(members[network],
+                                 key=lambda member: member.real_name or member.username):
+                name = member.real_name or member.username
+                text.append(imirror.Segment("\n"))
+                if member.link:
+                    text.append(imirror.Segment(name, link=member.link))
+                elif member.real_name and member.username:
+                    text.append(imirror.Segment("{} [{}]".format(name, member.username)))
+                else:
+                    text.append(imirror.Segment(name))
         if missing:
             text.append(imirror.Segment("\n"),
                         imirror.Segment("(list may be incomplete)"))

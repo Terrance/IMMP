@@ -144,6 +144,16 @@ class Transport(Openable):
             Controlling host instance, providing access to transports.
     """
 
+    class Meta:
+        """
+        Metadata relating to the transport or underlying network.
+
+        Attributes:
+            network (str):
+                Readable name of the network provided by this transport.
+        """
+        network = None
+
     def __init__(self, name, config, host):
         super().__init__()
         self.name = name

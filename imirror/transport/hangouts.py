@@ -226,6 +226,9 @@ class HangoutsTransport(imirror.Transport):
             Path to a cookie text file read/written by :func:`hangups.get_auth_stdin`.
     """
 
+    class Meta(imirror.Transport.Meta):
+        network = "Hangouts"
+
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         try:

@@ -163,6 +163,9 @@ class DiscordTransport(imirror.Transport):
             names and avatars.
     """
 
+    class Meta(imirror.Transport.Meta):
+        network = "Discord"
+
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         config = _Schema.config(config)
