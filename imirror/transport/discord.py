@@ -1,10 +1,10 @@
-from asyncio import ensure_future, Condition
+from asyncio import Condition, ensure_future
 from json import dumps as json_dumps
 import logging
 
 from aiohttp import ClientSession, FormData
 import discord
-from voluptuous import Schema, Optional, ALLOW_EXTRA
+from voluptuous import ALLOW_EXTRA, Optional, Schema
 
 import imirror
 

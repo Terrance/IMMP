@@ -1,4 +1,4 @@
-from asyncio import sleep, ensure_future, CancelledError
+from asyncio import CancelledError, ensure_future, sleep
 from collections import defaultdict
 from datetime import datetime
 from functools import partial
@@ -6,9 +6,9 @@ from json import dumps as json_dumps
 import logging
 import re
 
-from aiohttp import ClientSession, ClientResponseError, FormData
+from aiohttp import ClientResponseError, ClientSession, FormData
 from emoji import emojize
-from voluptuous import Schema, Any, Optional, Match, ALLOW_EXTRA
+from voluptuous import ALLOW_EXTRA, Any, Match, Optional, Schema
 
 import imirror
 

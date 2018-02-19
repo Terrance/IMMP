@@ -1,8 +1,8 @@
-from asyncio import ensure_future, wait, BoundedSemaphore, Queue, CancelledError
+from asyncio import BoundedSemaphore, CancelledError, Queue, ensure_future, wait
 import logging
 
 from .error import TransportError
-from .util import pretty_str, OpenState, Openable
+from .util import Openable, OpenState, pretty_str
 
 
 log = logging.getLogger(__name__)

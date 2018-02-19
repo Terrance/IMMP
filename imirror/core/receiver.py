@@ -1,4 +1,4 @@
-from .util import pretty_str, Openable
+from .util import Openable, pretty_str
 
 
 @pretty_str

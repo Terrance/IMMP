@@ -1,8 +1,8 @@
-from asyncio import gather, BoundedSemaphore
+from asyncio import BoundedSemaphore, gather
 from collections import defaultdict
 import logging
 
-from voluptuous import Schema, All, Any, Length, Optional, ALLOW_EXTRA
+from voluptuous import ALLOW_EXTRA, All, Any, Length, Optional, Schema
 
 import imirror
 from imirror.receiver.command import Commandable

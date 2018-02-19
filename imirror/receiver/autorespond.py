@@ -1,6 +1,6 @@
 import re
 
-from voluptuous import Schema, All, Optional, Length, ALLOW_EXTRA
+from voluptuous import ALLOW_EXTRA, All, Length, Optional, Schema
 
 import imirror
 from imirror.receiver.command import Commandable

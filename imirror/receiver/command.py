@@ -1,7 +1,7 @@
 import logging
 from shlex import split
 
-from voluptuous import Schema, All, Length, ALLOW_EXTRA
+from voluptuous import ALLOW_EXTRA, All, Length, Schema
 
 import imirror
 

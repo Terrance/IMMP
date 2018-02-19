@@ -3,9 +3,9 @@ import logging
 import sys
 
 import anyconfig
-from voluptuous import Schema, Optional, REMOVE_EXTRA
+from voluptuous import REMOVE_EXTRA, Optional, Schema
 
-from imirror import Host, Channel, resolve_import
+from imirror import Channel, Host, resolve_import
 
 
 logging.getLogger("anyconfig").setLevel(logging.WARNING)

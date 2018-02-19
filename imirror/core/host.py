@@ -1,4 +1,4 @@
-from asyncio import wait, ensure_future, CancelledError
+from asyncio import CancelledError, ensure_future, wait
 import logging
 
 from .error import ConfigError

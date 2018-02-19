@@ -1,10 +1,10 @@
-from asyncio import sleep, ensure_future, CancelledError
+from asyncio import CancelledError, ensure_future, sleep
 from collections import defaultdict
 from datetime import datetime
 import logging
 
-from aiohttp import ClientSession, ClientError, ClientResponseError, FormData
-from voluptuous import Schema, Any, All, Optional, ALLOW_EXTRA
+from aiohttp import ClientError, ClientResponseError, ClientSession, FormData
+from voluptuous import ALLOW_EXTRA, All, Any, Optional, Schema
 
 import imirror
 

@@ -1,4 +1,4 @@
-from asyncio import sleep, ensure_future
+from asyncio import ensure_future, sleep
 from itertools import count
 import logging
 

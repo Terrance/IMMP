@@ -2,7 +2,10 @@ import code
 from collections import deque
 import logging
 
-from voluptuous import Schema, Any, Optional, ALLOW_EXTRA
+from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
+
+import imirror
+
 
 try:
     import ptpython.repl
@@ -13,8 +16,6 @@ try:
     import aioconsole
 except ImportError:
     aioconsole = None
-
-import imirror
 
 
 log = logging.getLogger(__name__)
