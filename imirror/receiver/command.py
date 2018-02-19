@@ -1,8 +1,12 @@
+import logging
 from shlex import split
 
 from voluptuous import Schema, All, Length, ALLOW_EXTRA
 
 import imirror
+
+
+log = logging.getLogger(__name__)
 
 
 class _Schema(object):
@@ -26,7 +30,7 @@ class Commandable(object):
             (str, function) dict:
                 Mapping from command names to callback functions.
         """
-        raise NotImplementedError
+        return {}
 
 
 class CommandReceiver(imirror.Receiver):
@@ -63,7 +67,11 @@ class CommandReceiver(imirror.Receiver):
             if not isinstance(receiver, Commandable):
                 raise imirror.ConfigError("Receiver '{}' does not support commands"
                                           .format(label)) from None
-            self.commands.update(receiver.commands())
+            commands = receiver.commands()
+            if not commands:
+                return
+            log.debug("Adding commands for receiver '{}': {}".format(label, ", ".join(commands)))
+            self.commands.update(commands)
 
     async def process(self, channel, msg):
         await super().process(channel, msg)
