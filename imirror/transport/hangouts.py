@@ -291,6 +291,28 @@ class HangoutsTransport(imirror.Transport):
         else:
             return [HangoutsUser.from_user(self, user) for user in conv.users]
 
+    async def channel_invite(self, channel, user):
+        try:
+            conv = self._convs.get(channel.source)
+        except KeyError:
+            return
+        request = hangouts_pb2.AddUserRequest(
+            request_header=self._client.get_request_header(),
+            event_request_header=conv._get_event_request_header(),
+            invitee_id=[hangouts_pb2.InviteeID(gaia_id=user.id)])
+        await self._client.add_user(request)
+
+    async def channel_remove(self, channel, user):
+        try:
+            conv = self._convs.get(channel.source)
+        except KeyError:
+            return
+        request = hangouts_pb2.RemoveUserRequest(
+            request_header=self._client.get_request_header(),
+            event_request_header=conv._get_event_request_header(),
+            participant_id=hangouts_pb2.ParticipantId(gaia_id=user.id))
+        await self._client.remove_user(request)
+
     async def put(self, channel, msg):
         if msg.deleted:
             # We can't delete messages on this side.

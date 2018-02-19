@@ -215,6 +215,28 @@ class Transport(Openable):
         """
         return None
 
+    async def channel_invite(self, channel, user):
+        """
+        Add the given user to the channel's list of members.
+
+        Args:
+            channel (.Channel):
+                Requested channel instance.
+            user (.User):
+                New user to invite.
+        """
+
+    async def channel_remove(self, channel, user):
+        """
+        Remove the given user from the channel's list of members.
+
+        Args:
+            channel (.Channel):
+                Requested channel instance.
+            user (.User):
+                Existing user to kick.
+        """
+
     def queue(self, channel, msg):
         """
         Add a new message to the queue, picked up from :meth:`get` by default.
