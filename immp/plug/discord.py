@@ -6,7 +6,7 @@ from aiohttp import ClientSession, FormData
 import discord
 from voluptuous import ALLOW_EXTRA, Optional, Schema
 
-import imirror
+import immp
 
 
 log = logging.getLogger(__name__)
@@ -21,13 +21,13 @@ class _Schema(object):
     webhook = Schema({"id": str}, extra=ALLOW_EXTRA, required=True)
 
 
-class DiscordAPIError(imirror.TransportError):
+class DiscordAPIError(immp.PlugError):
     """
     Generic error from the Slack API.
     """
 
 
-class DiscordUser(imirror.User):
+class DiscordUser(immp.User):
     """
     User present in Discord.
     """
@@ -38,8 +38,8 @@ class DiscordUser(imirror.User):
         Convert a :class:`discord.User` into a :class:`.User`.
 
         Args:
-            discord (.DiscordTransport):
-                Related transport instance that provides the user.
+            discord (.DiscordPlug):
+                Related plug instance that provides the user.
             user (discord.User):
                 Hangups user object retrieved from the user list.
 
@@ -51,14 +51,14 @@ class DiscordUser(imirror.User):
         real_name = getattr(user, "nick", None) or user.name
         avatar = user.avatar_url or None
         return cls(id=user.id,
-                   transport=discord,
+                   plug=discord,
                    username=username,
                    real_name=real_name,
                    avatar=avatar,
                    raw=user)
 
 
-class DiscordRichText(imirror.RichText):
+class DiscordRichText(immp.RichText):
 
     tags = {"**": "bold", "_": "italic", "~": "strike", "`": "code", "```": "pre"}
 
@@ -88,7 +88,7 @@ class DiscordRichText(imirror.RichText):
         return text
 
 
-class DiscordMessage(imirror.Message):
+class DiscordMessage(immp.Message):
     """
     Message originating from Discord.
     """
@@ -99,8 +99,8 @@ class DiscordMessage(imirror.Message):
         Convert a :class:`discord.Message` into a :class:`.Message`.
 
         Args:
-            discord (.DiscordTransport):
-                Related transport instance that provides the event.
+            discord (.DiscordPlug):
+                Related plug instance that provides the event.
             message (discord.Message):
                 Discord message object received from a channel.
 
@@ -114,16 +114,16 @@ class DiscordMessage(imirror.Message):
             # TODO: Rich text.
             text = message.content
         for attach in message.attachments:
-            type = imirror.File.Type.unknown
+            type = immp.File.Type.unknown
             if attach.filename.rsplit(".", 1)[1] in ("jpg", "png", "gif"):
-                type = imirror.File.Type.image
-            attachments.append(imirror.File(title=attach.filename,
-                                            type=type,
-                                            source=attach.url))
+                type = immp.File.Type.image
+            attachments.append(immp.File(title=attach.filename,
+                                         type=type,
+                                         source=attach.url))
         for embed in message.embeds:
             if embed.image.url and embed.image.url.rsplit(".", 1)[1] in ("jpg", "png", "gif"):
-                attachments.append(imirror.File(type=imirror.File.Type.image,
-                                                source=embed.image.url))
+                attachments.append(immp.File(type=immp.File.Type.image,
+                                             source=embed.image.url))
         return (discord.host.resolve_channel(discord, message.channel.id),
                 cls(id=message.id,
                     at=message.created_at,
@@ -138,22 +138,22 @@ class DiscordClient(discord.Client):
     Subclass of the underlying client to bind events.
     """
 
-    def __init__(self, transport, **kwargs):
+    def __init__(self, plug, **kwargs):
         super().__init__(**kwargs)
-        self._transport = transport
+        self._plug = plug
 
     async def on_ready(self):
-        with await self._transport._starting:
-            self._transport._starting.notify_all()
+        with await self._plug._starting:
+            self._plug._starting.notify_all()
 
     async def on_message(self, message):
-        channel, msg = DiscordMessage.from_message(self._transport, message)
-        self._transport.queue(channel, msg)
+        channel, msg = DiscordMessage.from_message(self._plug, message)
+        self._plug.queue(channel, msg)
 
 
-class DiscordTransport(imirror.Transport):
+class DiscordPlug(immp.Plug):
     """
-    Transport for a `Discord <https://discordapp.com>`_ server.
+    Plug for a `Discord <https://discordapp.com>`_ server.
 
     Config:
         token (str):
@@ -163,7 +163,7 @@ class DiscordTransport(imirror.Transport):
             names and avatars.
     """
 
-    class Meta(imirror.Transport.Meta):
+    class Meta(immp.Plug.Meta):
         network = "Discord"
 
     def __init__(self, name, config, host):
@@ -202,10 +202,10 @@ class DiscordTransport(imirror.Transport):
         if not isinstance(user.raw, (discord.Member, discord.User)):
             return None
         dm = user.raw.dm_channel or (await user.raw.create_dm())
-        return imirror.Channel(None, self, dm.id)
+        return immp.Channel(None, self, dm.id)
 
     async def channel_members(self, channel):
-        if channel.transport is not self:
+        if channel.plug is not self:
             return None
         dc_channel = self._client.get_channel(channel.source)
         if dc_channel:
@@ -226,15 +226,15 @@ class DiscordTransport(imirror.Transport):
             name = msg.user.real_name or msg.user.username
             image = msg.user.avatar
         if msg.text:
-            if isinstance(msg.text, imirror.RichText):
+            if isinstance(msg.text, immp.RichText):
                 rich = msg.text.clone()
             else:
                 # Unformatted text received, make a basic rich text instance out of it.
-                rich = imirror.RichText([imirror.Segment(msg.text)])
+                rich = immp.RichText([immp.Segment(msg.text)])
             if msg.user and not webhook:
                 # Can't customise the author name, so put it in the message body.
                 prefix = ("{} " if msg.action else "{}: ").format(name)
-                rich.prepend(imirror.Segment(prefix, bold=True))
+                rich.prepend(immp.Segment(prefix, bold=True))
             if msg.action:
                 for segment in rich:
                     segment.italic = True
@@ -245,7 +245,7 @@ class DiscordTransport(imirror.Transport):
             embeds = []
             if msg.attachments:
                 for i, attach in enumerate(msg.attachments):
-                    if isinstance(attach, imirror.File) and attach.type == imirror.File.Type.image:
+                    if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
                         img_resp = await attach.get_content(self._session)
                         filename = attach.title or "image_{}".format(i)
                         embeds.append({"image": {"url": "attachment://{}".format(filename)}})
@@ -260,15 +260,15 @@ class DiscordTransport(imirror.Transport):
                 quoted_rich = None
                 quoted_action = False
                 if msg.reply_to.text:
-                    if isinstance(msg.reply_to.text, imirror.RichText):
+                    if isinstance(msg.reply_to.text, immp.RichText):
                         quoted_rich = msg.reply_to.text.clone()
                     else:
-                        quoted_rich = imirror.RichText([imirror.Segment(msg.reply_to.text)])
+                        quoted_rich = immp.RichText([immp.Segment(msg.reply_to.text)])
                 elif msg.reply_to.attachments:
                     quoted_action = True
                     count = len(msg.reply_to.attachments)
                     what = "{} files".format(count) if count > 1 else "this file"
-                    quoted_rich = imirror.RichText([imirror.Segment("sent {}".format(what))])
+                    quoted_rich = immp.RichText([immp.Segment("sent {}".format(what))])
                 if quoted_rich:
                     if quoted_action:
                         for segment in quoted_rich:
@@ -295,7 +295,7 @@ class DiscordTransport(imirror.Transport):
             file = None
             if msg.attachments:
                 for attach in msg.attachments:
-                    if isinstance(attach, imirror.File) and attach.type == imirror.File.Type.image:
+                    if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
                         img_resp = await attach.get_content(self._session)
                         filename = attach.title or "image"
                         embed = discord.Embed()
@@ -304,8 +304,8 @@ class DiscordTransport(imirror.Transport):
                         # TODO: Handle multiple attachments.
                         break
                 if embed and not rich:
-                    rich = DiscordRichText([imirror.Segment(name, bold=True, italic=True),
-                                            imirror.Segment(" shared an image", italic=True)])
+                    rich = DiscordRichText([immp.Segment(name, bold=True, italic=True),
+                                            immp.Segment(" shared an image", italic=True)])
             message = await dc_channel.send(content=DiscordRichText.to_markdown(rich),
                                             embed=embed, file=file)
             return [message.id]

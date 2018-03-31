@@ -1,7 +1,7 @@
-IMirror
-=======
+IMMP
+====
 
-A modular message processing platform.
+A modular processing platform for instant messages.
 
 Requirements
 ------------
@@ -16,20 +16,20 @@ The following extra modules are required:
 
 Further modules may also be needed for certain features:
 
-- `aioconsole <https://aioconsole.readthedocs.io>`_ (for async shell receiver)
+- `aioconsole <https://aioconsole.readthedocs.io>`_ (for async shell)
 - `anyconfig <https://python-anyconfig.readthedocs.io>`_ (for running from command-line)
-- `discord.py <https://discordpy.readthedocs.io/en/rewrite/>`_ **1.0+** (for Discord transport)
-- `hangups <https://hangups.readthedocs.io>`_ (for Hangouts transport)
-- `ptpython <https://github.com/jonathanslenders/ptpython>`_ (for shell receiver)
+- `discord.py <https://discordpy.readthedocs.io/en/rewrite/>`_ **1.0+** (for Discord)
+- `hangups <https://hangups.readthedocs.io>`_ (for Hangouts)
+- `ptpython <https://github.com/jonathanslenders/ptpython>`_ (for blocking shell)
 
 Terminology
 -----------
 
-Transport
+Plug
     A class that handles all communication with an external network.
 Channel
     A single room in an external network, containing messages and users.
-Receiver
+Hook
     A class that processes a stream of messages, in whichever way it sees fit.
 
 Basic usage
@@ -39,9 +39,9 @@ Prepare a config file in a format of your choosing, e.g. in YAML:
 
 .. code:: yaml
 
-    transports:
+    plugs:
       demo-team:
-        path: imirror.transport.slack.SlackTransport
+        path: immp.plug.slack.SlackPlug
         config:
           token: xoxb-...
 
@@ -53,15 +53,15 @@ Prepare a config file in a format of your choosing, e.g. in YAML:
         transport: demo-team
         source: G0...
 
-    receivers:
+    hooks:
       demo-sync:
-        path: imirror.receiver.sync.SyncReceiver
+        path: immp.hook.sync.SyncHook
         config:
           channels: [foo, bar]
 
 All labels under the top-level names are effectively free text, and are used to reference from
 other sections.
 
-Then run IMirror via Python as a module::
+Then run IMMP via Python as a module::
 
-    $ python -m imirror config.yaml
+    $ python -m immp config.yaml

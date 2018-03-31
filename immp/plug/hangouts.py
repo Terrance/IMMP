@@ -8,14 +8,14 @@ from urllib.parse import unquote
 import hangups
 from hangups import hangouts_pb2
 
-import imirror
+import immp
 
 
 log = logging.getLogger(__name__)
 logging.getLogger("hangups").setLevel(logging.WARNING)
 
 
-class HangoutsUser(imirror.User):
+class HangoutsUser(immp.User):
     """
     User present in Hangouts.
     """
@@ -26,8 +26,8 @@ class HangoutsUser(imirror.User):
         Convert a :class:`hangups.user.User` into a :class:`.User`.
 
         Args:
-            hangouts (.HangoutsTransport):
-                Related transport instance that provides the user.
+            hangouts (.HangoutsPlug):
+                Related plug instance that provides the user.
             user (hangups.user.User):
                 Hangups user object retrieved from the user list.
 
@@ -38,7 +38,7 @@ class HangoutsUser(imirror.User):
         # No usernames here, just the ID.
         avatar = re.sub("^//", "https://", user.photo_url)
         return cls(id=user.id_.chat_id,
-                   transport=hangouts,
+                   plug=hangouts,
                    real_name=user.full_name,
                    avatar=avatar,
                    raw=user)
@@ -49,9 +49,9 @@ class HangoutsUser(imirror.User):
             return "https://hangouts.google.com/chat/person/{}".format(self.id)
 
 
-class HangoutsSegment(imirror.Segment):
+class HangoutsSegment(immp.Segment):
     """
-    Transport-friendly representation of Hangouts message formatting.
+    Plug-friendly representation of Hangouts message formatting.
     """
 
     @classmethod
@@ -106,7 +106,7 @@ class HangoutsSegment(imirror.Segment):
 
         Args:
             segment (.Segment)
-                Message segment created by another transport.
+                Message segment created by another plug.
 
         Returns:
             hangups.ChatMessageSegment list:
@@ -120,7 +120,7 @@ class HangoutsSegment(imirror.Segment):
         return [segment for segment in segments if segment.text]
 
 
-class HangoutsMessage(imirror.Message):
+class HangoutsMessage(immp.Message):
     """
     Message originating from Hangouts.
     """
@@ -131,8 +131,8 @@ class HangoutsMessage(imirror.Message):
         Convert a :class:`hangups.ChatMessageEvent` into a :class:`.Message`.
 
         Args:
-            hangouts (.HangoutsTransport):
-                Related transport instance that provides the event.
+            hangouts (.HangoutsPlug):
+                Related plug instance that provides the event.
             event (hangups.ChatMessageEvent):
                 Hangups message event emitted from a conversation.
 
@@ -147,7 +147,7 @@ class HangoutsMessage(imirror.Message):
         attachments = []
         if isinstance(event, hangups.ChatMessageEvent):
             segments = [HangoutsSegment.from_segment(segment) for segment in event.segments]
-            text = imirror.RichText(segments)
+            text = immp.RichText(segments)
             if any(a.type == 4 for a in event._event.chat_message.annotation):
                 # This is a /me message sent from desktop Hangouts.
                 action = True
@@ -166,7 +166,7 @@ class HangoutsMessage(imirror.Message):
                         # Couldn't match the user's name to the message text.
                         pass
             for attach in event.attachments:
-                attachments.append(imirror.File(type=imirror.File.Type.image, source=attach))
+                attachments.append(immp.File(type=immp.File.Type.image, source=attach))
         elif isinstance(event, hangups.MembershipChangeEvent):
             action = True
             is_join = event.type_ == hangups.hangouts_pb2.MEMBERSHIP_CHANGE_TYPE_JOIN
@@ -205,7 +205,7 @@ class HangoutsMessage(imirror.Message):
                                         .format("en" if is_shared else "dis"))]
         else:
             raise NotImplementedError
-        text = imirror.RichText(segments)
+        text = immp.RichText(segments)
         return (hangouts.host.resolve_channel(hangouts, event.conversation_id),
                 cls(id=event.id_,
                     text=text,
@@ -217,16 +217,16 @@ class HangoutsMessage(imirror.Message):
                     raw=event))
 
 
-class HangoutsTransport(imirror.Transport):
+class HangoutsPlug(immp.Plug):
     """
-    Transport for `Google Hangouts <https://hangouts.google.com>`_.
+    Plug for `Google Hangouts <https://hangouts.google.com>`_.
 
     Config:
         cookie (str):
             Path to a cookie text file read/written by :func:`hangups.get_auth_stdin`.
     """
 
-    class Meta(imirror.Transport.Meta):
+    class Meta(immp.Plug.Meta):
         network = "Hangouts"
 
     def __init__(self, name, config, host):
@@ -234,7 +234,7 @@ class HangoutsTransport(imirror.Transport):
         try:
             self._cookie = config["cookie"]
         except KeyError:
-            raise imirror.ConfigError("Hangouts cookie file not specified") from None
+            raise immp.ConfigError("Hangouts cookie file not specified") from None
         self._client = None
         self._starting = Condition()
 
@@ -277,12 +277,12 @@ class HangoutsTransport(imirror.Transport):
         for conv in self._convs.get_all(include_archived=True):
             if conv._conversation.type == hangouts_pb2.CONVERSATION_TYPE_ONE_TO_ONE:
                 if any(part.id_.chat_id == user.id for part in conv.users):
-                    return imirror.Channel(None, self, conv.id_)
+                    return immp.Channel(None, self, conv.id_)
         # TODO: Create conversation.
         return None
 
     async def channel_members(self, channel):
-        if channel.transport is not self:
+        if channel.plug is not self:
             return None
         try:
             conv = self._convs.get(channel.source)
@@ -320,7 +320,7 @@ class HangoutsTransport(imirror.Transport):
         conv = self._convs.get(channel.source)
         media = None
         for attach in msg.attachments:
-            if isinstance(attach, imirror.File) and attach.type == imirror.File.Type.image:
+            if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
                 # Upload an image file to Hangouts.
                 async with (await attach.get_content()) as img_content:
                     # Hangups expects a file-like object with a synchronous read() method.

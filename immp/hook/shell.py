@@ -4,7 +4,7 @@ import logging
 
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
-import imirror
+import immp
 
 
 try:
@@ -32,13 +32,13 @@ class _Schema(object):
                           extra=ALLOW_EXTRA, required=True)
 
 
-class ShellReceiver(imirror.Receiver):
+class ShellHook(immp.Hook):
     """
-    A receiver to start a Python shell when a message is received.
+    A hook to start a Python shell when a message is received.
 
     .. warning::
-        The console will block all other running tasks; notably, all transports will be unable to
-        make any progress whilst the console is open.  See :class:`.AsyncShellReceiver` for an
+        The console will block all other running tasks; notably, all plugs will be unable to
+        make any progress whilst the console is open.  See :class:`.AsyncShellHook` for an
         alternative solution.
 
     Config:
@@ -58,7 +58,7 @@ class ShellReceiver(imirror.Receiver):
                 log.debug("Using ptpython console")
                 self.console = self._ptpython
             else:
-                raise imirror.TransportError("'ptpython' module not installed")
+                raise immp.PlugError("'ptpython' module not installed")
         else:
             log.debug("Using native console")
             self.console = self._code
@@ -75,15 +75,15 @@ class ShellReceiver(imirror.Receiver):
             self.console(locals(), globals())
 
 
-class AsyncShellReceiver(imirror.Receiver):
+class AsyncShellHook(immp.Hook):
     """
-    A receiver to launch an asynchonous console alongside a host instance (requires the
+    A hook to launch an asynchonous console alongside a host instance (requires the
     :mod:`aioconsole` module).  The console exposes the running :class:`.Host` instance as
-    ``host``, and the current shell receiver as ``shell``.
+    ``host``, and the current shell hook as ``shell``.
 
     .. warning::
         The console will be accessible on a locally bound port without authentication.  Do not use
-        on a shared or untrusted system, as the host and all connected transports are exposed.
+        on a shared or untrusted system, as the host and all connected plugs are exposed.
 
     Config:
         port (int):
@@ -98,14 +98,14 @@ class AsyncShellReceiver(imirror.Receiver):
         buffer (collections.deque):
             Queue of recent messages, the length defined by the ``buffer`` config entry.
         last ((.Channel, .Message) tuple):
-            Most recent message received from a connected transport.
+            Most recent message received from a connected plug.
     """
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         config = _Schema.config_async(config)
         if not aioconsole:
-            raise imirror.TransportError("'aioconsole' module not installed")
+            raise immp.PlugError("'aioconsole' module not installed")
         self.port = config["port"]
         self.buffer = deque(maxlen=config["buffer"])
         self._server = None

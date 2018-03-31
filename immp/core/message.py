@@ -15,9 +15,9 @@ class User:
 
     Attributes:
         id (str):
-            Transport-specific user identifier.
-        transport (.Transport):
-            Source transport instance, representing the domain this user comes from.
+            Plug-specific user identifier.
+        plug (.Plug):
+            Source plug instance, representing the domain this user comes from.
         username (str):
             User's chosen or allocated display name.
         real_name (str):
@@ -27,13 +27,13 @@ class User:
         link (str):
             Public profile URL, or identifier used for invites.
         raw:
-            Optional transport-specific underlying user object.
+            Optional plug-specific underlying user object.
     """
 
-    def __init__(self, *, id=None, transport=None, username=None, real_name=None, avatar=None,
+    def __init__(self, *, id=None, plug=None, username=None, real_name=None, avatar=None,
                  link=None, raw=None):
         self.id = id
-        self.transport = transport
+        self.plug = plug
         self.username = username
         self.real_name = real_name
         self.avatar = avatar
@@ -245,7 +245,7 @@ class File(Attachment):
 
     Attributes:
         title (str):
-            Name of file, if the transport supports names.
+            Name of file, if the plug supports names.
         type (.Type):
             Basic type of the file.
         source (str):
@@ -287,11 +287,11 @@ class File(Attachment):
 @pretty_str
 class Message:
     """
-    Base message object, understood by all transports.
+    Base message object, understood by all plugs.
 
     Attributes:
         id (str):
-            Unique (to the transport) message identifier.
+            Unique (to the plug) message identifier.
         at (datetime.datetime):
             Timestamp of the message according to the external server.
         original (str):
@@ -313,7 +313,7 @@ class Message:
         attachments (.Attachment list):
             Additional data included in the message.
         raw:
-            Optional transport-specific underlying message or event object.
+            Optional plug-specific underlying message or event object.
     """
 
     def __init__(self, id=None, at=None, original=None, text=None, user=None, action=False,
@@ -334,7 +334,7 @@ class Message:
     def render(self, *, real_name=True, delimiter=" ", quote_reply=False, trim=None):
         """
         Add the sender's name (if present) to the start of the message text, suitable for sending
-        as-is on transports that need all the textual message content in the body.
+        as-is on plugs that need all the textual message content in the body.
 
         Args:
             real_name (bool):

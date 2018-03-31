@@ -2,20 +2,20 @@ from .util import Openable, pretty_str
 
 
 @pretty_str
-class Receiver(Openable):
+class Hook(Openable):
     """
-    Base of all receiver classes, performs any form of processing on messages from all connected
-    transports, via the provided host instance.
+    Base of all hook classes, performs any form of processing on messages from all connected
+    plugs, via the provided host instance.
 
     Instantiation may raise :class:`.ConfigError` if the provided configuration is invalid.
 
     Attributes:
         name (str):
-            User-provided, unique name of the receiver, used for config references.
+            User-provided, unique name of the hook, used for config references.
         config (dict):
             Reference to the user-provided configuration.
         host (.Host):
-            Controlling host instance, providing access to transports.
+            Controlling host instance, providing access to plugs.
     """
 
     def __init__(self, name, config, host):
@@ -42,7 +42,7 @@ class Receiver(Openable):
             channel (.Channel):
                 Original source of this message.
             msg (.Message):
-                Original message received from another transport.
+                Original message received from another plug.
         """
 
     def __repr__(self):

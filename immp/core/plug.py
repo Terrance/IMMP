@@ -1,7 +1,7 @@
 from asyncio import BoundedSemaphore, CancelledError, Queue, ensure_future, wait
 import logging
 
-from .error import TransportError
+from .error import PlugError
 from .util import Openable, OpenState, pretty_str
 
 
@@ -11,32 +11,32 @@ log = logging.getLogger(__name__)
 @pretty_str
 class Channel:
     """
-    Container class that holds a (:class:`.Transport`, :class:`str`) pair reoresenting a room
-    inside the transport's network.
+    Container class that holds a (:class:`.Plug`, :class:`str`) pair reoresenting a room
+    inside the plug's network.
 
     Attributes:
         name (str):
-            User-provided, unique name of the transport, used for config references.
-        transport (.Transport):
-            Related transport instance where the channel resides.
+            User-provided, unique name of the plug, used for config references.
+        plug (.Plug):
+            Related plug instance where the channel resides.
         source (str):
-            Transport-specific channel identifier.
+            Plug-specific channel identifier.
     """
 
-    def __init__(self, name, transport, source):
+    def __init__(self, name, plug, source):
         self.name = name
-        self.transport = transport
+        self.plug = plug
         self.source = source
 
     async def send(self, msg):
         """
-        Push a message object to the related transport on this channel.
+        Push a message object to the related plug on this channel.
 
         Args:
             msg (.Message):
-                Original message received from another channel or transport.
+                Original message received from another channel or plug.
         """
-        return (await self.transport.send(self, msg))
+        return (await self.plug.send(self, msg))
 
     def __eq__(self, other):
         return isinstance(other, self.__class__) and self.name == other.name
@@ -46,81 +46,81 @@ class Channel:
 
     def __repr__(self):
         return "<{}: {} ({} @ {})>".format(self.__class__.__name__, self.name, self.source,
-                                           self.transport.name)
+                                           self.plug.name)
 
 
-class TransportStream:
+class PlugStream:
     """
     Manager for reading from multiple asynchronous generators in parallel.
 
     Requires a callback coroutine that accepts (:class:`.Channel`, :class:`.Message`) arguments.
     """
 
-    def __init__(self, callback, *transports):
+    def __init__(self, callback, *plugs):
         self._coros = {}
-        self._transports = {}
+        self._plugs = {}
         self.callback = callback
-        self.add(*transports)
+        self.add(*plugs)
 
-    def _queue(self, transport):
+    def _queue(self, plug):
         # Poor man's async iteration -- there's no async equivalent to next(gen).
-        log.debug("Queueing receive task for transport '{}'".format(transport.name))
-        self._transports[ensure_future(self._coros[transport].asend(None))] = transport
+        log.debug("Queueing receive task for plug '{}'".format(plug.name))
+        self._plugs[ensure_future(self._coros[plug].asend(None))] = plug
 
-    def add(self, *transports):
+    def add(self, *plugs):
         """
-        Register transports for reading.  Transports should be opened prior to registration.
+        Register plugs for reading.  Plugs should be opened prior to registration.
 
         Args:
-            transports (.Transport list):
-                Connected transport instances to register.
+            plugs (.Plug list):
+                Connected plug instances to register.
         """
-        for transport in transports:
-            if not transport.state == OpenState.active:
-                raise RuntimeError("Transport '{}' is not open".format(transport.name))
-            self._coros[transport] = transport.receive()
-            self._queue(transport)
+        for plug in plugs:
+            if not plug.state == OpenState.active:
+                raise RuntimeError("Plug '{}' is not open".format(plug.name))
+            self._coros[plug] = plug.receive()
+            self._queue(plug)
 
-    def has(self, transport):
+    def has(self, plug):
         """
-        Check for the existence of a transport in the manager.
+        Check for the existence of a plug in the manager.
 
         Args:
-            transport (.Transport):
-                Connected transport instance to check.
+            plug (.Plug):
+                Connected plug instance to check.
 
         Returns:
             bool:
-                ``True`` if a :meth:`.Transport.receive` call is still active.
+                ``True`` if a :meth:`.Plug.receive` call is still active.
         """
-        return (transport in self._coros)
+        return (plug in self._coros)
 
     async def _wait(self):
-        done, pending = await wait(list(self._transports.keys()), return_when="FIRST_COMPLETED")
+        done, pending = await wait(list(self._plugs.keys()), return_when="FIRST_COMPLETED")
         for task in done:
-            transport = self._transports[task]
+            plug = self._plugs[task]
             try:
                 channel, msg = task.result()
             except StopAsyncIteration:
-                log.debug("Transport '{}' finished yielding during process".format(transport.name))
-                del self._coros[transport]
+                log.debug("Plug '{}' finished yielding during process".format(plug.name))
+                del self._coros[plug]
             else:
                 log.debug("Received: {} {}".format(repr(channel), repr(msg)))
                 await self.callback(channel, msg)
-                self._queue(transport)
+                self._queue(plug)
             finally:
-                del self._transports[task]
+                del self._plugs[task]
 
     async def process(self):
         """
-        Retrieve messages from transports, and distribute them to receivers.
+        Retrieve messages from plugs, and distribute them to hooks.
         """
-        while self._transports:
+        while self._plugs:
             try:
                 await self._wait()
             except CancelledError:
                 log.debug("Host process cancelled, propagating to tasks")
-                for task in self._transports.keys():
+                for task in self._plugs.keys():
                     task.cancel()
                 log.debug("Resuming tasks to collect final messages")
                 await self._wait()
@@ -128,29 +128,29 @@ class TransportStream:
 
 
 @pretty_str
-class Transport(Openable):
+class Plug(Openable):
     """
-    Base of all transport classes, handles communication with an external network by converting
+    Base of all plug classes, handles communication with an external network by converting
     outside data into standardised message objects, and pushing new messages into the network.
 
     Instantiation may raise :class:`.ConfigError` if the provided configuration is invalid.
 
     Attributes:
         name (str):
-            User-provided, unique name of the transport, used for config references.
+            User-provided, unique name of the plug, used for config references.
         config (dict):
             Reference to the user-provided configuration.
         host (.Host):
-            Controlling host instance, providing access to transports.
+            Controlling host instance, providing access to plugs.
     """
 
     class Meta:
         """
-        Metadata relating to the transport or underlying network.
+        Metadata relating to the plug or underlying network.
 
         Attributes:
             network (str):
-                Readable name of the network provided by this transport.
+                Readable name of the network provided by this plug.
         """
         network = None
 
@@ -163,7 +163,7 @@ class Transport(Openable):
         self._getter = None
         # Message queue, to move processing from the event stream to the generator.
         self._queue = Queue()
-        # Receiver lock, to put a hold on retrieving messages whilst a send is in progress.
+        # Hook lock, to put a hold on retrieving messages whilst a send is in progress.
         self._lock = BoundedSemaphore()
 
     async def start(self):
@@ -181,7 +181,7 @@ class Transport(Openable):
         Terminate the external network connection.
 
         Like with :meth:`start`, this should block if needed, such that this method ends when the
-        transport can be started again.
+        plug can be started again.
         """
         await super().stop()
 
@@ -203,7 +203,7 @@ class Transport(Openable):
     async def channel_members(self, channel):
         """
         Retrieve a :class:`.User` list representing all members of the given channel.  May return
-        ``None`` if the transport doesn't recognise the channel, or is unable to query members.
+        ``None`` if the plug doesn't recognise the channel, or is unable to query members.
 
         Args:
             channel (.Channel):
@@ -245,25 +245,25 @@ class Transport(Openable):
             channel (.Channel):
                 Source channel for the incoming message.
             msg (.Message):
-                Message received and processed by the transport.
+                Message received and processed by the plug.
         """
         self._queue.put_nowait((channel, msg))
 
     async def receive(self):
         """
-        Wrapper method to receive messages from the network.  Transports should implement
+        Wrapper method to receive messages from the network.  Plugs should implement
         :meth:`get` to yield a series of channel/message pairs from a continuous source (e.g.
         listening on a socket or long-poll).  For event-driven frameworks, use :meth:`queue` to
         submit new messages, which will be handled by default.
 
         Yields:
             (.Channel, .Message) tuple:
-                Messages received and processed by the transport.
+                Messages received and processed by the plug.
         """
         if not self.state == OpenState.active:
-            raise TransportError("Can't receive messages when not active")
+            raise PlugError("Can't receive messages when not active")
         if self._getter:
-            raise TransportError("Transport is already receiving messages")
+            raise PlugError("Plug is already receiving messages")
         self._getter = self.get()
         try:
             async for channel, msg in self._getter:
@@ -288,16 +288,16 @@ class Transport(Openable):
 
         Yields:
             (.Channel, .Message) tuple:
-                Messages received and processed by the transport.
+                Messages received and processed by the plug.
         """
         try:
             while self.state == OpenState.active:
                 yield (await self._queue.get())
         except GeneratorExit:
-            log.debug("Immediate exit from transport '{}' getter".format(self.name))
+            log.debug("Immediate exit from plug '{}' getter".format(self.name))
             # Caused by gen.aclose(), in this state we can't yield any further messages.
         except CancelledError:
-            log.debug("Cancel request for transport '{}' getter".format(self.name))
+            log.debug("Cancel request for plug '{}' getter".format(self.name))
             # Fetch any remaining messages from the queue.
             if not self._queue.empty():
                 log.debug("Retrieving {} queued message(s) for '{}'"
@@ -307,21 +307,21 @@ class Transport(Openable):
 
     async def send(self, channel, msg):
         """
-        Wrapper method to send a message to the network.  Transports should implement :meth:`put`
+        Wrapper method to send a message to the network.  Plugs should implement :meth:`put`
         to convert the framework message into a native representation and submit it.
 
         Args:
             channel (.Channel):
                 Target channel for the new message.
             msg (.Message):
-                Original message received from another channel or transport.
+                Original message received from another channel or plug.
 
         Returns:
             list:
-                IDs of new messages sent to the transport.
+                IDs of new messages sent to the plug.
         """
         if not self.state == OpenState.active:
-            raise TransportError("Can't send messages when not active")
+            raise PlugError("Can't send messages when not active")
         # When sending messages asynchronously, the network will likely return the new message
         # before the send request returns with confirmation.  Use the lock when sending in order
         # return the new message ID(s) in advance of them appearing in the receive queue.
@@ -332,18 +332,18 @@ class Transport(Openable):
         """
         Take a :class:`.Message` object, and push it to the underlying network.
 
-        Because some transports may not support combinations of message components (such as text
+        Because some plugs may not support combinations of message components (such as text
         and an accompanying image), this method may send more than one physical message.
 
         Args:
             channel (.Channel):
                 Target channel for the new message.
             msg (.Message):
-                Original message received from another channel or transport.
+                Original message received from another channel or plug.
 
         Returns:
             list:
-                IDs of new messages sent to the transport.
+                IDs of new messages sent to the plug.
         """
         return []
 

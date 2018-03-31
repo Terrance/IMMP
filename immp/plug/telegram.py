@@ -6,7 +6,7 @@ import logging
 from aiohttp import ClientError, ClientResponseError, ClientSession, FormData
 from voluptuous import ALLOW_EXTRA, All, Any, Optional, Schema
 
-import imirror
+import immp
 
 
 log = logging.getLogger(__name__)
@@ -61,13 +61,13 @@ class _Schema(object):
     updates = _api([update])
 
 
-class TelegramAPIError(imirror.TransportError):
+class TelegramAPIError(immp.PlugError):
     """
     Generic error from the Telegram API.
     """
 
 
-class TelegramUser(imirror.User):
+class TelegramUser(immp.User):
     """
     User present in Telegram.
     """
@@ -78,8 +78,8 @@ class TelegramUser(imirror.User):
         Convert a user :class:`dict` (attached to a message) to a :class:`.User`.
 
         Args:
-            telegram (.TelegramTransport):
-                Related transport instance that provides the user.
+            telegram (.TelegramPlug):
+                Related plug instance that provides the user.
             json (dict):
                 Telegram API `User <https://core.telegram.org/bots/api#user>`_ object.
 
@@ -95,7 +95,7 @@ class TelegramUser(imirror.User):
         if user["username"]:
             avatar = "https://t.me/i/userpic/320/{}.jpg".format(user["username"])
         return cls(id=user["id"],
-                   transport=telegram,
+                   plug=telegram,
                    username=user["username"],
                    real_name=real_name,
                    avatar=avatar,
@@ -107,9 +107,9 @@ class TelegramUser(imirror.User):
             return "https://t.me/{}".format(self.username)
 
 
-class TelegramSegment(imirror.Segment):
+class TelegramSegment(immp.Segment):
     """
-    Transport-friendly representation of Telegram message formatting.
+    Plug-friendly representation of Telegram message formatting.
     """
 
     @classmethod
@@ -119,7 +119,7 @@ class TelegramSegment(imirror.Segment):
 
         Args:
             segment (.Segment)
-                Message segment created by another transport.
+                Message segment created by another plug.
 
         Returns:
             str:
@@ -141,7 +141,7 @@ class TelegramSegment(imirror.Segment):
         return text
 
 
-class TelegramRichText(imirror.RichText):
+class TelegramRichText(immp.RichText):
     """
     Wrapper for Telegram-specific parsing of formatting.
     """
@@ -184,7 +184,7 @@ class TelegramRichText(imirror.RichText):
         return cls(segments)
 
 
-class TelegramMessage(imirror.Message):
+class TelegramMessage(immp.Message):
     """
     Message originating from Telegram.
     """
@@ -195,8 +195,8 @@ class TelegramMessage(imirror.Message):
         Convert an API message :class:`dict` to a :class:`.Message`.
 
         Args:
-            telegram (.TelegramTransport):
-                Related transport instance that provides the event.
+            telegram (.TelegramPlug):
+                Related plug instance that provides the event.
             json (dict):
                 Telegram API `message <https://core.telegram.org/bots/api#message>`_ object.
 
@@ -256,7 +256,7 @@ class TelegramMessage(imirror.Message):
             file = await telegram._api("getFile", _Schema.file, params=params)
             url = ("https://api.telegram.org/file/bot{}/{}"
                    .format(telegram._token, file["file_path"]))
-            attachments.append(imirror.File(type=imirror.File.Type.image, source=url))
+            attachments.append(immp.File(type=immp.File.Type.image, source=url))
         return (telegram.host.resolve_channel(telegram, message["chat"]["id"]),
                 cls(id=message["message_id"],
                     at=datetime.fromtimestamp(message["date"]),
@@ -275,8 +275,8 @@ class TelegramMessage(imirror.Message):
         Convert an API update :class:`dict` to a :class:`.Message`.
 
         Args:
-            telegram (.TelegramTransport):
-                Related transport instance that provides the event.
+            telegram (.TelegramPlug):
+                Related plug instance that provides the event.
             update (dict):
                 Telegram API `update <https://core.telegram.org/bots/api#update>`_ object.
 
@@ -294,16 +294,16 @@ class TelegramMessage(imirror.Message):
                 return (channel, msg)
 
 
-class TelegramTransport(imirror.Transport):
+class TelegramPlug(immp.Plug):
     """
-    Transport for a `Telegram <https://telegram.org>`_ bot.
+    Plug for a `Telegram <https://telegram.org>`_ bot.
 
     Config:
         token (str):
             Telegram API token for a bot user (obtained from ``@BotFather``).
     """
 
-    class Meta(imirror.Transport.Meta):
+    class Meta(immp.Plug.Meta):
         network = "Telegram"
 
     def __init__(self, name, config, host):
@@ -354,7 +354,7 @@ class TelegramTransport(imirror.Transport):
             # Can't create private channels, users must initiate conversations with bots.
             return None
         else:
-            return imirror.Channel(None, self, user.id)
+            return immp.Channel(None, self, user.id)
 
     # channel_members: TG provides no API to get a current member list, and join/part messages are
     # unreliable for tracking membership as they're sent inconsistently.
@@ -370,7 +370,7 @@ class TelegramTransport(imirror.Transport):
             return []
         parts = []
         for attach in msg.attachments:
-            if isinstance(attach, imirror.File) and attach.type == imirror.File.Type.image:
+            if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
                 # Upload an image file to Telegram in its own message.
                 # Prefer a source URL if available, else fall back to re-uploading the file.
                 data = FormData({"chat_id": str(channel.source)})
@@ -396,7 +396,7 @@ class TelegramTransport(imirror.Transport):
         return sent
 
     async def get(self):
-        while self.state == imirror.OpenState.active and not self._closing:
+        while self.state == immp.OpenState.active and not self._closing:
             log.debug("Making long-poll request")
             params = {"offset": self._offset,
                       "timeout": 240}
@@ -404,7 +404,7 @@ class TelegramTransport(imirror.Transport):
             try:
                 result = await self._receive
             except CancelledError:
-                log.debug("Cancel request for transport '{}' getter".format(self.name))
+                log.debug("Cancel request for plug '{}' getter".format(self.name))
                 return
             except TelegramAPIError as e:
                 log.debug("Unexpected response or timeout: {}".format(e))

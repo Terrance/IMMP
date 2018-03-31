@@ -4,7 +4,7 @@ class ConfigError(Exception):
     """
 
 
-class TransportError(Exception):
+class PlugError(Exception):
     """
-    Error for transport-specific problems.
+    Error for plug-specific problems.
     """

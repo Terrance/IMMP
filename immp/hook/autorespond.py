@@ -2,8 +2,8 @@ import re
 
 from voluptuous import ALLOW_EXTRA, All, Length, Optional, Schema
 
-import imirror
-from imirror.receiver.command import Commandable
+import immp
+from immp.hook.command import Commandable
 
 
 class _Schema(object):
@@ -13,7 +13,7 @@ class _Schema(object):
                     extra=ALLOW_EXTRA, required=True)
 
 
-class AutoRespondReceiver(imirror.Receiver, Commandable):
+class AutoRespondHook(immp.Hook, Commandable):
     """
     Basic text responses for given trigger words and phrases.
 
@@ -39,7 +39,7 @@ class AutoRespondReceiver(imirror.Receiver, Commandable):
             try:
                 self.channels.append(host.channels[channel])
             except KeyError:
-                raise imirror.ConfigError("No channel '{}' on host".format(channel)) from None
+                raise immp.ConfigError("No channel '{}' on host".format(channel)) from None
         self._sent = []
 
     def commands(self):
@@ -48,11 +48,11 @@ class AutoRespondReceiver(imirror.Receiver, Commandable):
 
     async def add(self, channel, msg, match, response):
         self.responses[match] = response
-        await channel.send(imirror.Message(text="\U00002705 Added"))
+        await channel.send(immp.Message(text="\U00002705 Added"))
 
     async def remove(self, channel, msg, match):
         del self.responses[match]
-        await channel.send(imirror.Message(text="\U00002705 Removed"))
+        await channel.send(immp.Message(text="\U00002705 Removed"))
 
     async def process(self, channel, msg):
         await super().process(channel, msg)
@@ -65,5 +65,5 @@ class AutoRespondReceiver(imirror.Receiver, Commandable):
         text = str(msg.text)
         for match, response in self.responses.items():
             if re.search(match, text, re.I):
-                for id in await channel.send(imirror.Message(text=response)):
+                for id in await channel.send(immp.Message(text=response)):
                     self._sent.append((channel, id))

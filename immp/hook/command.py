@@ -3,7 +3,7 @@ from shlex import split
 
 from voluptuous import ALLOW_EXTRA, All, Length, Schema
 
-import imirror
+import immp
 
 
 log = logging.getLogger(__name__)
@@ -13,18 +13,18 @@ class _Schema(object):
 
     config = Schema({"prefix": str,
                      "channels": All([str], Length(min=1)),
-                     "receivers": [str]},
+                     "hooks": [str]},
                     extra=ALLOW_EXTRA, required=True)
 
 
 class Commandable(object):
     """
-    Interface for receivers to implement, allowing them to provide their own commands.
+    Interface for hooks to implement, allowing them to provide their own commands.
     """
 
     def commands(self):
         """
-        Generate a list of commands to be registered with the command receiver.
+        Generate a list of commands to be registered with the command hook.
 
         Returns:
             (str, function) dict:
@@ -33,9 +33,9 @@ class Commandable(object):
         return {}
 
 
-class CommandReceiver(imirror.Receiver):
+class CommandHook(immp.Hook):
     """
-    Generic command handler for other receivers.
+    Generic command handler for other hooks.
 
     Config:
         prefix (str):
@@ -44,8 +44,8 @@ class CommandReceiver(imirror.Receiver):
             followed by a space for subcommands (e.g. ``"!bot "`` for ``!bot help``).
         channels (str list):
             List of channels to process commands in.
-        receivers (str list):
-            List of receivers to enable commands for.
+        hooks (str list):
+            List of hooks to enable commands for.
     """
 
     def __init__(self, name, config, host):
@@ -57,20 +57,20 @@ class CommandReceiver(imirror.Receiver):
             try:
                 self.channels.append(host.channels[label])
             except KeyError:
-                raise imirror.ConfigError("No channel '{}' on host".format(label)) from None
+                raise immp.ConfigError("No channel '{}' on host".format(label)) from None
         self.commands = {}
-        for label in config["receivers"]:
+        for label in config["hooks"]:
             try:
-                receiver = host.receivers[label]
+                hook = host.hooks[label]
             except KeyError:
-                raise imirror.ConfigError("No receiver '{}' on host".format(label)) from None
-            if not isinstance(receiver, Commandable):
-                raise imirror.ConfigError("Receiver '{}' does not support commands"
-                                          .format(label)) from None
-            commands = receiver.commands()
+                raise immp.ConfigError("No hook '{}' on host".format(label)) from None
+            if not isinstance(hook, Commandable):
+                raise immp.ConfigError("Hook '{}' does not support commands"
+                                       .format(label)) from None
+            commands = hook.commands()
             if not commands:
                 return
-            log.debug("Adding commands for receiver '{}': {}".format(label, ", ".join(commands)))
+            log.debug("Adding commands for hook '{}': {}".format(label, ", ".join(commands)))
             self.commands.update(commands)
 
     async def process(self, channel, msg):

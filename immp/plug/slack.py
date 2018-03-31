@@ -10,7 +10,7 @@ from aiohttp import ClientResponseError, ClientSession, FormData
 from emoji import emojize
 from voluptuous import ALLOW_EXTRA, Any, Match, Optional, Schema
 
-import imirror
+import immp
 
 
 log = logging.getLogger(__name__)
@@ -105,13 +105,13 @@ class _Schema(object):
     history = _api({"messages": [message]})
 
 
-class SlackAPIError(imirror.TransportError):
+class SlackAPIError(immp.PlugError):
     """
     Generic error from the Slack API.
     """
 
 
-class SlackUser(imirror.User):
+class SlackUser(immp.User):
     """
     User present in Slack.
 
@@ -120,16 +120,16 @@ class SlackUser(imirror.User):
             Reference to the Slack integration app for a bot user.
     """
 
-    def __init__(self, id=None, transport=None, username=None, real_name=None, avatar=None,
+    def __init__(self, id=None, plug=None, username=None, real_name=None, avatar=None,
                  bot_id=None, raw=None):
         super().__init__(id=id,
-                         transport=transport,
+                         plug=plug,
                          username=username,
                          real_name=real_name,
                          avatar=avatar,
                          raw=raw)
         self.bot_id = bot_id
-        self._workspace = transport._team["domain"]
+        self._workspace = plug._team["domain"]
 
     @property
     def link(self):
@@ -149,8 +149,8 @@ class SlackUser(imirror.User):
         Convert an API member :class:`dict` to a :class:`.User`.
 
         Args:
-            slack (.SlackTransport):
-                Related transport instance that provides the user.
+            slack (.SlackPlug):
+                Related plug instance that provides the user.
             json (dict):
                 Slack API `user <https://api.slack.com/types/user>`_ object.
 
@@ -160,7 +160,7 @@ class SlackUser(imirror.User):
         """
         member = _Schema.user(json)
         return cls(id=member["id"],
-                   transport=slack,
+                   plug=slack,
                    username=member["name"],
                    real_name=member["profile"]["real_name"],
                    avatar=cls._best_image(member["profile"]),
@@ -168,7 +168,7 @@ class SlackUser(imirror.User):
                    raw=json)
 
 
-class SlackRichText(imirror.RichText):
+class SlackRichText(immp.RichText):
     """
     Wrapper for Slack-specific parsing of formatting.
     """
@@ -205,8 +205,8 @@ class SlackRichText(imirror.RichText):
         Convert a string of Slack's Mrkdwn into a :class:`.RichText`.
 
         Args:
-            slack (.SlackTransport):
-                Related transport instance that provides the text.
+            slack (.SlackPlug):
+                Related plug instance that provides the text.
             text (str):
                 Slack-style formatted text.
 
@@ -245,7 +245,7 @@ class SlackRichText(imirror.RichText):
             part = re.sub(r"<@([^\|>]+)(?:\|[^>]+)?>", partial(cls._sub_user, slack), part)
             part = re.sub(r"<#([^\|>]+)(?:\|[^>]+)?>", partial(cls._sub_channel, slack), part)
             part = re.sub(r"<([^\|>]+)(?:\|([^>]+))?>", cls._sub_link, part)
-            segments.append(imirror.Segment(part, **changes[start]))
+            segments.append(immp.Segment(part, **changes[start]))
         return cls(segments)
 
     @classmethod
@@ -285,7 +285,7 @@ class SlackRichText(imirror.RichText):
         return text
 
 
-class SlackFile(imirror.File):
+class SlackFile(immp.File):
 
     def __init__(self, slack, title=None, type=None, source=None):
         super().__init__(title=title, type=type)
@@ -304,8 +304,8 @@ class SlackFile(imirror.File):
         Convert an API file :class:`dict` to a :class:`.File`.
 
         Args:
-            slack (.SlackTransport):
-                Related transport instance that provides the file.
+            slack (.SlackPlug):
+                Related plug instance that provides the file.
             json (dict):
                 Slack API `file <https://api.slack.com/types/file>`_ data.
 
@@ -314,16 +314,16 @@ class SlackFile(imirror.File):
                 Parsed file object.
         """
         file = _Schema.file(json)
-        type = imirror.File.Type.unknown
+        type = immp.File.Type.unknown
         if file["mimetype"].startswith("image/"):
-            type = imirror.File.Type.image
+            type = immp.File.Type.image
         return cls(slack,
                    title=file["name"],
                    type=type,
                    source=file["url_private"])
 
 
-class SlackMessage(imirror.Message):
+class SlackMessage(immp.Message):
     """
     Message originating from Slack.
     """
@@ -334,8 +334,8 @@ class SlackMessage(imirror.Message):
         Convert an API event :class:`dict` to a :class:`.Message`.
 
         Args:
-            slack (.SlackTransport):
-                Related transport instance that provides the event.
+            slack (.SlackPlug):
+                Related plug instance that provides the event.
             json (dict):
                 Slack API `message <https://api.slack.com/events/message>`_ event data.
 
@@ -371,7 +371,7 @@ class SlackMessage(imirror.Message):
             text = event["text"]
         user = None
         if author:
-            user = slack._users.get(author, SlackUser(id=author, transport=slack))
+            user = slack._users.get(author, SlackUser(id=author, plug=slack))
         if event["subtype"] in ("file_share", "file_mention"):
             action = True
             attachments.append(SlackFile.from_file(slack, event["file"]))
@@ -411,9 +411,9 @@ class SlackMessage(imirror.Message):
                     raw=json))
 
 
-class SlackTransport(imirror.Transport):
+class SlackPlug(immp.Plug):
     """
-    Transport for a `Slack <https://slack.com>`_ team.
+    Plug for a `Slack <https://slack.com>`_ team.
 
     Config:
         token (str):
@@ -424,7 +424,7 @@ class SlackTransport(imirror.Transport):
             Avatar to display for incoming messages without a user or image (default: none).
     """
 
-    class Meta(imirror.Transport.Meta):
+    class Meta(immp.Plug.Meta):
         network = "Slack"
 
     def __init__(self, name, config, host):
@@ -509,15 +509,15 @@ class SlackTransport(imirror.Transport):
             return
         for direct in self._directs.values():
             if direct["user"] == user.id:
-                return imirror.Channel(None, self, direct["id"])
+                return immp.Channel(None, self, direct["id"])
         # Private channel doesn't exist yet or isn't cached.
         params = {"user": user.id,
                   "return_im": "true"}
         opened = await self._api("im.open", _Schema.im_open, params=params)
-        return imirror.Channel(None, self, opened["channel"]["id"])
+        return immp.Channel(None, self, opened["channel"]["id"])
 
     async def channel_members(self, channel):
-        if channel.transport is not self:
+        if channel.plug is not self:
             return None
         members = await self._paged("conversations.members", _Schema.members, "members",
                                     data={"channel": channel.source})
@@ -530,7 +530,7 @@ class SlackTransport(imirror.Transport):
         uploads = []
         sent = []
         for attach in msg.attachments:
-            if isinstance(attach, imirror.File):
+            if isinstance(attach, immp.File):
                 # Upload each file to Slack.
                 data = FormData({"channels": channel.source,
                                  "filename": attach.title or ""})
@@ -557,10 +557,10 @@ class SlackTransport(imirror.Transport):
                 "username": name,
                 "icon_url": image}
         if msg.text:
-            if isinstance(msg.text, imirror.RichText):
+            if isinstance(msg.text, immp.RichText):
                 rich = msg.text.clone()
             else:
-                rich = imirror.RichText([imirror.Segment(msg.text)])
+                rich = immp.RichText([immp.Segment(msg.text)])
             if msg.action:
                 for segment in rich:
                     segment.italic = True
@@ -577,15 +577,15 @@ class SlackTransport(imirror.Transport):
             quoted_rich = None
             quoted_action = False
             if msg.reply_to.text:
-                if isinstance(msg.reply_to.text, imirror.RichText):
+                if isinstance(msg.reply_to.text, immp.RichText):
                     quoted_rich = msg.reply_to.text.clone()
                 else:
-                    quoted_rich = imirror.RichText([imirror.Segment(msg.reply_to.text)])
+                    quoted_rich = immp.RichText([immp.Segment(msg.reply_to.text)])
             elif msg.reply_to.attachments:
                 quoted_action = True
                 count = len(msg.reply_to.attachments)
                 what = "{} files".format(count) if count > 1 else "this file"
-                quoted_rich = imirror.RichText([imirror.Segment("sent {}".format(what))])
+                quoted_rich = immp.RichText([immp.Segment("sent {}".format(what))])
             if quoted_rich:
                 if quoted_action:
                     for segment in quoted_rich:
@@ -598,12 +598,12 @@ class SlackTransport(imirror.Transport):
         return sent
 
     async def get(self):
-        while self.state == imirror.OpenState.active and not self._closing:
+        while self.state == immp.OpenState.active and not self._closing:
             self._receive = ensure_future(self._socket.receive_json())
             try:
                 json = await self._receive
             except CancelledError:
-                log.debug("Cancel request for transport '{}' getter".format(self.name))
+                log.debug("Cancel request for plug '{}' getter".format(self.name))
                 return
             except TypeError as e:
                 if self._closing:

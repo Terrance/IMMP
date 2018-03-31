@@ -4,8 +4,8 @@ import logging
 
 from voluptuous import ALLOW_EXTRA, All, Any, Length, Optional, Schema
 
-import imirror
-from imirror.receiver.command import Commandable
+import immp
+from immp.hook.command import Commandable
 
 
 log = logging.getLogger(__name__)
@@ -14,41 +14,41 @@ log = logging.getLogger(__name__)
 class _Schema(object):
 
     config = Schema({"channels": All([str], Length(min=1)),
-                     Optional("transport", default=None): Any(str, None)},
+                     Optional("plug", default=None): Any(str, None)},
                     extra=ALLOW_EXTRA, required=True)
 
 
-class SyncTransport(imirror.Transport):
+class SyncPlug(immp.Plug):
     """
-    A virtual transport that allows sending external messages to a sync.
+    A virtual plug that allows sending external messages to a sync.
     """
 
-    def __init__(self, name, receiver, host):
+    def __init__(self, name, hook, host):
         super().__init__(name, {}, host)
-        self._receiver = receiver
+        self._hook = hook
 
     async def send(self, channel, msg):
-        if channel == self._receiver.channel:
-            return await self._receiver.send(msg)
+        if channel == self._hook.channel:
+            return await self._hook.send(msg)
 
 
-class SyncReceiver(imirror.Receiver, Commandable):
+class SyncHook(immp.Hook, Commandable):
     """
-    A receiver to propagate messages between two or more channels.
+    A hook to propagate messages between two or more channels.
 
-    If ``transport`` is specified, a virtual transport is registered under that name, with a
-    single channel of the same name.  Other receivers may reference this channel to work with
+    If ``plug`` is specified, a virtual plug is registered under that name, with a
+    single channel of the same name.  Other hooks may reference this channel to work with
     all channels in that sync, to either listen for messages or submit new ones.
 
     Config:
         channels (str list):
             List of channel names to manage.
-        transport (str):
-            Name of a virtual transport to register for this sync.
+        plug (str):
+            Name of a virtual plug to register for this sync.
 
     Attributes:
-        transport (.SyncTransport):
-            Virtual transport for this sync, if configured.
+        plug (.SyncPlug):
+            Virtual plug for this sync, if configured.
     """
 
     def __init__(self, name, config, host):
@@ -59,22 +59,22 @@ class SyncReceiver(imirror.Receiver, Commandable):
             try:
                 self.channels.append(host.channels[channel])
             except KeyError:
-                raise imirror.ConfigError("No channel '{}' on host".format(channel)) from None
+                raise immp.ConfigError("No channel '{}' on host".format(channel)) from None
         # Message cache, stores mappings of synced message IDs keyed by channel.
         # [{Channel(): [id, ...], ...}, ...]
         self._synced = []
-        # Receiver lock, to put a hold on retrieving messages whilst a send is in progress.
+        # Hook lock, to put a hold on retrieving messages whilst a send is in progress.
         self._lock = BoundedSemaphore()
-        # Add a virtual transport to the host, for external subscribers.
-        if config["transport"]:
-            tname = config["transport"]
-            log.debug("Creating virtual transport '{}'".format(tname))
-            self.transport = SyncTransport(tname, self, host)
-            host.add_transport(self.transport)
-            self.channel = imirror.Channel(tname, self.transport, None)
+        # Add a virtual plug to the host, for external subscribers.
+        if config["plug"]:
+            tname = config["plug"]
+            log.debug("Creating virtual plug '{}'".format(tname))
+            self.plug = SyncPlug(tname, self, host)
+            host.add_plug(self.plug)
+            self.channel = immp.Channel(tname, self.plug, None)
             host.add_channel(self.channel)
         else:
-            self.transport = None
+            self.plug = None
 
     def commands(self):
         return {"sync-members": self.members}
@@ -83,30 +83,30 @@ class SyncReceiver(imirror.Receiver, Commandable):
         members = defaultdict(list)
         missing = False
         for synced in self.channels:
-            local = (await synced.transport.channel_members(synced))
+            local = (await synced.plug.channel_members(synced))
             if local:
-                members[synced.transport.Meta.network] += local
+                members[synced.plug.Meta.network] += local
             else:
                 missing = True
         if not members:
             return
-        text = imirror.RichText([imirror.Segment("Members of this conversation:")])
+        text = immp.RichText([immp.Segment("Members of this conversation:")])
         for network in sorted(members):
-            text.append(imirror.Segment("\n{}".format(network), bold=True))
+            text.append(immp.Segment("\n{}".format(network), bold=True))
             for member in sorted(members[network],
                                  key=lambda member: member.real_name or member.username):
                 name = member.real_name or member.username
-                text.append(imirror.Segment("\n"))
+                text.append(immp.Segment("\n"))
                 if member.link:
-                    text.append(imirror.Segment(name, link=member.link))
+                    text.append(immp.Segment(name, link=member.link))
                 elif member.real_name and member.username:
-                    text.append(imirror.Segment("{} [{}]".format(name, member.username)))
+                    text.append(immp.Segment("{} [{}]".format(name, member.username)))
                 else:
-                    text.append(imirror.Segment(name))
+                    text.append(immp.Segment(name))
         if missing:
-            text.append(imirror.Segment("\n"),
-                        imirror.Segment("(list may be incomplete)"))
-        await channel.send(imirror.Message(user=imirror.User(real_name="Sync"), text=text))
+            text.append(immp.Segment("\n"),
+                        immp.Segment("(list may be incomplete)"))
+        await channel.send(immp.Message(user=immp.User(real_name="Sync"), text=text))
 
     async def _noop_send(self, msg):
         return [msg.id]
@@ -130,8 +130,8 @@ class SyncReceiver(imirror.Receiver, Commandable):
         for channel in self.channels:
             # If it's the channel we just got the message from, return the ID without resending.
             queue.append(self._noop_send(msg) if channel == source else channel.send(msg))
-        # Just like with transports, when sending a new (external) message to all channels in a
-        # sync, we need to wait for all transports to complete before processing further messages.
+        # Just like with plugs, when sending a new (external) message to all channels in a
+        # sync, we need to wait for all plugs to complete before processing further messages.
         with (await self._lock):
             # Send all the messages in parallel, and match the resulting IDs up by channel.
             sent = dict(zip(self.channels, await gather(*queue)))
@@ -153,5 +153,5 @@ class SyncReceiver(imirror.Receiver, Commandable):
         log.debug("Syncing message to {} channel(s): {}".format(len(self.channels) - 1, repr(msg)))
         await self.send(msg, channel)
         # Push a copy of the message to the sync channel, if running.
-        if self.transport:
-            self.transport.queue(self.channel, msg)
+        if self.plug:
+            self.plug.queue(self.channel, msg)
