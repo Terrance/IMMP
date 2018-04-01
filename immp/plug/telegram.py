@@ -4,7 +4,7 @@ from datetime import datetime
 import logging
 
 from aiohttp import ClientError, ClientResponseError, ClientSession, FormData
-from voluptuous import ALLOW_EXTRA, All, Any, Optional, Schema
+from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
 
@@ -46,19 +46,21 @@ class _Schema(object):
                                   "channel_post", "edited_channel_post")): message},
                     extra=ALLOW_EXTRA, required=True)
 
-    def _api(nested=All()):
-        return Schema(Any({"ok": True,
-                           "result": nested},
+    def api(result=None):
+        success = {"ok": True}
+        if result:
+            success["result"] = result
+        return Schema(Any(success,
                           {"ok": False,
                            "description": str,
                            "error_code": int},
                           extra=ALLOW_EXTRA, required=True))
 
-    file = _api({"file_path": str})
+    file = api({"file_path": str})
 
-    send = _api({"message_id": int})
+    send = api({"message_id": int})
 
-    updates = _api([update])
+    updates = api([update])
 
 
 class TelegramAPIError(immp.PlugError):
@@ -316,7 +318,7 @@ class TelegramPlug(immp.Plug):
         # Update ID from which to retrieve the next batch.  Should be one higher than the max seen.
         self._offset = 0
 
-    async def _api(self, endpoint, schema=_Schema._api(), **kwargs):
+    async def _api(self, endpoint, schema=_Schema.api(), **kwargs):
         url = "https://api.telegram.org/bot{}/{}".format(self._token, endpoint)
         try:
             async with self._session.post(url, **kwargs) as resp:
