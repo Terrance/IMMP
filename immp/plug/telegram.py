@@ -115,11 +115,13 @@ class TelegramSegment(immp.Segment):
     """
 
     @classmethod
-    def to_html(cls, segment):
+    def to_html(cls, telegram, segment):
         """
         Convert a :class:`.Segment` into HTML suitable for Telegram's automatic parsing.
 
         Args:
+            telegram (.TelegramPlug):
+                Related plug instance to cross-reference users.
             segment (.Segment)
                 Message segment created by another plug.
 
@@ -130,7 +132,15 @@ class TelegramSegment(immp.Segment):
         text = segment.text
         # Any form of tag nesting (e.g. bold inside italic) isn't supported, so at most one type of
         # formatting may apply for each segment.
-        if segment.link:
+        if segment.mention and isinstance(segment.mention.plug, TelegramPlug):
+            if segment.mention.username:
+                # Telegram will parse this automatically.
+                text = "@{}".format(segment.mention.username)
+            else:
+                # Make a link that looks like a mention.
+                text = ("<a href=\"tg://user?id={}\">@{}</a>"
+                        .format(segment.mention.id, segment.mention.real_name))
+        elif segment.link:
             text = "<a href=\"{}\">{}</a>".format(segment.link, text)
         elif segment.pre:
             text = "<pre>{}</pre>".format(text)
@@ -387,7 +397,7 @@ class TelegramPlug(immp.Plug):
                 parts.append(("sendPhoto", data))
         if msg.text or msg.reply_to:
             rich = msg.render(quote_reply=True)
-            text = "".join(TelegramSegment.to_html(segment) for segment in rich)
+            text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
             parts.append(("sendMessage", {"chat_id": channel.source,
                                           "text": text,
                                           "parse_mode": "HTML"}))

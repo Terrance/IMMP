@@ -77,10 +77,12 @@ class Segment:
             Whether this segment should be preformatted.
         link (str):
             Anchor URL if this segment represents a clickable link.
+        mention (.User):
+            Target user mentioned in this segment.
     """
 
     def __init__(self, text, *, bold=False, italic=False, underline=False, strike=False,
-                 code=False, pre=False, link=None):
+                 code=False, pre=False, link=None, mention=None):
         self.text = text
         self.bold = bold
         self.italic = italic
@@ -89,6 +91,7 @@ class Segment:
         self.code = code
         self.pre = pre
         self.link = link
+        self.mention = mention
 
     def __len__(self):
         return len(self.text)
@@ -103,9 +106,8 @@ class Segment:
         return self.text
 
     def __repr__(self):
-        attrs = [" {}".format(attr)
-                 for attr in ("bold", "italic", "underline", "strike", "code", "pre", "link")
-                 if getattr(self, attr)]
+        attrs = [" {}".format(attr) for attr in ("bold", "italic", "underline", "strike", "code",
+                                                 "pre", "link", "mention") if getattr(self, attr)]
         return "<{}: {}{}>".format(self.__class__.__name__, repr(self.text), "".join(attrs))
 
 

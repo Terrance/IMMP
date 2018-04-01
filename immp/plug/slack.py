@@ -233,6 +233,9 @@ class SlackRichText(immp.RichText):
             # Store the link target; the link tag will be removed after segmenting.
             changes[match.start()]["link"] = match.group(1)
             changes[match.end()]["link"] = None
+        for match in re.finditer(r"<@([^\|>]+)(?:\|[^>]+)?>", text):
+            changes[match.start()]["mention"] = slack._users[match.group(1)]
+            changes[match.end()]["mention"] = None
         segments = []
         points = list(changes.keys())
         # Iterate through text in change start/end pairs.
@@ -240,20 +243,25 @@ class SlackRichText(immp.RichText):
             if start == end:
                 # Zero-length segment at the start or end, ignore it.
                 continue
-            # Strip Slack user/channel tags, replace with a plain-text representation.
-            part = emojize(text[start:end], use_aliases=True)
-            part = re.sub(r"<@([^\|>]+)(?:\|[^>]+)?>", partial(cls._sub_user, slack), part)
-            part = re.sub(r"<#([^\|>]+)(?:\|[^>]+)?>", partial(cls._sub_channel, slack), part)
-            part = re.sub(r"<([^\|>]+)(?:\|([^>]+))?>", cls._sub_link, part)
+            if "mention" in changes[start]:
+                user = changes[start]["mention"]
+                part = "@{}".format(user.username or user.real_name)
+            else:
+                part = emojize(text[start:end], use_aliases=True)
+                # Strip Slack user/channel tags, replace with a plain-text representation.
+                part = re.sub(r"<#([^\|>]+)(?:\|[^>]+)?>", partial(cls._sub_channel, slack), part)
+                part = re.sub(r"<([^\|>]+)(?:\|([^>]+))?>", cls._sub_link, part)
             segments.append(immp.Segment(part, **changes[start]))
         return cls(segments)
 
     @classmethod
-    def to_mrkdwn(cls, rich):
+    def to_mrkdwn(cls, slack, rich):
         """
-        Convert a string of Slack's Mrkdwn into a :class:`.RichText`.
+        Convert a :class:`.RichText` instance into a string of Slack's Mrkdwn.
 
         Args:
+            slack (.SlackPlug):
+                Related plug instance to cross-reference users.
             rich (.SlackRichText):
                 Parsed rich text container.
 
@@ -275,7 +283,9 @@ class SlackRichText(immp.RichText):
                 if getattr(segment, attr) and tag not in active:
                     text += tag
                     active.append(tag)
-            if segment.link:
+            if segment.mention and slack.same_team(segment.mention.plug):
+                text += "<@{}>".format(segment.mention.id)
+            elif segment.link:
                 text += "<{}|{}>".format(segment.link, segment.text)
             else:
                 text += segment.text
@@ -438,6 +448,20 @@ class SlackPlug(immp.Plug):
         self._session = self._socket = self._receive = None
         self._closing = False
 
+    def same_team(self, other):
+        """
+        Test if two Slack plugs represent the same team.
+
+        Arguments:
+            other (.SlackPlug):
+                Second plug instance to compare with.
+
+        Returns:
+            bool:
+                ``True`` if both plugs are connected to the same team.
+        """
+        return isinstance(other, self.__class__) and self._team["id"] == other._team["id"]
+
     async def _api(self, endpoint, schema, params=None, **kwargs):
         params = params or {}
         params["token"] = self._token
@@ -564,7 +588,7 @@ class SlackPlug(immp.Plug):
             if msg.action:
                 for segment in rich:
                     segment.italic = True
-            data["text"] = SlackRichText.to_mrkdwn(rich)
+            data["text"] = SlackRichText.to_mrkdwn(self, rich)
         elif uploads:
             what = "{} files".format(len(uploads)) if len(uploads) > 1 else "this file"
             data["text"] = "_shared {}_".format(what)
@@ -590,7 +614,7 @@ class SlackPlug(immp.Plug):
                 if quoted_action:
                     for segment in quoted_rich:
                         segment.italic = True
-                quote["text"] = SlackRichText.to_mrkdwn(quoted_rich)
+                quote["text"] = SlackRichText.to_mrkdwn(self, quoted_rich)
                 quote["mrkdwn_in"] = ["text"]
             data["attachments"] = json_dumps([quote])
         post = await self._api("chat.postMessage", _Schema.post, data=data)

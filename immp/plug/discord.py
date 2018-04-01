@@ -1,9 +1,12 @@
 from asyncio import Condition, ensure_future
+from collections import defaultdict
 from json import dumps as json_dumps
 import logging
+import re
 
 from aiohttp import ClientSession, FormData
 import discord
+from emoji import emojize
 from voluptuous import ALLOW_EXTRA, Optional, Schema
 
 import immp
@@ -63,7 +66,58 @@ class DiscordRichText(immp.RichText):
     tags = {"**": "bold", "_": "italic", "~": "strike", "`": "code", "```": "pre"}
 
     @classmethod
-    def to_markdown(cls, rich):
+    def from_markdown(cls, discord, text):
+        """
+        Convert a string of Markdown into a :class:`.RichText`.
+
+        Args:
+            discord (.DiscordPlug):
+                Related plug instance that provides the text.
+            text (str):
+                Markdown formatted text.
+
+        Returns:
+            .DiscordRichText:
+                Parsed rich text container.
+        """
+        # TODO: Full Markdown parser.
+        mentions = defaultdict(dict)
+        for match in re.finditer(r"<@?([^\>]+)>", text):
+            user = discord._client.get_user(int(match.group(1)))
+            if user:
+                mentions[match.start()] = DiscordUser.from_user(discord, user)
+                mentions[match.end()] = None
+        segments = []
+        points = list(mentions.keys())
+        # Iterate through text in change start/end pairs.
+        for start, end in zip([0] + points, points + [len(text)]):
+            if start == end:
+                # Zero-length segment at the start or end, ignore it.
+                continue
+            if mentions[start]:
+                user = mentions[start]
+                part = "@{}".format(user.username or user.real_name)
+            else:
+                user = None
+                part = emojize(text[start:end], use_aliases=True)
+            segments.append(immp.Segment(part, mention=user))
+        return cls(segments)
+
+    @classmethod
+    def to_markdown(cls, discord, rich):
+        """
+        Convert a :class:`.RichText` instance into a Markdown string.
+
+        Args:
+            discord (.DiscordPlug):
+                Related plug instance to cross-reference users.
+            rich (.DiscordRichText):
+                Parsed rich text container.
+
+        Returns:
+            str:
+                Markdown formatted text.
+        """
         text = ""
         active = []
         for segment in rich.normalise():
@@ -78,7 +132,9 @@ class DiscordRichText(immp.RichText):
                 if getattr(segment, attr) and tag not in active:
                     text += tag
                     active.append(tag)
-            if segment.link:
+            if segment.mention and isinstance(segment.mention.plug, DiscordPlug):
+                text += "<@{}>".format(segment.mention.id)
+            elif segment.link:
                 text += "[{}]({})".format(segment.text, segment.link)
             else:
                 text += segment.text
@@ -127,7 +183,7 @@ class DiscordMessage(immp.Message):
         return (discord.host.resolve_channel(discord, message.channel.id),
                 cls(id=message.id,
                     at=message.created_at,
-                    text=text,
+                    text=DiscordRichText.from_markdown(discord, text),
                     user=DiscordUser.from_user(discord, message.author),
                     attachments=attachments,
                     raw=message))
@@ -273,7 +329,7 @@ class DiscordPlug(immp.Plug):
                     if quoted_action:
                         for segment in quoted_rich:
                             segment.italic = True
-                    quote["description"] = DiscordRichText.to_markdown(quoted_rich)
+                    quote["description"] = DiscordRichText.to_markdown(self, quoted_rich)
                 embeds.append(quote)
             # Null values aren't accepted, only add name/image to data if they're set.
             if name:
@@ -281,7 +337,7 @@ class DiscordPlug(immp.Plug):
             if image:
                 payload["avatar_url"] = image
             if rich:
-                payload["content"] = DiscordRichText.to_markdown(rich.normalise())
+                payload["content"] = DiscordRichText.to_markdown(self, rich.normalise())
             if embeds:
                 payload["embeds"] = embeds
             data.add_field("payload_json", json_dumps(payload))
@@ -306,6 +362,6 @@ class DiscordPlug(immp.Plug):
                 if embed and not rich:
                     rich = DiscordRichText([immp.Segment(name, bold=True, italic=True),
                                             immp.Segment(" shared an image", italic=True)])
-            message = await dc_channel.send(content=DiscordRichText.to_markdown(rich),
+            message = await dc_channel.send(content=DiscordRichText.to_markdown(self, rich),
                                             embed=embed, file=file)
             return [message.id]
