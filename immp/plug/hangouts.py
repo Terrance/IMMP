@@ -36,7 +36,7 @@ class HangoutsUser(immp.User):
                 Parsed user object.
         """
         # No usernames here, just the ID.
-        avatar = re.sub("^//", "https://", user.photo_url)
+        avatar = re.sub("^//", "https://", user.photo_url) if user.photo_url else None
         return cls(id=user.id_.chat_id,
                    plug=hangouts,
                    real_name=user.full_name,
@@ -270,6 +270,10 @@ class HangoutsPlug(immp.Plug):
         if self._client:
             log.debug("Requesting client disconnect")
             await self._client.disconnect()
+
+    async def user_from_id(self, id):
+        user = self._users.get_user(hangups.user.UserID(chat_id=id, gaia_id=id))
+        return HangoutsUser.from_user(self, user) if user else None
 
     async def private_channel(self, user):
         if not isinstance(user, HangoutsUser) or not isinstance(user.raw, hangups.user.User):

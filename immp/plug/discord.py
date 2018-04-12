@@ -252,6 +252,17 @@ class DiscordPlug(immp.Plug):
             await self._session.close()
             self._session = None
 
+    async def user_from_id(self, id):
+        user = await self._client.get_user_info(id)
+        return DiscordUser.from_user(self, user) if user else None
+
+    async def user_from_username(self, username):
+        for guild in self._client.guilds:
+            member = guild.get_member_named(username)
+            if member:
+                return DiscordUser.from_user(self, member)
+        return None
+
     async def private_channel(self, user):
         if not isinstance(user, DiscordUser):
             return None

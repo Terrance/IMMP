@@ -528,6 +528,15 @@ class SlackPlug(immp.Plug):
             await self._session.close()
             self._session = None
 
+    async def user_from_id(self, id):
+        return self._users.get(id)
+
+    async def user_from_username(self, username):
+        for id, user in self._users.items():
+            if user.username == username:
+                return user
+        return None
+
     async def private_channel(self, user):
         if not isinstance(user, SlackUser):
             return

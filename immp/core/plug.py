@@ -185,6 +185,34 @@ class Plug(Openable):
         """
         await super().stop()
 
+    async def user_from_id(self, id):
+        """
+        Retrieve a :class:`.User` based on the underlying network's identifier.
+
+        Args:
+            id:
+                Network identifier of the user.
+
+        Returns:
+            .User:
+                Corresponding user instance.
+        """
+        return None
+
+    async def user_from_username(self, username):
+        """
+        Retrieve a :class:`.User` based on the underlying network's username.
+
+        Args:
+            username:
+                Network username of the user.
+
+        Returns:
+            .User:
+                Corresponding user instance.
+        """
+        return None
+
     async def private_channel(self, user):
         """
         Retrieve a :class:`.Channel` representing a private (one-to-one) conversation between a
