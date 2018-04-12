@@ -18,7 +18,8 @@ log = logging.getLogger(__name__)
 class _Schema(object):
 
     config = Schema({"token": str,
-                     Optional("webhooks", default={}): dict},
+                     Optional("webhooks", default={}): dict,
+                     Optional("playing"): str},
                     extra=ALLOW_EXTRA, required=True)
 
     webhook = Schema({"id": str}, extra=ALLOW_EXTRA, required=True)
@@ -217,6 +218,8 @@ class DiscordPlug(immp.Plug):
         webhooks (dict):
             Mapping from Discord channel IDs to webhook URLs, needed for custom message author
             names and avatars.
+        playing (str):
+            Game activity message to show as the bot's presence.
     """
 
     class Meta(immp.Plug.Meta):
@@ -240,6 +243,8 @@ class DiscordPlug(immp.Plug):
         with await self._starting:
             # Block until the client is ready.
             await self._starting.wait()
+        if self.config["playing"]:
+            await self._client.change_presence(activity=discord.Game(self.config["playing"]))
 
     async def stop(self):
         await super().stop()
