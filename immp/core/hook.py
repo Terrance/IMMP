@@ -47,3 +47,12 @@ class Hook(Openable):
 
     def __repr__(self):
         return "<{}: {}>".format(self.__class__.__name__, self.name)
+
+
+class ResourceHook(Hook):
+    """
+    Variant of hooks that globally provide access to some resource.
+
+    Only one of each class may be loaded, which happens before regular hooks, and such hooks are
+    keyed by their class rather than a name, allowing for easier lookups.
+    """

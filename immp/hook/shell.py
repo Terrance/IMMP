@@ -32,7 +32,7 @@ class _Schema(object):
                           extra=ALLOW_EXTRA, required=True)
 
 
-class ShellHook(immp.Hook):
+class ShellHook(immp.ResourceHook):
     """
     A hook to start a Python shell when a message is received.
 
@@ -75,7 +75,7 @@ class ShellHook(immp.Hook):
             self.console(locals(), globals())
 
 
-class AsyncShellHook(immp.Hook):
+class AsyncShellHook(immp.ResourceHook):
     """
     A hook to launch an asynchonous console alongside a host instance (requires the
     :mod:`aioconsole` module).  The console exposes the running :class:`.Host` instance as

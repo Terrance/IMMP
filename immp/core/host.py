@@ -2,8 +2,9 @@ from asyncio import CancelledError, ensure_future, wait
 import logging
 
 from .error import ConfigError
+from .hook import ResourceHook
 from .plug import Channel, PlugStream
-from .util import pretty_str
+from .util import OpenState, pretty_str
 
 
 log = logging.getLogger(__name__)
@@ -25,6 +26,8 @@ class Host:
             Collection of all registered plug instances, keyed by name.
         hooks ((str, .Hook) dict):
             Collection of all registered message hooks, keyed by name.
+        resources ((class, .ResourceHook) dict):
+            Collection of all registered resource hooks, keyed by class.
         running (bool):
             Whether messages from plugs are being processed by the host.
     """
@@ -33,6 +36,7 @@ class Host:
         self.plugs = {}
         self.channels = {}
         self.hooks = {}
+        self.resources = {}
         self._stream = self._process = None
 
     @property
@@ -132,10 +136,18 @@ class Host:
             hook (.Hook):
                 Existing hook instance to add.
         """
-        if hook.name in self.hooks:
-            raise ConfigError("Hook name '{}' already registered".format(hook.name))
-        log.debug("Adding hook: {}".format(hook.name))
-        self.hooks[hook.name] = hook
+        if isinstance(hook, ResourceHook):
+            if any(issubclass(hook.__class__, cls) for cls in self.resources):
+                raise ConfigError("Resource hook type '{}' or superclass already registered"
+                                  .format(hook.__class__.__name__))
+            log.debug("Adding resource hook: '{}' ({})"
+                      .format(hook.name, hook.__class__.__name__))
+            self.resources[hook.__class__] = hook
+        else:
+            if hook.name in self.hooks:
+                raise ConfigError("Hook name '{}' already registered".format(hook.name))
+            log.debug("Adding hook: {}".format(hook.name))
+            self.hooks[hook.name] = hook
 
     def remove_hook(self, name):
         """
@@ -148,7 +160,14 @@ class Host:
         try:
             del self.hooks[name]
         except KeyError:
-            raise RuntimeError("Hook '{}' not registered to host".format(name)) from None
+            remove = []
+            for cls, hook in self.resources.values():
+                if hook.name == name:
+                    remove.append(cls)
+            if not remove:
+                raise RuntimeError("Hook '{}' not registered to host".format(name)) from None
+            for cls in remove:
+                del self.resources[cls]
 
     def resolve_channel(self, plug, source):
         """
@@ -175,6 +194,7 @@ class Host:
         Connect all open plugs and start all hooks.
         """
         await wait([plug.open() for plug in self.plugs.values()])
+        await wait([hook.open() for hook in self.resources.values()])
         await wait([hook.open() for hook in self.hooks.values()])
 
     async def close(self):
@@ -182,10 +202,14 @@ class Host:
         Disconnect all open plugs and stop all hooks.
         """
         await wait([hook.close() for hook in self.hooks.values()])
+        await wait([hook.close() for hook in self.resources.values()])
         await wait([plug.close() for plug in self.plugs.values()])
 
     async def _callback(self, channel, msg):
-        await wait([hook.process(channel, msg) for hook in self.hooks.values()])
+        await wait([hook.process(channel, msg) for hook in self.resources.values()
+                    if hook.state == OpenState.active])
+        await wait([hook.process(channel, msg) for hook in self.hooks.values()
+                    if hook.state == OpenState.active])
 
     async def process(self):
         """
@@ -201,9 +225,8 @@ class Host:
 
     async def run(self):
         """
-        Main entry point for running a host as a full application.  Opens all plugs and
-        hooks, blocks (when awaited) for the duration of :meth:`process`, and closes all
-        openables during shutdown.
+        Main entry point for running as a full application.  Opens all plugs and hooks, blocks
+        (when awaited) for the duration of :meth:`process`, and closes openables during shutdown.
         """
         if self._process:
             raise RuntimeError("Host is already running")
