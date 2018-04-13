@@ -1,4 +1,5 @@
 from asyncio import CancelledError, ensure_future, wait
+from itertools import chain
 import logging
 
 from .error import ConfigError
@@ -206,10 +207,20 @@ class Host:
         await wait([plug.close() for plug in self.plugs.values()])
 
     async def _callback(self, channel, msg):
-        await wait([hook.process(channel, msg) for hook in self.resources.values()
-                    if hook.state == OpenState.active])
-        await wait([hook.process(channel, msg) for hook in self.hooks.values()
-                    if hook.state == OpenState.active])
+        for hook in chain(self.resources.values(), self.hooks.values()):
+            if not hook.state == OpenState.active:
+                continue
+            result = await hook.preprocess(channel, msg)
+            if result:
+                channel, msg = result
+            else:
+                # Message has been suppressed by a hook.
+                break
+        else:
+            await wait([hook.process(channel, msg) for hook in self.resources.values()
+                        if hook.state == OpenState.active])
+            await wait([hook.process(channel, msg) for hook in self.hooks.values()
+                        if hook.state == OpenState.active])
 
     async def process(self):
         """
