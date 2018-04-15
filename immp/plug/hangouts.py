@@ -1,3 +1,22 @@
+"""
+Connect to `Google Hangouts <https://hangouts.google.com>`_ as a regular user.
+
+Config:
+    cookie (str):
+        Path to a cookie text file read/written by :func:`hangups.get_auth_stdin`.
+
+The cookie file is used by hangups to store the access token.  If the file doesn't exist or is
+invalid, you will be prompted for Google account credentials at startup.  You can generate a new
+cookie file manually by interacting with hangups directly::
+
+    $ python -m hangups.auth
+
+This will generate a cookie file called *refresh_token.txt* in the current directory.
+
+.. note::
+    This plug requires the `hangups <https://hangups.readthedocs.io>`_ Python module.
+"""
+
 from asyncio import Condition, ensure_future
 from copy import copy
 from io import BytesIO
@@ -220,10 +239,6 @@ class HangoutsMessage(immp.Message):
 class HangoutsPlug(immp.Plug):
     """
     Plug for `Google Hangouts <https://hangouts.google.com>`_.
-
-    Config:
-        cookie (str):
-            Path to a cookie text file read/written by :func:`hangups.get_auth_stdin`.
     """
 
     class Meta(immp.Plug.Meta):

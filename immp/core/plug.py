@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 @pretty_str
 class Channel:
     """
-    Container class that holds a (:class:`.Plug`, :class:`str`) pair reoresenting a room
+    Container class that holds a (:class:`.Plug`, :class:`str`) pair representing a room
     inside the plug's network.
 
     Attributes:

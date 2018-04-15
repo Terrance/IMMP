@@ -1,3 +1,21 @@
+"""
+Bridge multiple channels into a single unified conversation.
+
+Config:
+    channels (str list):
+        List of channel names to manage.
+    plug (str):
+        Name of a virtual plug to register for this sync.
+
+When a message is received from any of the listed channels, a copy is pushed to all other channels
+participating in the bridge.
+
+If ``plug`` is specified, a virtual plug is registered under that name, with a single channel of
+the same name.  Other hooks may reference this channel, to work with all channels in that sync as
+one.  This allows them to listen to a unified stream of messages, or push new messages to all
+synced channels.
+"""
+
 from asyncio import BoundedSemaphore, gather
 from collections import defaultdict
 import logging
@@ -20,7 +38,7 @@ class _Schema(object):
 
 class SyncPlug(immp.Plug):
     """
-    A virtual plug that allows sending external messages to a sync.
+    Virtual plug that allows sending external messages to a synced conversation.
     """
 
     def __init__(self, name, hook, host):
@@ -34,17 +52,7 @@ class SyncPlug(immp.Plug):
 
 class SyncHook(immp.Hook, Commandable):
     """
-    A hook to propagate messages between two or more channels.
-
-    If ``plug`` is specified, a virtual plug is registered under that name, with a
-    single channel of the same name.  Other hooks may reference this channel to work with
-    all channels in that sync, to either listen for messages or submit new ones.
-
-    Config:
-        channels (str list):
-            List of channel names to manage.
-        plug (str):
-            Name of a virtual plug to register for this sync.
+    Hook to propagate messages between two or more channels.
 
     Attributes:
         plug (.SyncPlug):

@@ -49,8 +49,8 @@ class Host:
         """
         Register a plug to the host.
 
-        If the host is already running, use :meth:`join_plug` instead, which will start the
-        plug and begin processing messages straight away.
+        If the host is already running, use :meth:`join_plug` instead, which will start the plug
+        and begin processing messages straight away.
 
         Args:
             plug (.Plug):
@@ -84,8 +84,8 @@ class Host:
         Unregister an existing plug.
 
         .. warning::
-            This will not notify any hooks with a reference to this plug, nor will it
-            attempt to remove it from their state.
+            This will not notify any hooks with a reference to this plug, nor will it attempt to
+            remove it from their state.
 
         Args:
             name (str):
@@ -153,6 +153,10 @@ class Host:
     def remove_hook(self, name):
         """
         Unregister an existing hook.
+
+        .. warning::
+            This will not notify any dependent hooks with a reference to this hook, nor will it
+            attempt to remove it from their state.
 
         Args:
             name (str):

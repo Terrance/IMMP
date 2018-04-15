@@ -1,3 +1,23 @@
+"""
+Connect to a `Slack <https://slack.com>`_ workspace as a bot.
+
+Config:
+    token (str):
+        Slack API token for a bot user.
+    fallback-name (str):
+        Name to display for incoming messages without an attached user (default: ``IMMP``).
+    fallback-image (str):
+        Avatar to display for incoming messages without a user or image (default: none).
+
+You'll need to create either a full `Slack App <https://api.slack.com/apps>`_ and add a bot, or
+a `Bot Integration <https://my.slack.com/apps/A0F7YS25R-bots>`_.  In either case, you should end up
+with a token prefixed ``xoxb-``.
+
+If multiple Slack workspaces are involved, you will need a separate bot and plug setup per team.
+Enterprise Grid support has not been tested, and will likely have issues if plugs are configured
+for two workspaces in the same grid.
+"""
+
 from asyncio import CancelledError, ensure_future, sleep
 from collections import defaultdict
 from datetime import datetime
@@ -19,7 +39,7 @@ log = logging.getLogger(__name__)
 class _Schema(object):
 
     config = Schema({"token": str,
-                     Optional("fallback-name", default="Bridge"): str,
+                     Optional("fallback-name", default="IMMP"): str,
                      Optional("fallback-image", default=None): Any(str, None)},
                     extra=ALLOW_EXTRA, required=True)
 
@@ -424,14 +444,6 @@ class SlackMessage(immp.Message):
 class SlackPlug(immp.Plug):
     """
     Plug for a `Slack <https://slack.com>`_ team.
-
-    Config:
-        token (str):
-            Slack API token for a bot user (usually starts ``xoxb-``).
-        fallback-name (str):
-            Name to display for incoming messages without an attached user (default: ``Bridge``).
-        fallback-image (str):
-            Avatar to display for incoming messages without a user or image (default: none).
     """
 
     class Meta(immp.Plug.Meta):

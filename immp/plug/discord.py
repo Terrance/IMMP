@@ -1,3 +1,30 @@
+"""
+Connect to `Discord <https://discordapp.com>`_ as a bot.
+
+Config:
+    token (str):
+        Discord token for the bot user.
+    webhooks (dict):
+        Mapping from Discord channel IDs to webhook URLs, needed for custom message author
+        names and avatars.
+    playing (str):
+        Optional game activity message to show as the bot's presence.
+
+Note that the token is neither a client ID nor client secret -- you need to enable bot features for
+your app, and collect the token from there.  New apps can be created from the `My Apps
+<https://discordapp.com/developers/applications/me>`_ page in the developer docs.
+
+Because gateway connections can't customise the sender when pushing new messages, you may also want
+an `incoming webhook <https://discordapp.com/developers/docs/resources/webhook>`_  configured for
+each channel you intend to send messages to.  A new webhook can be created over the API, or in the
+UI via Edit Channel > Webhooks.  A fallback style incorporating the user's name in the message text
+will be used in lieu of a webhook, e.g. with direct messages.
+
+.. note::
+    This plug requires the **new 1.0 release** of the `discord.py
+    <https://discordpy.readthedocs.io/en/rewrite/>`_ Python module, which is currently in alpha.
+"""
+
 from asyncio import Condition, ensure_future
 from collections import defaultdict
 from json import dumps as json_dumps
@@ -27,7 +54,7 @@ class _Schema(object):
 
 class DiscordAPIError(immp.PlugError):
     """
-    Generic error from the Slack API.
+    Generic error from the Discord API.
     """
 
 
@@ -211,15 +238,6 @@ class DiscordClient(discord.Client):
 class DiscordPlug(immp.Plug):
     """
     Plug for a `Discord <https://discordapp.com>`_ server.
-
-    Config:
-        token (str):
-            Discord token for a bot user.
-        webhooks (dict):
-            Mapping from Discord channel IDs to webhook URLs, needed for custom message author
-            names and avatars.
-        playing (str):
-            Game activity message to show as the bot's presence.
     """
 
     class Meta(immp.Plug.Meta):

@@ -1,3 +1,55 @@
+"""
+Interact with and debug a running app in the console.
+
+Synchronous
+~~~~~~~~~~~
+
+Config:
+    all (bool):
+        ``True`` to process any message, ``False`` (default) to restrict to defined channels.
+    console (str):
+        Use a different embedded console.  By default, :meth:`code.interact` is used, but set this
+        to ``ptpython`` (requires the `ptpython <https://github.com/jonathanslenders/ptpython>`_
+        Python module) for a more functional shell.
+
+When a new message is received, a console will launch in the terminal where your app is running.
+The variables :data:`channel` and :data:`msg` are defined in the local scope, whilst :data:`self`
+refers to the shell hook itself.
+
+.. warning::
+    The console will block all other running tasks; notably, all plugs will be unable to make any
+    progress whilst the console is open.
+
+Asynchronous
+~~~~~~~~~~~~
+
+Config:
+    port (int):
+        Port to bind the console on.  Once running, one can connect using e.g. netcat.  See
+        `aioconsole's docs <https://aioconsole.readthedocs.io/en/latest/#serving-the-console>`_
+        for more info.
+    buffer (int):
+        Number of received messages to keep at any one time (default: no limit).  When a new
+        message comes in and the queue is full, the oldest message will be discarded.
+
+At startup, a console will be launched on the given port.  You can connect to it from a separate
+terminal, for example::
+
+    $ rlwrap nc localhost $PORT
+
+Use of ``rlwrap`` provides you with readline-style keybinds, such as ↑ and ↓ to navigate through
+previous commands.  The variables :data:`shell` and :data:`host` are defined, refering to the shell
+hook and the running :class:`.Host` respectively.  This hook also maintains a cache of messages as
+they're received, accessible via :attr:`.AsyncShellHook.buffer`.
+
+.. note::
+    This hook requires the `aioconsole <https://aioconsole.readthedocs.io>`_ Python module.
+
+.. warning::
+    The console will be accessible on a locally bound port without authentication.  Do not use on
+    shared or untrusted systems, as the host and all connected plugs are exposed.
+"""
+
 import code
 from collections import deque
 import logging
@@ -34,19 +86,7 @@ class _Schema(object):
 
 class ShellHook(immp.ResourceHook):
     """
-    A hook to start a Python shell when a message is received.
-
-    .. warning::
-        The console will block all other running tasks; notably, all plugs will be unable to
-        make any progress whilst the console is open.  See :class:`.AsyncShellHook` for an
-        alternative solution.
-
-    Config:
-        all (bool):
-            ``True`` to process any message, ``False`` (default) to restrict to defined channels.
-        console (str):
-            Use a different embedded console.  By default, :meth:`code.interact` is used, but set
-            this to ``ptpython`` for an alternative shell (requires the :mod:`ptpython` module).
+    Hook to start a Python shell when a message is received.
     """
 
     def __init__(self, name, config, host):
@@ -77,22 +117,7 @@ class ShellHook(immp.ResourceHook):
 
 class AsyncShellHook(immp.ResourceHook):
     """
-    A hook to launch an asynchonous console alongside a host instance (requires the
-    :mod:`aioconsole` module).  The console exposes the running :class:`.Host` instance as
-    ``host``, and the current shell hook as ``shell``.
-
-    .. warning::
-        The console will be accessible on a locally bound port without authentication.  Do not use
-        on a shared or untrusted system, as the host and all connected plugs are exposed.
-
-    Config:
-        port (int):
-            Port to bind the console on.  Once running, one can connect using e.g. netcat.  See
-            `aioconsole's docs <https://aioconsole.readthedocs.io/en/latest/#serving-the-console>`_
-            for more info.
-        buffer (int):
-            Number of received messages to keep at any one time (default: no limit).  When a new
-            message comes in and the queue is full, the oldest message will be discarded.
+    Hook to launch an asynchonous console alongside a :class:`.Host` instance.
 
     Attributes:
         buffer (collections.deque):

@@ -1,3 +1,15 @@
+"""
+Connect to `Telegram <https://telegram.org>`_ as a bot.
+
+Config:
+    token (str):
+        Telegram API token for a bot user.
+
+Bots can be created by talking to `@BotFather <https://t.me/BotFather>`_.  Use the ``/token``
+command to retrieve your API token.  You should also call ``/setprivacy`` to grant the bot
+permission to see all messages as they come in.
+"""
+
 from asyncio import CancelledError, ensure_future, sleep
 from collections import defaultdict
 from datetime import datetime
@@ -309,10 +321,6 @@ class TelegramMessage(immp.Message):
 class TelegramPlug(immp.Plug):
     """
     Plug for a `Telegram <https://telegram.org>`_ bot.
-
-    Config:
-        token (str):
-            Telegram API token for a bot user (obtained from ``@BotFather``).
     """
 
     class Meta(immp.Plug.Meta):

@@ -1,3 +1,23 @@
+"""
+Backbone for other hooks to process commands contained in channel messages.
+
+Config:
+    prefix (str):
+        Characters at the start of a message to denote commands.  Use a single character to
+        make commands top-level (e.g. ``"?"`` would allow commands like ``?help``), or a string
+        followed by a space for subcommands (e.g. ``"!bot "`` for ``!bot help``).
+    channels (str list):
+        List of channels to process commands in.
+    hooks (str list):
+        List of hooks to enable commands for.
+
+The binding works by making commands exposed by all listed hooks available to all listed channels.
+Note that the channels need not belong to the hooks -- you can, for example, bind some commands to
+an admin-only channel elsewhere.
+
+Multiple command hooks can be loaded for fine-grained control.
+"""
+
 import logging
 from shlex import split
 
@@ -36,16 +56,6 @@ class Commandable(object):
 class CommandHook(immp.Hook):
     """
     Generic command handler for other hooks.
-
-    Config:
-        prefix (str):
-            Characters at the start of a message to denote commands.  Use a single character to
-            make commands top-level (e.g. ``"?"`` would allow commands like ``?help``), or a string
-            followed by a space for subcommands (e.g. ``"!bot "`` for ``!bot help``).
-        channels (str list):
-            List of channels to process commands in.
-        hooks (str list):
-            List of hooks to enable commands for.
     """
 
     def __init__(self, name, config, host):

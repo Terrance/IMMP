@@ -1,3 +1,25 @@
+"""
+Basic text request/response handler.
+
+Config:
+    channels (str list):
+        List of channels to process responses in.
+    responses (dict):
+        Mapping from match regex to response text.
+
+Commands:
+    ar-add <match> <response>:
+        Add a new trigger / response pair.
+    ar-remove <match>:
+        Remove an existing trigger.
+
+This hook will listen for messages in all given channels, for text content that matches any of the
+defined regular expressions.  On a match, it will answer with the corresponding response.
+
+Currently, the commands only add/remove responses for the current session -- changes are lost on
+exit as the list will be re-read from config at the next startup.
+"""
+
 import re
 
 from voluptuous import ALLOW_EXTRA, All, Length, Optional, Schema
@@ -16,18 +38,6 @@ class _Schema(object):
 class AutoRespondHook(immp.Hook, Commandable):
     """
     Basic text responses for given trigger words and phrases.
-
-    Config:
-        channels (str list):
-            List of channels to process responses in.
-        responses (dict):
-            Mapping from match regex to response text.
-
-    Commands:
-        ar-add <match> <response>:
-            Add a new trigger / response pair.
-        ar-remove <match>:
-            Remove an existing trigger.
     """
 
     def __init__(self, name, config, host):

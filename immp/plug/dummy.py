@@ -1,3 +1,10 @@
+"""
+For testing, a plug with no external network.
+
+Messages with sequential identifiers are created and returned every 10 seconds.  Any messages sent
+to the plug are cloned and returned as if a network had processed them.
+"""
+
 from asyncio import ensure_future, sleep
 from itertools import count
 import logging
@@ -10,7 +17,7 @@ log = logging.getLogger(__name__)
 
 class DummyPlug(immp.Plug):
     """
-    A fake plug that just yields a message every 10 seconds.
+    Test plug that yields a message every 10 seconds.
     """
 
     def __init__(self, name, config, host):

@@ -1,3 +1,23 @@
+"""
+Provider of database access to other hooks.
+
+Config:
+    url (str):
+        Database connection url, passed to :func:`playhouse.db_url.connect`.
+
+This hook provides persistent storage via a database.  Any database types supported by Peewee can
+be used, though the usual caveats apply: if a hook requires fields specific to a single database
+type, the app is effectively locked-in to that type.
+
+Hooks should subclass :class:`.BaseModel` for their data structures.  At startup, they can obtain
+the database connection via :attr:`host.resources[DatabaseHook].db`, and use it to create their
+database tables via :meth:`peewee.Database.create_tables`.
+
+.. note::
+    This hook requires the `Peewee <http://docs.peewee-orm.com>`_ Python module, along with any
+    database-specific libraries (e.g. Psycopg2 for PostgreSQL).
+"""
+
 import logging
 
 from peewee import Model, Proxy
@@ -29,10 +49,6 @@ class DatabaseHook(immp.ResourceHook):
     Hook that provides generic database access to other hooks, backed by :mod:`peewee`.  Because
     models are in the global scope, they can only be attached to a single database, therefore this
     hook acts as the single source of truth for obtaining a "global" database.
-
-    Config:
-        url (str):
-            Database connection url, passed to :func:`playhouse.db_url.connect`.
 
     Attributes:
         db (peewee.Database):

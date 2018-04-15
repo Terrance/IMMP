@@ -5,7 +5,7 @@ import importlib
 
 def resolve_import(path):
     """
-    Takes the qualified name of a Python class, and return the physical class object.
+    Take the qualified name of a Python class, and return the physical class object.
 
     Args:
         path (str):
