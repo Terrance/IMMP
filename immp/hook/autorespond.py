@@ -22,7 +22,7 @@ exit as the list will be re-read from config at the next startup.
 
 import re
 
-from voluptuous import ALLOW_EXTRA, All, Length, Optional, Schema
+from voluptuous import ALLOW_EXTRA, Optional, Schema
 
 import immp
 from immp.hook.command import Commandable
@@ -30,7 +30,7 @@ from immp.hook.command import Commandable
 
 class _Schema(object):
 
-    config = Schema({"channels": All([str], Length(min=1)),
+    config = Schema({"channels": [str],
                      Optional("responses", default=dict): {str: str}},
                     extra=ALLOW_EXTRA, required=True)
 

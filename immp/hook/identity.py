@@ -1,6 +1,10 @@
 """
 Basic identity management for users in different networks.
 
+Config:
+    plugs (str list):
+        List of plug names to accept identities for.
+
 Commands:
     id-show <name>:
         Recall a known identity and all of its links.
@@ -18,6 +22,7 @@ Commands:
 from hashlib import sha256
 
 from peewee import CharField, ForeignKeyField
+from voluptuous import ALLOW_EXTRA, Schema
 
 import immp
 from immp.hook.command import Commandable
@@ -26,6 +31,11 @@ from immp.hook.database import BaseModel, DatabaseHook
 
 CROSS = "\U0000274C"
 TICK = "\U00002705"
+
+
+class _Schema(object):
+
+    config = Schema({"plugs": [str]}, extra=ALLOW_EXTRA, required=True)
 
 
 class IdentityGroup(BaseModel):
@@ -76,6 +86,16 @@ class IdentityHook(immp.Hook, Commandable):
     Hook for managing physical users with multiple logical links across different plugs.
     """
 
+    def __init__(self, name, config, host):
+        super().__init__(name, config, host)
+        config = _Schema.config(config)
+        self.plugs = []
+        for plug in config["plugs"]:
+            try:
+                self.plugs.append(host.plugs[plug])
+            except KeyError:
+                raise immp.ConfigError("No plug '{}' on host".format(plug)) from None
+
     def commands(self):
         return {"id-show": self.show,
                 "id-add": self.add,
@@ -98,7 +118,7 @@ class IdentityHook(immp.Hook, Commandable):
             .IdentityGroup:
                 Linked identity, or ``None`` if not linked.
         """
-        if not user or not user.plug:
+        if not user or user.plug not in self.plugs:
             return None
         try:
             return (IdentityGroup.select_links()
@@ -133,7 +153,7 @@ class IdentityHook(immp.Hook, Commandable):
         await channel.send(immp.Message(text=text))
 
     async def add(self, channel, msg, name, pwd=None):
-        if not msg.user or msg.user.plug:
+        if not msg.user or msg.user.plug not in self.plugs:
             return
         if self.find(msg.user):
             text = "{} Already identified".format(CROSS)
