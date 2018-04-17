@@ -219,6 +219,13 @@ class RichText:
         item = self._segments[key]
         return RichText(item) if isinstance(key, slice) else item
 
+    def __add__(self, other):
+        return RichText(self._segments + list(other))
+
+    def __iadd__(self, other):
+        self._segments += other
+        return self
+
     def __eq__(self, other):
         return (isinstance(other, self.__class__) and len(self) == len(other) and
                 all(x == y for x, y in zip(self, other)))
