@@ -110,7 +110,7 @@ class DiscordRichText(immp.RichText):
         """
         # TODO: Full Markdown parser.
         mentions = defaultdict(dict)
-        for match in re.finditer(r"<@?([^\>]+)>", text):
+        for match in re.finditer(r"<@!?(\d+)>", text):
             user = discord._client.get_user(int(match.group(1)))
             if user:
                 mentions[match.start()] = DiscordUser.from_user(discord, user)
@@ -211,7 +211,7 @@ class DiscordMessage(immp.Message):
         return (discord.host.resolve_channel(discord, message.channel.id),
                 cls(id=message.id,
                     at=message.created_at,
-                    text=DiscordRichText.from_markdown(discord, text),
+                    text=DiscordRichText.from_markdown(discord, text) if text else None,
                     user=DiscordUser.from_user(discord, message.author),
                     attachments=attachments,
                     raw=message))
