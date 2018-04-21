@@ -27,6 +27,7 @@ will be used in lieu of a webhook, e.g. with direct messages.
 
 from asyncio import Condition, ensure_future
 from collections import defaultdict
+from functools import partial
 from json import dumps as json_dumps
 import logging
 import re
@@ -94,6 +95,10 @@ class DiscordRichText(immp.RichText):
     tags = {"**": "bold", "_": "italic", "~": "strike", "`": "code", "```": "pre"}
 
     @classmethod
+    def _sub_channel(cls, discord, match):
+        return "#{}".format(discord._client.get_channel(match.group(1)).name)
+
+    @classmethod
     def from_markdown(cls, discord, text):
         """
         Convert a string of Markdown into a :class:`.RichText`.
@@ -128,8 +133,18 @@ class DiscordRichText(immp.RichText):
             else:
                 user = None
                 part = emojize(text[start:end], use_aliases=True)
+                # Strip Discord channel/emoji tags, replace with a plain text representation.
+                part = re.sub(r"<#(\d+)>", partial(cls._sub_channel, discord), part)
+                part = re.sub(r"<(:[^: ]+:)\d+>", r"\1", part)
             segments.append(immp.Segment(part, mention=user))
         return cls(segments)
+
+    @classmethod
+    def _sub_emoji(cls, discord, match):
+        for emoji in discord._client.emojis:
+            if emoji.name == match.group(1):
+                return str(emoji)
+        return ":{}:".format(match.group(1))
 
     @classmethod
     def to_markdown(cls, discord, rich):
@@ -169,7 +184,7 @@ class DiscordRichText(immp.RichText):
         for tag in reversed(active):
             # Close all remaining tags.
             text += tag
-        return text
+        return re.sub(r":([^: ]+):", partial(cls._sub_emoji, discord), text)
 
 
 class DiscordMessage(immp.Message):
