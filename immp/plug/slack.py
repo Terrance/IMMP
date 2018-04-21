@@ -263,7 +263,7 @@ class SlackRichText(immp.RichText):
             if start == end:
                 # Zero-length segment at the start or end, ignore it.
                 continue
-            if "mention" in changes[start]:
+            if changes[start].get("mention"):
                 user = changes[start]["mention"]
                 part = "@{}".format(user.username or user.real_name)
             else:
