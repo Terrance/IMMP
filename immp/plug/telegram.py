@@ -359,6 +359,8 @@ class TelegramPlug(immp.Plug):
 
     async def stop(self):
         await super().stop()
+        if self._receive:
+            self._receive.cancel()
         if self._session:
             log.debug("Closing session")
             await self._session.close()
@@ -439,8 +441,3 @@ class TelegramPlug(immp.Plug):
                        for key in ("message", "channel_post")):
                     yield await TelegramMessage.from_update(self, update)
                 self._offset = max(update["update_id"] + 1, self._offset)
-
-    async def exit(self):
-        self._closing = True
-        if self._receive:
-            self._receive.cancel()

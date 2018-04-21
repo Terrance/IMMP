@@ -531,6 +531,8 @@ class SlackPlug(immp.Plug):
     async def stop(self):
         await super().stop()
         self._closing = True
+        if self._receive:
+            self._receive.cancel()
         if self._socket:
             log.debug("Closing websocket")
             await self._socket.close()
@@ -676,8 +678,3 @@ class SlackPlug(immp.Plug):
             elif event["type"] == "message" and not event["subtype"] == "message_replied":
                 # A new message arrived, push it back to the host.
                 yield (await SlackMessage.from_event(self, event))
-
-    async def exit(self):
-        self._closing = True
-        if self._receive:
-            self._receive.cancel()
