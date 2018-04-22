@@ -3,11 +3,24 @@ Connect to `Telegram <https://telegram.org>`_ as a bot.
 
 Config:
     token (str):
-        Telegram API token for a bot user.
+        Telegram bot token for the bot API.
+    api-id (int):
+        Optional Telegram application ID for the MTProto API.
+    api-hash (str):
+        Corresponding Telegram application secret.
 
 Bots can be created by talking to `@BotFather <https://t.me/BotFather>`_.  Use the ``/token``
 command to retrieve your API token.  You should also call ``/setprivacy`` to grant the bot
 permission to see all messages as they come in.
+
+Telegram bots are rather limited by the bot API.  To make use of some features (including lookup of
+arbitrary users and listing members in chats), you'll need to combine bot authorisation with an
+MTProto application.  This is done via `app credentials <https://my.telegram.org/apps>`_ applied to
+a bot session -- the bot gains some extra permissions from the "app", but accesses them itself.
+
+.. note::
+    Use of app features requires the `telethon-aio <https://telethon.readthedocs.io/en/asyncio/>`_
+    Python module.
 """
 
 from asyncio import CancelledError, ensure_future, sleep
@@ -18,6 +31,12 @@ import logging
 from aiohttp import ClientError, ClientResponseError, ClientSession, FormData
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
+try:
+    from telethon import TelegramClient, tl
+    from telethon.errors import BadRequestError
+except ImportError:
+    TelegramClient = tl = BadRequestError = None
+
 import immp
 
 
@@ -26,7 +45,10 @@ log = logging.getLogger(__name__)
 
 class _Schema(object):
 
-    config = Schema({"token": str}, extra=ALLOW_EXTRA, required=True)
+    config = Schema({"token": str,
+                     Optional("api-id", default=None): Any(int, None),
+                     Optional("api-hash", default=None): Any(str, None)},
+                    extra=ALLOW_EXTRA, required=True)
 
     user = Schema({"id": int,
                    Optional("username", default=None): Any(str, None),
@@ -87,7 +109,7 @@ class TelegramUser(immp.User):
     """
 
     @classmethod
-    async def from_user(cls, telegram, json):
+    def from_bot_user(cls, telegram, json):
         """
         Convert a user :class:`dict` (attached to a message) to a :class:`.User`.
 
@@ -111,6 +133,34 @@ class TelegramUser(immp.User):
         return cls(id=user["id"],
                    plug=telegram,
                    username=user["username"],
+                   real_name=real_name,
+                   avatar=avatar,
+                   raw=user)
+
+    @classmethod
+    def from_proto_user(cls, telegram, user):
+        """
+        Convert a :class:`telethon.tl.types.User` into a :class:`.User`.
+
+        Args:
+            telegram (.TelegramPlug):
+                Related plug instance that provides the user.
+            user (telethon.tl.types.User):
+                Telegram user retrieved from the MTProto API.
+
+        Returns:
+            .TelegramUser:
+                Parsed user object.
+        """
+        real_name = user.first_name
+        if user.last_name:
+            real_name = "{} {}".format(real_name, user.last_name)
+        avatar = None
+        if user.username:
+            avatar = "https://t.me/i/userpic/320/{}.jpg".format(user.username)
+        return cls(id=user.id,
+                   plug=telegram,
+                   username=user.username,
                    real_name=real_name,
                    avatar=avatar,
                    raw=user)
@@ -237,15 +287,15 @@ class TelegramMessage(immp.Message):
         left = None
         attachments = []
         if message["from"]:
-            user = await TelegramUser.from_user(telegram, message["from"])
+            user = TelegramUser.from_bot_user(telegram, message["from"])
         if message["new_chat_title"]:
             action = True
         if message["new_chat_members"]:
-            joined = [(await TelegramUser.from_user(telegram, member))
+            joined = [(TelegramUser.from_bot_user(telegram, member))
                       for member in message["new_chat_members"]]
             action = True
         if message["left_chat_member"]:
-            left = [await TelegramUser.from_user(telegram, message["left_chat_member"])]
+            left = [TelegramUser.from_bot_user(telegram, message["left_chat_member"])]
             action = True
         if message["text"]:
             text = TelegramRichText.from_entities(message["text"], message["entities"])
@@ -330,8 +380,16 @@ class TelegramPlug(immp.Plug):
         super().__init__(name, config, host)
         config = _Schema.config(config)
         self._token = config["token"]
+        if config["api-id"] and config["api-hash"]:
+            if not TelegramClient:
+                raise immp.ConfigError("API ID/hash specified but Telethon is not installed")
+            self._app = (config["api-id"], config["api-hash"])
+        elif config["api-id"] or config["api-hash"]:
+            raise immp.ConfigError("Both of API ID and hash must be given")
+        else:
+            self._app = None
         # Connection objects that need to be closed on disconnect.
-        self._session = self._receive = None
+        self._session = self._receive = self._client = None
         self._closing = False
         # Update ID from which to retrieve the next batch.  Should be one higher than the max seen.
         self._offset = 0
@@ -356,6 +414,10 @@ class TelegramPlug(immp.Plug):
     async def start(self):
         await super().start()
         self._session = ClientSession()
+        if self._app:
+            log.debug("Starting client")
+            self._client = TelegramClient(None, *self._app)
+            await self._client.start(bot_token=self._token)
 
     async def stop(self):
         await super().stop()
@@ -365,7 +427,32 @@ class TelegramPlug(immp.Plug):
             log.debug("Closing session")
             await self._session.close()
             self._session = None
+        if self._client:
+            log.debug("Closing client")
+            await self._client.log_out()
+            self._client.disconnect()
+            self._client = None
         self._offset = 0
+
+    async def user_from_id(self, id):
+        if not self._client:
+            return None
+        try:
+            data = await self._client(tl.functions.users.GetFullUserRequest(id))
+        except BadRequestError:
+            return None
+        else:
+            return TelegramUser.from_proto_user(self, data.user)
+
+    async def user_from_username(self, username):
+        if not self._client:
+            return None
+        try:
+            data = await self._client(tl.functions.contacts.ResolveUsernameRequest(username))
+        except BadRequestError:
+            return None
+        else:
+            return TelegramUser.from_proto_user(self, data.users[0])
 
     async def private_channel(self, user):
         if not isinstance(user, TelegramUser):
@@ -378,8 +465,16 @@ class TelegramPlug(immp.Plug):
         else:
             return immp.Channel(None, self, user.id)
 
-    # channel_members: TG provides no API to get a current member list, and join/part messages are
-    # unreliable for tracking membership as they're sent inconsistently.
+    async def channel_members(self, channel):
+        if not self._client:
+            return None
+        try:
+            # Chat IDs can be negative in the bot API dependent on type, not over MTProto.
+            data = await self._client(tl.functions.messages.GetFullChatRequest(abs(channel.source)))
+        except BadRequestError:
+            return None
+        else:
+            return [TelegramUser.from_proto_user(self, user) for user in data.users]
 
     async def channel_remove(self, channel, user):
         data = {"chat_id": channel.source,
