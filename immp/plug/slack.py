@@ -207,10 +207,6 @@ class SlackRichText(immp.RichText):
                                .format(_outside_chars, _tag_chars, _inside_chars))
 
     @classmethod
-    def _sub_user(cls, slack, match):
-        return "@{}".format(slack._users[match.group(1)].username)
-
-    @classmethod
     def _sub_channel(cls, slack, match):
         return "#{}".format(slack._channels[match.group(1)]["name"])
 
@@ -268,7 +264,7 @@ class SlackRichText(immp.RichText):
                 part = "@{}".format(user.username or user.real_name)
             else:
                 part = emojize(text[start:end], use_aliases=True)
-                # Strip Slack user/channel tags, replace with a plain-text representation.
+                # Strip Slack channel tags, replace with a plain-text representation.
                 part = re.sub(r"<#([^\|>]+)(?:\|[^>]+)?>", partial(cls._sub_channel, slack), part)
                 part = re.sub(r"<([^\|>]+)(?:\|([^>]+))?>", cls._sub_link, part)
             segments.append(immp.Segment(part, **changes[start]))
