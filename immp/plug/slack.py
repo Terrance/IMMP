@@ -446,11 +446,7 @@ class SlackPlug(immp.Plug):
         network = "Slack"
 
     def __init__(self, name, config, host):
-        super().__init__(name, config, host)
-        config = _Schema.config(config)
-        self._token = config["token"]
-        self.fallback_name = config["fallback-name"]
-        self.fallback_image = config["fallback-image"]
+        super().__init__(name, _Schema.config(config), host)
         self._team = self._users = self._channels = self._directs = self._bots = None
         # Connection objects that need to be closed on disconnect.
         self._session = self._socket = self._receive = None
@@ -472,7 +468,7 @@ class SlackPlug(immp.Plug):
 
     async def _api(self, endpoint, schema, params=None, **kwargs):
         params = params or {}
-        params["token"] = self._token
+        params["token"] = self.config["token"]
         log.debug("Making API request to '{}'".format(endpoint))
         async with self._session.post("https://slack.com/api/{}".format(endpoint),
                                       params=params, **kwargs) as resp:
@@ -489,7 +485,7 @@ class SlackPlug(immp.Plug):
 
     async def _paged(self, endpoint, schema, key, params=None, **kwargs):
         params = params or {}
-        params["token"] = self._token
+        params["token"] = self.config["token"]
         items = []
         while True:
             data = await self._api(endpoint, schema, params, **kwargs)
@@ -593,8 +589,12 @@ class SlackPlug(immp.Plug):
             if len(sent) < len(uploads):
                 # Of the 100 messages we just looked at, at least one file wasn't found.
                 log.debug("Missing some file upload messages")
-        name = (msg.user.real_name or msg.user.username) if msg.user else self.fallback_name
-        image = msg.user.avatar if msg.user else self.fallback_image
+        if msg.user:
+            name = msg.user.real_name or msg.user.username
+            image = msg.user.avatar
+        else:
+            name = self.config["fallback-name"]
+            image = self.config["fallback-image"]
         data = {"channel": channel.source,
                 "as_user": False,
                 "username": name,

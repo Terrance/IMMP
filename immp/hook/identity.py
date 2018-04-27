@@ -87,14 +87,13 @@ class IdentityHook(immp.Hook, Commandable):
     """
 
     def __init__(self, name, config, host):
-        super().__init__(name, config, host)
-        config = _Schema.config(config)
+        super().__init__(name, _Schema.config(config), host)
         self.plugs = []
-        for plug in config["plugs"]:
+        for label in self.config["plugs"]:
             try:
-                self.plugs.append(host.plugs[plug])
+                self.plugs.append(host.plugs[label])
             except KeyError:
-                raise immp.ConfigError("No plug '{}' on host".format(plug)) from None
+                raise immp.ConfigError("No plug '{}' on host".format(label)) from None
 
     def commands(self):
         return {"id-show": self.show,

@@ -60,22 +60,21 @@ class SyncHook(immp.Hook, Commandable):
     """
 
     def __init__(self, name, config, host):
-        super().__init__(name, config, host)
-        config = _Schema.config(config)
+        super().__init__(name, _Schema.config(config), host)
         self.channels = []
-        for channel in config["channels"]:
+        for label in self.config["channels"]:
             try:
-                self.channels.append(host.channels[channel])
+                self.channels.append(host.channels[label])
             except KeyError:
-                raise immp.ConfigError("No channel '{}' on host".format(channel)) from None
+                raise immp.ConfigError("No channel '{}' on host".format(label)) from None
         # Message cache, stores mappings of synced message IDs keyed by channel.
         # [{Channel(): [id, ...], ...}, ...]
         self._synced = []
         # Hook lock, to put a hold on retrieving messages whilst a send is in progress.
         self._lock = BoundedSemaphore()
         # Add a virtual plug to the host, for external subscribers.
-        if config["plug"]:
-            tname = config["plug"]
+        if self.config["plug"]:
+            tname = self.config["plug"]
             log.debug("Creating virtual plug '{}'".format(tname))
             self.plug = SyncPlug(tname, self, host)
             host.add_plug(self.plug)

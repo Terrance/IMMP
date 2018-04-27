@@ -59,17 +59,15 @@ class CommandHook(immp.Hook):
     """
 
     def __init__(self, name, config, host):
-        super().__init__(name, config, host)
-        config = _Schema.config(config)
-        self.prefix = config["prefix"]
+        super().__init__(name, _Schema.config(config), host)
         self.channels = []
-        for label in config["channels"]:
+        for label in self.config["channels"]:
             try:
                 self.channels.append(host.channels[label])
             except KeyError:
                 raise immp.ConfigError("No channel '{}' on host".format(label)) from None
         self.commands = {}
-        for label in config["hooks"]:
+        for label in self.config["hooks"]:
             try:
                 hook = host.hooks[label]
             except KeyError:
@@ -88,11 +86,11 @@ class CommandHook(immp.Hook):
         # Only process if we recognise the channel and the command.
         if channel not in self.channels:
             return
-        if not (msg.text and str(msg.text).startswith(self.prefix)):
+        if not (msg.text and str(msg.text).startswith(self.config["prefix"])):
             return
         try:
             # TODO: Preserve formatting.
-            command = split(str(msg.text)[len(self.prefix):])
+            command = split(str(msg.text)[len(self.config["prefix"]):])
         except ValueError:
             return
         if command[0] in self.commands:

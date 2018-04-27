@@ -377,17 +377,12 @@ class TelegramPlug(immp.Plug):
         network = "Telegram"
 
     def __init__(self, name, config, host):
-        super().__init__(name, config, host)
-        config = _Schema.config(config)
-        self._token = config["token"]
-        if config["api-id"] and config["api-hash"]:
+        super().__init__(name, _Schema.config(config), host)
+        if self.config["api-id"] and self.config["api-hash"]:
             if not TelegramClient:
                 raise immp.ConfigError("API ID/hash specified but Telethon is not installed")
-            self._app = (config["api-id"], config["api-hash"])
-        elif config["api-id"] or config["api-hash"]:
+        elif self.config["api-id"] or self.config["api-hash"]:
             raise immp.ConfigError("Both of API ID and hash must be given")
-        else:
-            self._app = None
         # Connection objects that need to be closed on disconnect.
         self._session = self._receive = self._client = None
         self._closing = False
@@ -395,7 +390,7 @@ class TelegramPlug(immp.Plug):
         self._offset = 0
 
     async def _api(self, endpoint, schema=_Schema.api(), **kwargs):
-        url = "https://api.telegram.org/bot{}/{}".format(self._token, endpoint)
+        url = "https://api.telegram.org/bot{}/{}".format(self.config["token"], endpoint)
         try:
             async with self._session.post(url, **kwargs) as resp:
                 try:
@@ -414,10 +409,10 @@ class TelegramPlug(immp.Plug):
     async def start(self):
         await super().start()
         self._session = ClientSession()
-        if self._app:
+        if self.config["api-id"]:
             log.debug("Starting client")
-            self._client = TelegramClient(None, *self._app)
-            await self._client.start(bot_token=self._token)
+            self._client = TelegramClient(None, self.config["api-id"], self.config["api-hash"])
+            await self._client.start(bot_token=self.config["token"])
 
     async def stop(self):
         await super().stop()

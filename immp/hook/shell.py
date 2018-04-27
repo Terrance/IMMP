@@ -90,10 +90,8 @@ class ShellHook(immp.ResourceHook):
     """
 
     def __init__(self, name, config, host):
-        super().__init__(name, config, host)
-        config = _Schema.config_shell(config)
-        self.all = config["all"]
-        if config["console"] == "ptpython":
+        super().__init__(name, _Schema.config_shell(config), host)
+        if self.config["console"] == "ptpython":
             if ptpython:
                 log.debug("Using ptpython console")
                 self.console = self._ptpython
@@ -110,7 +108,7 @@ class ShellHook(immp.ResourceHook):
         code.interact(local=dict(glob, **loc))
 
     async def process(self, channel, msg):
-        if channel in self.host.channels or self.all:
+        if channel in self.host.channels or self.config["all"]:
             log.debug("Entering console: {}".format(repr(msg)))
             self.console(locals(), globals())
 
@@ -127,12 +125,10 @@ class AsyncShellHook(immp.ResourceHook):
     """
 
     def __init__(self, name, config, host):
-        super().__init__(name, config, host)
-        config = _Schema.config_async(config)
+        super().__init__(name, _Schema.config_async(config), host)
         if not aioconsole:
             raise immp.PlugError("'aioconsole' module not installed")
-        self.port = config["port"]
-        self.buffer = deque(maxlen=config["buffer"])
+        self.buffer = deque(maxlen=self.config["buffer"])
         self._server = None
 
     @property
@@ -141,9 +137,10 @@ class AsyncShellHook(immp.ResourceHook):
 
     async def start(self):
         await super().start()
-        log.debug("Launching console on port {}".format(self.port))
+        log.debug("Launching console on port {}".format(self.config["port"]))
         self._server = await aioconsole.start_interactive_server(factory=self._factory,
-                                                                 host="localhost", port=self.port)
+                                                                 host="localhost",
+                                                                 port=self.config["port"])
 
     async def stop(self):
         await super().stop()

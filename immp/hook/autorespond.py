@@ -41,15 +41,14 @@ class AutoRespondHook(immp.Hook, Commandable):
     """
 
     def __init__(self, name, config, host):
-        super().__init__(name, config, host)
-        config = _Schema.config(config)
-        self.responses = config["responses"]
+        super().__init__(name, _Schema.config(config), host)
+        self.responses = self.config["responses"]
         self.channels = []
-        for channel in config["channels"]:
+        for label in self.config["channels"]:
             try:
-                self.channels.append(host.channels[channel])
+                self.channels.append(host.channels[label])
             except KeyError:
-                raise immp.ConfigError("No channel '{}' on host".format(channel)) from None
+                raise immp.ConfigError("No channel '{}' on host".format(label)) from None
         self._sent = []
 
     def commands(self):

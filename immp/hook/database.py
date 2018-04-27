@@ -56,8 +56,7 @@ class DatabaseHook(immp.ResourceHook):
     """
 
     def __init__(self, name, config, host):
-        super().__init__(name, config, host)
-        config = _Schema.config(config)
+        super().__init__(name, _Schema.config(config), host)
 
     async def start(self):
         log.debug("Opening connection to database")

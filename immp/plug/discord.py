@@ -35,7 +35,7 @@ import re
 from aiohttp import ClientSession, FormData
 import discord
 from emoji import emojize
-from voluptuous import ALLOW_EXTRA, Optional, Schema
+from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
 
@@ -46,8 +46,8 @@ log = logging.getLogger(__name__)
 class _Schema(object):
 
     config = Schema({"token": str,
-                     Optional("webhooks", default={}): dict,
-                     Optional("playing"): str},
+                     Optional("webhooks", default=dict): dict,
+                     Optional("playing", default=None): Any(str, None)},
                     extra=ALLOW_EXTRA, required=True)
 
     webhook = Schema({"id": str}, extra=ALLOW_EXTRA, required=True)
@@ -259,9 +259,7 @@ class DiscordPlug(immp.Plug):
         network = "Discord"
 
     def __init__(self, name, config, host):
-        super().__init__(name, config, host)
-        config = _Schema.config(config)
-        self._token = config["token"]
+        super().__init__(name, _Schema.config(config), host)
         # Connection objects that need to be closed on disconnect.
         self._client = self._task = self._session = None
         self._starting = Condition()
@@ -272,7 +270,7 @@ class DiscordPlug(immp.Plug):
             self._session = ClientSession()
         log.debug("Starting client")
         self._client = DiscordClient(self)
-        self._task = ensure_future(self._client.start(self._token))
+        self._task = ensure_future(self._client.start(self.config["token"]))
         with await self._starting:
             # Block until the client is ready.
             await self._starting.wait()

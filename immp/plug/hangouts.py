@@ -26,12 +26,18 @@ from urllib.parse import unquote
 
 import hangups
 from hangups import hangouts_pb2
+from voluptuous import ALLOW_EXTRA, Schema
 
 import immp
 
 
 log = logging.getLogger(__name__)
 logging.getLogger("hangups").setLevel(logging.WARNING)
+
+
+class _Schema(object):
+
+    config = Schema({"cookie": str}, extra=ALLOW_EXTRA, required=True)
 
 
 class HangoutsUser(immp.User):
@@ -245,17 +251,13 @@ class HangoutsPlug(immp.Plug):
         network = "Hangouts"
 
     def __init__(self, name, config, host):
-        super().__init__(name, config, host)
-        try:
-            self._cookie = config["cookie"]
-        except KeyError:
-            raise immp.ConfigError("Hangouts cookie file not specified") from None
+        super().__init__(name, _Schema.config(config), host)
         self._client = None
         self._starting = Condition()
 
     async def start(self):
         await super().start()
-        self._client = hangups.Client(hangups.get_auth_stdin(self._cookie))
+        self._client = hangups.Client(hangups.get_auth_stdin(self.config["cookie"]))
         self._client.on_connect.add_observer(self._connect)
         log.debug("Connecting client")
         ensure_future(self._client.connect())
