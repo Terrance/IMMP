@@ -1,25 +1,36 @@
 import asyncio
 import logging
+import logging.config
 import sys
 
 import anyconfig
-from voluptuous import REMOVE_EXTRA, Optional, Schema
+from voluptuous import REMOVE_EXTRA, Any, Optional, Schema
 
 from immp import Channel, Host, resolve_import
 
 
-logging.getLogger("anyconfig").setLevel(logging.WARNING)
-
-log = logging.getLogger(__name__)
-
-
 _schema = Schema({"plugs": {str: {"path": str, Optional("config", default=dict): dict}},
                   "channels": {str: {"plug": str, "source": object}},
-                  "hooks": {str: {"path": str, Optional("config", default=dict): dict}}},
+                  "hooks": {str: {"path": str, Optional("config", default=dict): dict}},
+                  Optional("logging", default=None): Any(dict, None)},
                  extra=REMOVE_EXTRA, required=True)
 
 
+class LocalFilter(logging.Filter):
+
+    def filter(self, record):
+        return record.name == "__main__" or record.name.startswith("immp.")
+
+
 def main(config):
+    if config["logging"]:
+        logging.config.dictConfig(config["logging"])
+    else:
+        logging.basicConfig(level=logging.INFO)
+        for handler in logging.root.handlers:
+            handler.addFilter(LocalFilter())
+    log = logging.getLogger(__name__)
+    log.info("Creating plugs and hooks")
     host = Host()
     for name, spec in config["plugs"].items():
         cls = resolve_import(spec["path"])
@@ -33,10 +44,10 @@ def main(config):
     loop = asyncio.get_event_loop()
     task = loop.create_task(host.run())
     try:
-        log.debug("Starting host")
+        log.info("Starting host")
         loop.run_until_complete(task)
     except KeyboardInterrupt:
-        log.debug("Interrupt received")
+        log.info("Closing on interrupt")
         task.cancel()
         loop.run_until_complete(task)
     finally:
@@ -44,7 +55,6 @@ def main(config):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
     if len(sys.argv) < 2:
         exit("Usage: python -m immp <config file>")
     main(_schema(anyconfig.load(sys.argv[1])))

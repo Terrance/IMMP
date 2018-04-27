@@ -32,7 +32,6 @@ import immp
 
 
 log = logging.getLogger(__name__)
-logging.getLogger("hangups").setLevel(logging.WARNING)
 
 
 class _Schema(object):
