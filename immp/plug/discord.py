@@ -246,7 +246,24 @@ class DiscordClient(discord.Client):
             self._plug._starting.notify_all()
 
     async def on_message(self, message):
+        log.debug("Received a new message")
         channel, msg = DiscordMessage.from_message(self._plug, message)
+        self._plug.queue(channel, msg)
+
+    async def on_message_edit(self, before, after):
+        log.debug("Received an updated message")
+        if before.content == after.content:
+            # Text content hasn't changed -- maybe just a link unfurl embed added.
+            return
+        channel, msg = DiscordMessage.from_message(self._plug, after)
+        # Edits don't generate a new ID.
+        msg.original = msg.id
+        self._plug.queue(channel, msg)
+
+    async def on_message_delete(self, message):
+        log.debug("Received a deleted message")
+        channel, msg = DiscordMessage.from_message(self._plug, message)
+        msg.deleted = True
         self._plug.queue(channel, msg)
 
 
