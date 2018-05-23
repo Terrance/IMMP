@@ -17,7 +17,7 @@ This will generate a cookie file called *refresh_token.txt* in the current direc
     This plug requires the `hangups <https://hangups.readthedocs.io>`_ Python module.
 """
 
-from asyncio import Condition, ensure_future
+from asyncio import Condition, ensure_future, gather
 from copy import copy
 from io import BytesIO
 import logging
@@ -333,32 +333,55 @@ class HangoutsPlug(immp.Plug):
             participant_id=hangouts_pb2.ParticipantId(gaia_id=user.id))
         await self._client.remove_user(request)
 
+    async def _upload(self, attach):
+        async with (await attach.get_content()) as img_content:
+            # Hangups expects a file-like object with a synchronous read() method.
+            # NB. The whole files is read into memory by Hangups anyway.
+            # Filename must be present, else Hangups will try (and fail) to read the path.
+            photo = await self._client.upload_image(BytesIO(await img_content.read()),
+                                                    filename=attach.title or "image.png")
+        return hangouts_pb2.ExistingMedia(photo=hangouts_pb2.Photo(photo_id=photo))
+
     async def put(self, channel, msg):
         if msg.deleted:
             # We can't delete messages on this side.
             return []
         conv = self._convs.get(channel.source)
-        media = None
-        for attach in msg.attachments:
-            if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
-                # Upload an image file to Hangouts.
-                async with (await attach.get_content()) as img_content:
-                    # Hangups expects a file-like object with a synchronous read() method.
-                    # NB. The whole files is read into memory by Hangups anyway.
-                    # Filename must be present, else Hangups will try (and fail) to read the path.
-                    photo = await self._client.upload_image(BytesIO(await img_content.read()),
-                                                            filename=attach.title or "image.png")
-                media = hangouts_pb2.ExistingMedia(photo=hangouts_pb2.Photo(photo_id=photo))
-                # TODO: Handle more than one image attachment.
-                break
         segments = []
         for segment in msg.render(quote_reply=True):
             segments += HangoutsSegment.to_segments(segment)
         content = [segment.serialize() for segment in segments]
-        request = hangouts_pb2.SendChatMessageRequest(
+        tasks = []
+        for attach in msg.attachments:
+            if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
+                # Upload an image file to Hangouts.
+                tasks.append(self._upload(attach))
+        images = [None]
+        if tasks:
+            images = await gather(*tasks)
+        requests = []
+        requests.append(hangouts_pb2.SendChatMessageRequest(
             request_header=self._client.get_request_header(),
             event_request_header=conv._get_event_request_header(),
             message_content=hangouts_pb2.MessageContent(segment=content),
-            existing_media=media)
-        sent = await self._client.send_chat_message(request)
-        return [sent.created_event.event_id]
+            existing_media=images[0]))
+        if len(images) > 1:
+            if msg.user:
+                label = immp.RichText([immp.Segment(msg.user.real_name or msg.user.username,
+                                                    bold=True, italic=True),
+                                       immp.Segment(" sent an image", italic=True)])
+                segments = []
+                for segment in label:
+                    segments += HangoutsSegment.to_segments(segment)
+                content = [segment.serialize() for segment in segments]
+            # Send additional media items in separate messages.
+            for media in images[1:]:
+                requests.append(hangouts_pb2.SendChatMessageRequest(
+                    request_header=self._client.get_request_header(),
+                    event_request_header=conv._get_event_request_header(),
+                    message_content=hangouts_pb2.MessageContent(segment=content),
+                    existing_media=media))
+        sent = []
+        for request in requests:
+            sent.append(await self._client.send_chat_message(request))
+        return [resp.created_event.event_id for resp in sent]
