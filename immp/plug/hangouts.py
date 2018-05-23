@@ -193,7 +193,7 @@ class HangoutsMessage(immp.Message):
                 attachments.append(immp.File(type=immp.File.Type.image, source=attach))
         elif isinstance(event, hangups.MembershipChangeEvent):
             action = True
-            is_join = event.type_ == hangups.hangouts_pb2.MEMBERSHIP_CHANGE_TYPE_JOIN
+            is_join = event.type_ == hangouts_pb2.MEMBERSHIP_CHANGE_TYPE_JOIN
             parts = [HangoutsUser.from_user(hangouts, hangouts._users.get_user(part_id))
                      for part_id in event.participant_ids]
             if len(parts) == 1 and parts[0].id == user.id:
@@ -215,7 +215,7 @@ class HangoutsMessage(immp.Message):
         elif isinstance(event, hangups.OTREvent):
             action = True
             is_history = (event.new_otr_status ==
-                          hangups.hangouts_pb2.OFF_THE_RECORD_STATUS_ON_THE_RECORD)
+                          hangouts_pb2.OFF_THE_RECORD_STATUS_ON_THE_RECORD)
             segments = [HangoutsSegment("{}abled hangout message history"
                                         .format("en" if is_history else "dis"))]
         elif isinstance(event, hangups.RenameEvent):
@@ -224,7 +224,7 @@ class HangoutsMessage(immp.Message):
                         HangoutsSegment(event.new_name, bold=True)]
         elif isinstance(event, hangups.GroupLinkSharingModificationEvent):
             action = True
-            is_shared = event.new_status == hangups.hangouts_pb2.GROUP_LINK_SHARING_STATUS_ON
+            is_shared = event.new_status == hangouts_pb2.GROUP_LINK_SHARING_STATUS_ON
             segments = [HangoutsSegment("{}abled joining the hangout by link"
                                         .format("en" if is_shared else "dis"))]
         else:
@@ -342,44 +342,49 @@ class HangoutsPlug(immp.Plug):
                                                     filename=attach.title or "image.png")
         return hangouts_pb2.ExistingMedia(photo=hangouts_pb2.Photo(photo_id=photo))
 
+    @classmethod
+    def _serialise(cls, segments):
+        output = []
+        for segment in segments:
+            output += HangoutsSegment.to_segments(segment)
+        return [segment.serialize() for segment in output]
+
     async def put(self, channel, msg):
         if msg.deleted:
             # We can't delete messages on this side.
             return []
         conv = self._convs.get(channel.source)
-        segments = []
-        for segment in msg.render(quote_reply=True):
-            segments += HangoutsSegment.to_segments(segment)
-        content = [segment.serialize() for segment in segments]
-        tasks = []
+        uploads = []
+        images = []
         for attach in msg.attachments:
             if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
-                # Upload an image file to Hangouts.
-                tasks.append(self._upload(attach))
-        images = [None]
-        if tasks:
-            images = await gather(*tasks)
+                uploads.append(self._upload(attach))
+        if uploads:
+            images = await gather(*uploads)
         requests = []
-        requests.append(hangouts_pb2.SendChatMessageRequest(
-            request_header=self._client.get_request_header(),
-            event_request_header=conv._get_event_request_header(),
-            message_content=hangouts_pb2.MessageContent(segment=content),
-            existing_media=images[0]))
-        if len(images) > 1:
+        if msg.text:
+            content = self._serialise(msg.render(quote_reply=True))
+            media = None
+            if len(images) == 1:
+                # Attach the only image to the message text.
+                media = images.pop()
+            requests.append(hangouts_pb2.SendChatMessageRequest(
+                request_header=self._client.get_request_header(),
+                event_request_header=conv._get_event_request_header(),
+                message_content=hangouts_pb2.MessageContent(segment=content),
+                existing_media=media))
+        if images:
+            label = []
             if msg.user:
-                label = immp.RichText([immp.Segment(msg.user.real_name or msg.user.username,
-                                                    bold=True, italic=True),
-                                       immp.Segment(" sent an image", italic=True)])
-                segments = []
-                for segment in label:
-                    segments += HangoutsSegment.to_segments(segment)
-                content = [segment.serialize() for segment in segments]
-            # Send additional media items in separate messages.
-            for media in images[1:]:
+                label = self._serialise([immp.Segment(msg.user.real_name or msg.user.username,
+                                                      bold=True, italic=True),
+                                         immp.Segment(" sent an image", italic=True)])
+            # Send any additional media items in their own separate messages.
+            for media in images:
                 requests.append(hangouts_pb2.SendChatMessageRequest(
                     request_header=self._client.get_request_header(),
                     event_request_header=conv._get_event_request_header(),
-                    message_content=hangouts_pb2.MessageContent(segment=content),
+                    message_content=hangouts_pb2.MessageContent(segment=label),
                     existing_media=media))
         sent = []
         for request in requests:
