@@ -293,6 +293,66 @@ class File(Attachment):
         return "<{}: {} {}>".format(self.__class__.__name__, repr(self.title), self.type.name)
 
 
+class Location(Attachment):
+    """
+    Attributes:
+        latitude (float):
+            North-South coordinate of the location in degrees.
+        longitude (float):
+            East-West coordinate of the location in degrees.
+        coordintes (float):
+            Read-only ``(latitude, longitude)`` pair.
+        name (str):
+            Name of the place represented by this location.
+        address (str):
+            Full street address of this place.
+        google_map_url (str):
+            URL to Google Maps centred on this place.
+    """
+
+    def __init__(self, latitude=None, longitude=None, name=None, address=None):
+        self.latitude = latitude
+        self.longitude = longitude
+        self.name = name
+        self.address = address
+
+    @property
+    def coordinates(self):
+        return (self.latitude, self.longitude)
+
+    @property
+    def google_map_url(self):
+        return "https://www.google.com/maps/place/{},{}".format(self.latitude, self.longitude)
+
+    def google_image_url(self, width, height=None):
+        """
+        Generate a static map image URL centred on this place.
+
+        Args:
+            width (int):
+                Width of the image.
+            height (int):
+                Height of the image, matches the width (for a square image) if not specified.
+
+        Returns:
+            str:
+                Corresponding image URL from the Google Maps API.
+        """
+        return ("https://maps.googleapis.com/maps/api/staticmap?center={0},{1}&"
+                "markers=color:red%7C{0},{1}&size={2}x{3}"
+                .format(self.latitude, self.longitude, width, height or width))
+
+    def __eq__(self, other):
+        return isinstance(other, self.__class__) and self.coordinates == other.coordinates
+
+    def __hash__(self):
+        return hash(self.coordinates)
+
+    def __repr__(self):
+        return "<{}: {}, {}{}>".format(self.__class__.__name__, self.latitude, self.longitude,
+                                       " {}".format(repr(self.name)) if self.name else "")
+
+
 @pretty_str
 class Message:
     """

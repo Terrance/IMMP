@@ -144,6 +144,77 @@ class HangoutsSegment(immp.Segment):
         return [segment for segment in segments if segment.text]
 
 
+class HangoutsLocation(immp.Location):
+
+    @classmethod
+    def from_embed(cls, embed):
+        """
+        Convert a :class:`hangouts_pb2.EmbedItem` into a :class:`.Location`.
+
+        Args:
+            embed (hangups.hangouts_pb2.EmbedItem):
+                Location inside a Hangups message event.
+
+        Returns:
+            .HangoutsLocation:
+                Parsed location object.
+        """
+        latitude = longitude = name = address = None
+        if embed.place:
+            # Chains of elements may be defined but empty at the end.
+            if all((embed.place.geo,
+                    embed.place.geo.geo_coordinates,
+                    embed.place.geo.geo_coordinates.latitude,
+                    embed.place.geo.geo_coordinates.longitude)):
+                latitude = embed.place.geo.geo_coordinates.latitude
+                longitude = embed.place.geo.geo_coordinates.longitude
+            if embed.place.name:
+                name = embed.place.name
+            if all((embed.place.address,
+                    embed.place.address.postal_address,
+                    embed.place.address.postal_address.street_address)):
+                address = embed.place.address.postal_address.street_address
+        return cls(latitude=latitude,
+                   longitude=longitude,
+                   name=name,
+                   address=address)
+
+    @classmethod
+    def to_place(cls, location):
+        """
+        Convert a :class:`.Location` into a :class:`hangouts_pb2.EmbedItem`.
+
+        Args:
+            location (.Location):
+                Location created by another plug.
+
+        Returns:
+            hangups.hangouts_pb2.EmbedItem:
+                Formatted embed item, suitable for sending inside a
+                :class:`hangups.hangouts_pb2.Place` object.
+        """
+        address = hangouts_pb2.EmbedItem.PostalAddress(street_address=location.address)
+        geo = hangouts_pb2.EmbedItem.GeoCoordinates(latitude=location.latitude,
+                                                    longitude=location.longitude)
+        image_url = ("https://maps.googleapis.com/maps/api/staticmap?"
+                     "center={0},{1}&markers=color:red%7C{0},{1}&size=400x400"
+                     .format(location.latitude, location.longitude))
+        return hangouts_pb2.EmbedItem(
+                type=[hangouts_pb2.ITEM_TYPE_PLACE_V2,
+                      hangouts_pb2.ITEM_TYPE_PLACE,
+                      hangouts_pb2.ITEM_TYPE_THING],
+                id="and0",
+                place=hangouts_pb2.Place(
+                    name=location.name,
+                    address=hangouts_pb2.EmbedItem(postal_address=address),
+                    geo=hangouts_pb2.EmbedItem(geo_coordinates=geo),
+                    representative_image=hangouts_pb2.EmbedItem(
+                        type=[hangouts_pb2.ITEM_TYPE_PLACE,
+                              hangouts_pb2.ITEM_TYPE_THING],
+                        id=image_url,
+                        image=hangouts_pb2.EmbedItem.Image(url=image_url)))).place
+
+
 class HangoutsMessage(immp.Message):
     """
     Message originating from Hangouts.
@@ -191,6 +262,15 @@ class HangoutsMessage(immp.Message):
                         pass
             for attach in event.attachments:
                 attachments.append(immp.File(type=immp.File.Type.image, source=attach))
+            for attach in event._event.chat_message.message_content.attachment:
+                embed = attach.embed_item
+                if any(place in embed.type for place in
+                       (hangouts_pb2.ITEM_TYPE_PLACE, hangouts_pb2.ITEM_TYPE_PLACE_V2)):
+                    location = HangoutsLocation.from_embed(embed)
+                    if str(text) == ("https://maps.google.com/maps?q={0},{1}"
+                                     .format(location.latitude, location.longitude)):
+                        text = None
+                    attachments.append(location)
         elif isinstance(event, hangups.MembershipChangeEvent):
             action = True
             is_join = event.type_ == hangouts_pb2.MEMBERSHIP_CHANGE_TYPE_JOIN
@@ -229,7 +309,8 @@ class HangoutsMessage(immp.Message):
                                         .format("en" if is_shared else "dis"))]
         else:
             raise NotImplementedError
-        text = immp.RichText(segments)
+        if not isinstance(event, hangups.ChatMessageEvent):
+            text = immp.RichText(segments)
         return (hangouts.host.resolve_channel(hangouts, event.conversation_id),
                 cls(id=event.id_,
                     text=text,
@@ -349,6 +430,14 @@ class HangoutsPlug(immp.Plug):
             output += HangoutsSegment.to_segments(segment)
         return [segment.serialize() for segment in output]
 
+    def _request(self, conv, segments=None, media=None, place=None):
+        return hangouts_pb2.SendChatMessageRequest(
+            request_header=self._client.get_request_header(),
+            event_request_header=conv._get_event_request_header(),
+            message_content=hangouts_pb2.MessageContent(segment=segments) if segments else None,
+            existing_media=media,
+            location=hangouts_pb2.Location(place=place) if place else None)
+
     async def put(self, channel, msg):
         if msg.deleted:
             # We can't delete messages on this side.
@@ -356,36 +445,39 @@ class HangoutsPlug(immp.Plug):
         conv = self._convs.get(channel.source)
         uploads = []
         images = []
+        locations = []
         for attach in msg.attachments:
             if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
                 uploads.append(self._upload(attach))
+            elif isinstance(attach, immp.Location):
+                locations.append((attach, HangoutsLocation.to_place(attach)))
         if uploads:
             images = await gather(*uploads)
         requests = []
-        if msg.text:
-            content = self._serialise(msg.render(quote_reply=True))
+        if msg.text or msg.reply_to:
+            segments = self._serialise(msg.render(quote_reply=True))
             media = None
             if len(images) == 1:
                 # Attach the only image to the message text.
                 media = images.pop()
-            requests.append(hangouts_pb2.SendChatMessageRequest(
-                request_header=self._client.get_request_header(),
-                event_request_header=conv._get_event_request_header(),
-                message_content=hangouts_pb2.MessageContent(segment=content),
-                existing_media=media))
+            requests.append(self._request(conv, segments, media))
         if images:
-            label = []
+            segments = []
             if msg.user:
-                label = self._serialise([immp.Segment(msg.user.real_name or msg.user.username,
-                                                      bold=True, italic=True),
-                                         immp.Segment(" sent an image", italic=True)])
+                label = immp.Message(user=msg.user, text="sent an image", action=True)
+                segments = self._serialise(label.render())
             # Send any additional media items in their own separate messages.
             for media in images:
-                requests.append(hangouts_pb2.SendChatMessageRequest(
-                    request_header=self._client.get_request_header(),
-                    event_request_header=conv._get_event_request_header(),
-                    message_content=hangouts_pb2.MessageContent(segment=label),
-                    existing_media=media))
+                requests.append(self._request(conv, segments, media))
+        if locations:
+            # Send each location separately.
+            for location, place in locations:
+                requests.append(self._request(conv, place=place))
+            # Include a label only if we haven't sent a text message earlier.
+            if msg.user and not msg.text:
+                label = immp.Message(user=msg.user, text="sent a location", action=True)
+                segments = self._serialise(label.render())
+                requests.append(self._request(conv, segments))
         sent = []
         for request in requests:
             sent.append(await self._client.send_chat_message(request))

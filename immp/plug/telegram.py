@@ -70,6 +70,8 @@ class _Schema(object):
                       Optional("reply_to_message", default=None):
                           Any(lambda v: _Schema.message(v), None),
                       Optional("photo", default=[]): [{"file_id": str, "width": int}],
+                      Optional("location", default=None):
+                          Any({"latitude": float, "longitude": float}, None),
                       Optional("new_chat_members", default=[]): [user],
                       Optional("left_chat_member", default=None): Any(user, None),
                       Optional("new_chat_title", default=None): Any(str, None)},
@@ -331,6 +333,9 @@ class TelegramMessage(immp.Message):
             url = ("https://api.telegram.org/file/bot{}/{}"
                    .format(telegram._token, file["file_path"]))
             attachments.append(immp.File(type=immp.File.Type.image, source=url))
+        if message["location"]:
+            attachments.append(immp.Location(latitude=message["location"]["latitude"],
+                                             longitude=message["location"]["longitude"]))
         return (telegram.host.resolve_channel(telegram, message["chat"]["id"]),
                 cls(id=message["message_id"],
                     at=datetime.fromtimestamp(message["date"]),
@@ -481,6 +486,12 @@ class TelegramPlug(immp.Plug):
             # TODO
             return []
         parts = []
+        if msg.text or msg.reply_to:
+            rich = msg.render(quote_reply=True)
+            text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
+            parts.append(("sendMessage", {"chat_id": channel.source,
+                                          "text": text,
+                                          "parse_mode": "HTML"}))
         for attach in msg.attachments:
             if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
                 # Upload an image file to Telegram in its own message.
@@ -495,12 +506,17 @@ class TelegramPlug(immp.Plug):
                     img_resp = await attach.get_content(self._session)
                     data.add_field("photo", img_resp.content, filename=attach.title or "photo")
                 parts.append(("sendPhoto", data))
-        if msg.text or msg.reply_to:
-            rich = msg.render(quote_reply=True)
-            text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
-            parts.append(("sendMessage", {"chat_id": channel.source,
-                                          "text": text,
-                                          "parse_mode": "HTML"}))
+            elif isinstance(attach, immp.Location):
+                parts.append(("sendLocation", {"chat_id": channel.source,
+                                               "latitude": attach.latitude,
+                                               "longitude": attach.longitude}))
+                if msg.user:
+                    caption = immp.Message(user=msg.user, text="sent a location", action=True)
+                    text = "".join(TelegramSegment.to_html(self, segment)
+                                   for segment in caption.render())
+                    parts.append(("sendMessage", {"chat_id": channel.source,
+                                                  "text": text,
+                                                  "parse_mode": "HTML"}))
         sent = []
         for endpoint, data in parts:
             result = await self._api(endpoint, _Schema.send, data=data)

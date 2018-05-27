@@ -611,6 +611,7 @@ class SlackPlug(immp.Plug):
         elif uploads:
             what = "{} files".format(len(uploads)) if len(uploads) > 1 else "this file"
             data["text"] = "_shared {}_".format(what)
+        attachments = []
         if msg.reply_to:
             quote = {"footer": ":speech_balloon:",
                      "ts": msg.reply_to.at.timestamp()}
@@ -635,7 +636,17 @@ class SlackPlug(immp.Plug):
                         segment.italic = True
                 quote["text"] = SlackRichText.to_mrkdwn(self, quoted_rich)
                 quote["mrkdwn_in"] = ["text"]
-            data["attachments"] = json_dumps([quote])
+            attachments.append(quote)
+        for attach in msg.attachments:
+            if isinstance(attach, immp.Location):
+                coords = "{}, {}".format(attach.latitude, attach.longitude)
+                fallback = "{} ({})".format(attach.address, coords) if attach.address else coords
+                attachments.append({"fallback": fallback,
+                                    "title": attach.name or "Location",
+                                    "title_link": attach.google_map_url,
+                                    "text": attach.address,
+                                    "footer": "{}, {}".format(attach.latitude, attach.longitude)})
+        data["attachments"] = json_dumps(attachments)
         post = await self._api("chat.postMessage", _Schema.post, data=data)
         sent.append(post["ts"])
         return sent

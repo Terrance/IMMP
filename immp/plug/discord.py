@@ -360,6 +360,13 @@ class DiscordPlug(immp.Plug):
                     filename = attach.title or "image_{}.png".format(i)
                     embeds.append({"image": {"url": "attachment://{}".format(filename)}})
                     data.add_field("file_{}".format(i), img_resp.content, filename=filename)
+                elif isinstance(attach, immp.Location):
+                    embeds.append({"title": attach.name or "Location",
+                                   "url": attach.google_map_url,
+                                   "description": attach.address,
+                                   "thumbnail": {"url": attach.google_image_url(80)},
+                                   "footer": {"text": "{}, {}".format(attach.latitude,
+                                                                      attach.longitude)}})
         if msg.reply_to:
             quote = {"footer": {"text": "\N{SPEECH BALLOON}"},
                      "timestamp": msg.reply_to.at.isoformat()}
@@ -413,6 +420,14 @@ class DiscordPlug(immp.Plug):
                     embed = discord.Embed()
                     embed.set_image(url="attachment://{}".format(filename))
                     embeds.append((embed, discord.File(img_resp.content, filename), "an image"))
+                elif isinstance(attach, immp.Location):
+                    embed = discord.Embed()
+                    embed.title = attach.name or "Location"
+                    embed.url = attach.google_map_url
+                    embed.description = attach.address
+                    embed.set_thumbnail(url=attach.google_image_url(80))
+                    embed.set_footer(text="{}, {}".format(attach.latitude, attach.longitude))
+                    embeds.append((embed, None, "a location"))
         requests = []
         if msg.text or msg.reply_to:
             rich = msg.render()
