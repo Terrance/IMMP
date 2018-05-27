@@ -333,14 +333,10 @@ class DiscordPlug(immp.Plug):
         else:
             return []
 
-    async def put(self, channel, msg):
-        dc_channel = self._client.get_channel(channel.source)
-        if not dc_channel:
-            raise DiscordAPIError("No access to channel {}".format(channel.source))
+    async def _put_webhook(self, webhook, msg):
         if msg.deleted:
             # TODO
             return []
-        webhook = self.config["webhooks"].get(channel.name)
         name = image = rich = None
         if msg.user:
             name = msg.user.real_name or msg.user.username
@@ -351,81 +347,101 @@ class DiscordPlug(immp.Plug):
             else:
                 # Unformatted text received, make a basic rich text instance out of it.
                 rich = immp.RichText([immp.Segment(msg.text)])
-            if msg.user and not webhook:
-                # Can't customise the author name, so put it in the message body.
-                prefix = ("{} " if msg.action else "{}: ").format(name)
-                rich.prepend(immp.Segment(prefix, bold=True))
             if msg.action:
                 for segment in rich:
                     segment.italic = True
+        data = FormData()
+        payload = {}
+        embeds = []
+        if msg.attachments:
+            for i, attach in enumerate(msg.attachments):
+                if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
+                    img_resp = await attach.get_content(self._session)
+                    filename = attach.title or "image_{}.png".format(i)
+                    embeds.append({"image": {"url": "attachment://{}".format(filename)}})
+                    data.add_field("file_{}".format(i), img_resp.content, filename=filename)
+        if msg.reply_to:
+            quote = {"footer": {"text": "\N{SPEECH BALLOON}"},
+                     "timestamp": msg.reply_to.at.isoformat()}
+            if msg.reply_to.user:
+                quote["author"] = {"name": (msg.reply_to.user.real_name or
+                                            msg.reply_to.user.username),
+                                   "icon_url": msg.reply_to.user.avatar}
+            quoted_rich = None
+            quoted_action = False
+            if msg.reply_to.text:
+                if isinstance(msg.reply_to.text, immp.RichText):
+                    quoted_rich = msg.reply_to.text.clone()
+                else:
+                    quoted_rich = immp.RichText([immp.Segment(msg.reply_to.text)])
+            elif msg.reply_to.attachments:
+                quoted_action = True
+                count = len(msg.reply_to.attachments)
+                what = "{} files".format(count) if count > 1 else "this file"
+                quoted_rich = immp.RichText([immp.Segment("sent {}".format(what))])
+            if quoted_rich:
+                if quoted_action:
+                    for segment in quoted_rich:
+                        segment.italic = True
+                quote["description"] = DiscordRichText.to_markdown(self, quoted_rich)
+            embeds.append(quote)
+        # Null values aren't accepted, only add name/image to data if they're set.
+        if name:
+            payload["username"] = name
+        if image:
+            payload["avatar_url"] = image
+        if rich:
+            payload["content"] = DiscordRichText.to_markdown(self, rich.normalise())
+        if embeds:
+            payload["embeds"] = embeds
+        data.add_field("payload_json", json_dumps(payload))
+        async with self._session.post("{}?wait=true".format(webhook), data=data) as resp:
+            json = await resp.json()
+        message = _Schema.webhook(json)
+        return [int(message["id"])]
+
+    async def _put_client(self, channel, msg):
+        if msg.deleted:
+            # TODO
+            return []
+        embeds = []
+        if msg.attachments:
+            for i, attach in enumerate(msg.attachments):
+                if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
+                    img_resp = await attach.get_content(self._session)
+                    filename = attach.title or "image_{}.png".format(i)
+                    embed = discord.Embed()
+                    embed.set_image(url="attachment://{}".format(filename))
+                    embeds.append((embed, discord.File(img_resp.content, filename), "an image"))
+        requests = []
+        if msg.text or msg.reply_to:
+            rich = msg.render()
+            embed = file = None
+            if len(embeds) == 1:
+                # Attach the only embed to the message text.
+                embed, file, _ = embeds.pop()
+            requests.append(channel.send(content=DiscordRichText.to_markdown(self, rich),
+                                         embed=embed, file=file))
+        for embed, file, desc in embeds:
+            # Send any additional embeds in their own separate messages.
+            content = None
+            if msg.user:
+                label = immp.Message(user=msg.user, text="sent {}".format(desc), action=True)
+                content = DiscordRichText.to_markdown(self, label.render())
+            requests.append(channel.send(content=content, embed=embed, file=file))
+        sent = []
+        for request in requests:
+            sent.append(await request)
+        return [resp.id for resp in sent]
+
+    async def put(self, channel, msg):
+        webhook = self.config["webhooks"].get(channel.name)
+        dc_channel = self._client.get_channel(channel.source)
         if webhook:
             log.debug("Sending to {} via webhook".format(repr(channel)))
-            data = FormData()
-            payload = {}
-            embeds = []
-            if msg.attachments:
-                for i, attach in enumerate(msg.attachments):
-                    if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
-                        img_resp = await attach.get_content(self._session)
-                        filename = attach.title or "image_{}".format(i)
-                        embeds.append({"image": {"url": "attachment://{}".format(filename)}})
-                        data.add_field("file_{}".format(i), img_resp.content, filename=filename)
-            if msg.reply_to:
-                quote = {"footer": {"text": "\U0001f4ac"},  # :speech_balloon:
-                         "timestamp": msg.reply_to.at.isoformat()}
-                if msg.reply_to.user:
-                    quote["author"] = {"name": (msg.reply_to.user.real_name or
-                                                msg.reply_to.user.username),
-                                       "icon_url": msg.reply_to.user.avatar}
-                quoted_rich = None
-                quoted_action = False
-                if msg.reply_to.text:
-                    if isinstance(msg.reply_to.text, immp.RichText):
-                        quoted_rich = msg.reply_to.text.clone()
-                    else:
-                        quoted_rich = immp.RichText([immp.Segment(msg.reply_to.text)])
-                elif msg.reply_to.attachments:
-                    quoted_action = True
-                    count = len(msg.reply_to.attachments)
-                    what = "{} files".format(count) if count > 1 else "this file"
-                    quoted_rich = immp.RichText([immp.Segment("sent {}".format(what))])
-                if quoted_rich:
-                    if quoted_action:
-                        for segment in quoted_rich:
-                            segment.italic = True
-                    quote["description"] = DiscordRichText.to_markdown(self, quoted_rich)
-                embeds.append(quote)
-            # Null values aren't accepted, only add name/image to data if they're set.
-            if name:
-                payload["username"] = name
-            if image:
-                payload["avatar_url"] = image
-            if rich:
-                payload["content"] = DiscordRichText.to_markdown(self, rich.normalise())
-            if embeds:
-                payload["embeds"] = embeds
-            data.add_field("payload_json", json_dumps(payload))
-            async with self._session.post("{}?wait=true".format(webhook), data=data) as resp:
-                json = await resp.json()
-            message = _Schema.webhook(json)
-            return [int(message["id"])]
+            return await self._put_webhook(webhook, msg)
+        elif dc_channel:
+            log.debug("Sending to {} via client".format(repr(channel)))
+            return await self._put_client(dc_channel, msg)
         else:
-            log.debug("Sending to {} via API".format(repr(channel)))
-            embed = None
-            file = None
-            if msg.attachments:
-                for attach in msg.attachments:
-                    if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
-                        img_resp = await attach.get_content(self._session)
-                        filename = attach.title or "image"
-                        embed = discord.Embed()
-                        embed.set_image(url="attachment://{}".format(filename))
-                        file = discord.File(img_resp.content, filename)
-                        # TODO: Handle multiple attachments.
-                        break
-                if embed and not rich:
-                    rich = DiscordRichText([immp.Segment(name, bold=True, italic=True),
-                                            immp.Segment(" shared an image", italic=True)])
-            message = await dc_channel.send(content=DiscordRichText.to_markdown(self, rich),
-                                            embed=embed, file=file)
-            return [message.id]
+            raise DiscordAPIError("No access to channel {}".format(channel.source))
