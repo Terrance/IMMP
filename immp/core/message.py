@@ -262,6 +262,15 @@ class File(Attachment):
     """
 
     class Type(Enum):
+        """
+        Possible file attachment types.
+
+        Attributes:
+            unknown:
+                Default file type if not otherwise specified.
+            image:
+                Picture in a standard recognised format (e.g. PNG, JPEG).
+        """
         unknown = 0
         image = 1
 
