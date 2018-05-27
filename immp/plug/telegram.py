@@ -331,7 +331,7 @@ class TelegramMessage(immp.Message):
             params = {"file_id": photo["file_id"]}
             file = await telegram._api("getFile", _Schema.file, params=params)
             url = ("https://api.telegram.org/file/bot{}/{}"
-                   .format(telegram._token, file["file_path"]))
+                   .format(telegram.config["token"], file["file_path"]))
             attachments.append(immp.File(type=immp.File.Type.image, source=url))
         if message["location"]:
             attachments.append(immp.Location(latitude=message["location"]["latitude"],
