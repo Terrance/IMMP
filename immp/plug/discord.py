@@ -4,6 +4,8 @@ Connect to `Discord <https://discordapp.com>`_ as a bot.
 Config:
     token (str):
         Discord token for the bot user.
+    bot (bool):
+        Whether the token represents a bot user (true by default).
     webhooks (dict):
         Mapping from Discord channel IDs to webhook URLs, needed for custom message author
         names and avatars.
@@ -46,6 +48,7 @@ log = logging.getLogger(__name__)
 class _Schema(object):
 
     config = Schema({"token": str,
+                     Optional("bot", default=True): bool,
                      Optional("webhooks", default=dict): dict,
                      Optional("playing", default=None): Any(str, None)},
                     extra=ALLOW_EXTRA, required=True)
@@ -287,7 +290,7 @@ class DiscordPlug(immp.Plug):
             self._session = ClientSession()
         log.debug("Starting client")
         self._client = DiscordClient(self)
-        self._task = ensure_future(self._client.start(self.config["token"]))
+        self._task = ensure_future(self._client.start(self.config["token"], bot=self.config["bot"]))
         with await self._starting:
             # Block until the client is ready.
             await self._starting.wait()
