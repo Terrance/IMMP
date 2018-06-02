@@ -47,7 +47,10 @@ class SyncPlug(immp.Plug):
 
     async def send(self, channel, msg):
         if channel == self._hook.channel:
-            return await self._hook.send(msg)
+            await self._hook.send(msg)
+        else:
+            log.debug("Send to unknown sync channel: {}".format(channel))
+        return []
 
 
 class SyncHook(immp.Hook, Commandable):
@@ -67,9 +70,9 @@ class SyncHook(immp.Hook, Commandable):
                 self.channels.append(host.channels[label])
             except KeyError:
                 raise immp.ConfigError("No channel '{}' on host".format(label)) from None
-        # Message cache, stores mappings of synced message IDs keyed by channel.
-        # [{Channel(): [id, ...], ...}, ...]
-        self._synced = []
+        # Message cache, stores IDs of all synced messages by channel.  Mapping from source
+        # messages to [{channel: [ID, ...], ...}] (source IDs may not be unique across networks).
+        self._synced = defaultdict(list)
         # Hook lock, to put a hold on retrieving messages whilst a send is in progress.
         self._lock = BoundedSemaphore()
         # Add a virtual plug to the host, for external subscribers.
@@ -86,7 +89,7 @@ class SyncHook(immp.Hook, Commandable):
     def commands(self):
         return {"sync-members": self.members}
 
-    async def members(self, channel, mag):
+    async def members(self, channel, msg):
         members = defaultdict(list)
         missing = False
         for synced in self.channels:
@@ -118,6 +121,13 @@ class SyncHook(immp.Hook, Commandable):
     async def _noop_send(self, msg):
         return [msg.id]
 
+    async def _send(self, channel, msg):
+        try:
+            return await channel.send(msg)
+        except Exception:
+            log.exception("Failed to relay message to {}".format(channel))
+            return []
+
     async def send(self, msg, source=None):
         """
         Send a message to all channels in this sync.
@@ -128,37 +138,32 @@ class SyncHook(immp.Hook, Commandable):
             source (.Channel):
                 Source channel of the message; if set and part of the sync, it will be skipped
                 (used to avoid retransmitting a message we just received).
-
-        Returns:
-            dict:
-                Mapping from destination channels to their generated message IDs.
         """
         queue = []
         for channel in self.channels:
             # If it's the channel we just got the message from, return the ID without resending.
-            queue.append(self._noop_send(msg) if channel == source else channel.send(msg))
+            queue.append(self._noop_send(msg) if channel == source else self._send(channel, msg))
         # Just like with plugs, when sending a new (external) message to all channels in a
         # sync, we need to wait for all plugs to complete before processing further messages.
         with (await self._lock):
             # Send all the messages in parallel, and match the resulting IDs up by channel.
-            sent = dict(zip(self.channels, await gather(*queue)))
-            self._synced.append(sent)
+            ids = dict(zip(self.channels, await gather(*queue)))
+            self._synced[msg].append(ids)
 
-    async def process(self, channel, msg):
-        await super().process(channel, msg)
-        # Only process if we recognise the channel.
+    async def process(self, channel, msg, source, primary):
+        await super().process(channel, msg, source, primary)
         if channel not in self.channels:
             return
         with (await self._lock):
             # No critical section here, just wait for any pending messages to be sent.
             pass
-        for sync in self._synced:
-            if msg.id in sync[channel]:
-                # This is a synced message being echoed back from another channel.
-                log.debug("Ignoring echoed message: {}".format(repr(msg)))
-                return
-        log.debug("Syncing message to {} channel(s): {}".format(len(self.channels) - 1, repr(msg)))
-        await self.send(msg, channel)
+        if any(msg.id in sync[channel] for sync in self._synced[source]):
+            # This is a synced message being echoed back from another channel.
+            log.debug("Ignoring synced message: {}".format(repr(source)))
+            return
+        log.debug("Syncing message to {} channel(s): {}"
+                  .format(len(self.channels) - 1, repr(source)))
+        await self.send(source, channel)
         # Push a copy of the message to the sync channel, if running.
         if self.plug:
-            self.plug.queue(self.channel, msg)
+            self.plug.queue(self.channel, source)

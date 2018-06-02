@@ -20,12 +20,16 @@ Currently, the commands only add/remove responses for the current session -- cha
 exit as the list will be re-read from config at the next startup.
 """
 
+import logging
 import re
 
 from voluptuous import ALLOW_EXTRA, Optional, Schema
 
 import immp
 from immp.hook.command import Commandable
+
+
+log = logging.getLogger(__name__)
 
 
 class _Schema(object):
@@ -63,16 +67,16 @@ class AutoRespondHook(immp.Hook, Commandable):
         del self.responses[match]
         await channel.send(immp.Message(text="\U00002705 Removed"))
 
-    async def process(self, channel, msg):
-        await super().process(channel, msg)
-        # Only process if we recognise the channel.
-        if channel not in self.channels:
+    async def process(self, channel, msg, source, primary):
+        await super().process(channel, msg, source, primary)
+        if not primary or channel not in self.channels:
             return
         # Skip our own response messages.
         if (channel, msg.id) in self._sent:
             return
-        text = str(msg.text)
+        text = str(source.text)
         for match, response in self.responses.items():
             if re.search(match, text, re.I):
+                log.debug("Matched regex '{}', replying to channel: {}".format(match, channel))
                 for id in await channel.send(immp.Message(text=response)):
                     self._sent.append((channel, id))

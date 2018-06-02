@@ -153,5 +153,6 @@ class AsyncShellHook(immp.ResourceHook):
         return aioconsole.AsynchronousConsole(locals={"host": self.host, "shell": self},
                                               streams=streams)
 
-    async def process(self, channel, msg):
-        self.buffer.append((channel, msg))
+    async def process(self, channel, msg, source, primary):
+        await super().process(channel, msg, source, primary)
+        self.buffer.append((channel, msg, source))

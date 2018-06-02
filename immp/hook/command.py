@@ -81,17 +81,16 @@ class CommandHook(immp.Hook):
             log.debug("Adding commands for hook '{}': {}".format(label, ", ".join(commands)))
             self.commands.update(commands)
 
-    async def process(self, channel, msg):
-        await super().process(channel, msg)
-        # Only process if we recognise the channel and the command.
-        if channel not in self.channels:
+    async def process(self, channel, msg, source, primary):
+        await super().process(channel, msg, source, primary)
+        if not primary or channel not in self.channels:
             return
-        if not (msg.text and str(msg.text).startswith(self.config["prefix"])):
+        if not (source.text and str(source.text).startswith(self.config["prefix"])):
             return
         try:
             # TODO: Preserve formatting.
-            command = split(str(msg.text)[len(self.config["prefix"]):])
+            command = split(str(source.text)[len(self.config["prefix"]):])
         except ValueError:
             return
         if command[0] in self.commands:
-            await self.commands[command[0]](channel, msg, *command[1:])
+            await self.commands[command[0]](channel, source, *command[1:])

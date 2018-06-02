@@ -100,13 +100,16 @@ class PlugStream:
         for task in done:
             plug = self._plugs[task]
             try:
-                channel, msg = task.result()
+                channel, msg, source, extra = task.result()
             except StopAsyncIteration:
                 log.debug("Plug '{}' finished yielding during process".format(plug.name))
                 del self._coros[plug]
+            except Exception:
+                log.exception("Plug '{}' raised error during process".format(plug.name))
+                del self._coros[plug]
             else:
                 log.debug("Received: {} {}".format(repr(channel), repr(msg)))
-                await self.callback(channel, msg)
+                await self.callback(channel, msg, source, extra)
                 self._queue(plug)
             finally:
                 del self._plugs[task]
@@ -117,6 +120,7 @@ class PlugStream:
         """
         while self._plugs:
             try:
+                log.debug("Waiting for next message")
                 await self._wait()
             except CancelledError:
                 log.debug("Host process cancelled, propagating to tasks")
@@ -163,6 +167,9 @@ class Plug(Openable):
         self._getter = None
         # Message queue, to move processing from the event stream to the generator.
         self._queue = Queue()
+        # Message history, to match up received messages with their sent sources.
+        # Mapping from (channel, message ID) to (source message, all IDs).
+        self._sent = {}
         # Hook lock, to put a hold on retrieving messages whilst a send is in progress.
         self._lock = BoundedSemaphore()
 
@@ -285,8 +292,9 @@ class Plug(Openable):
         submit new messages, which will be handled by default.
 
         Yields:
-            (.Channel, .Message) tuple:
-                Messages received and processed by the plug.
+            (.Channel, .Message, .Message) tuple:
+                Messages received and processed by the plug, paired with a source message if one
+                exists (from a call to :meth:`send`).
         """
         if not self.state == OpenState.active:
             raise PlugError("Can't receive messages when not active")
@@ -298,7 +306,16 @@ class Plug(Openable):
                 with (await self._lock):
                     # No critical section here, just wait for any pending messages to be sent.
                     pass
-                yield (channel, msg)
+                try:
+                    # If this message was sent by us, retrieve the canonical version.  For source
+                    # messages split into multiple parts, only make the first raw message primary.
+                    source, ids = self._sent[(channel, msg.id)]
+                    primary = ids.index(msg.id) == 0
+                except KeyError:
+                    # The message came from elsewhere, consider it the canonical copy.
+                    source = msg
+                    primary = True
+                yield (channel, msg, source, primary)
         finally:
             await self._getter.aclose()
             self._getter = None
@@ -354,7 +371,10 @@ class Plug(Openable):
         # before the send request returns with confirmation.  Use the lock when sending in order
         # return the new message ID(s) in advance of them appearing in the receive queue.
         with (await self._lock):
-            return await self.put(channel, msg)
+            ids = await self.put(channel, msg)
+        for id in ids:
+            self._sent[(channel, id)] = (msg, ids)
+        return ids
 
     async def put(self, channel, msg):
         """

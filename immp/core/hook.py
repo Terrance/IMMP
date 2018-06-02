@@ -34,11 +34,12 @@ class Hook(Openable):
         Perform any teardown tasks.
         """
 
-    async def preprocess(self, channel, msg):
+    async def preprocess(self, channel, msg, source, primary):
         """
-        Modify an incoming message before it's pushed to other hooks.  The (channel, message) pair
+        Modify an incoming message before it's pushed to other hooks.  The ``(channel, msg)`` pair
         must be returned, so hooks may modify in-place or return a different pair.  This method is
-        called for each hook in turn, in registration order.
+        called for each hook, one after another, so any time-consuming tasks should be deferred to
+        :meth:`process` (which is run for all hooks in parallel).
 
         Hooks may also suppress a message (e.g. if their actions caused it, but it bears no value
         to the rest of the system) by returning ``None``.
@@ -47,7 +48,14 @@ class Hook(Openable):
             channel (.Channel):
                 Original source of this message.
             msg (.Message):
-                Original message received from another plug.
+                Raw message received from another plug.
+            source (.Message):
+                Original message data used to generate the raw message, if sent via the plug (e.g.
+                from another hook), equivalent to ``msg`` if the source is otherwise unknown.
+            primary (bool):
+                ``False`` for supplementary messages if the source message required multiple raw
+                messages in order to represent it (e.g. messages with multiple attachments where
+                the underlying network doesn't support it), otherwise ``True``.
 
         Returns:
             (.Channel, .Message) tuple:
@@ -55,15 +63,22 @@ class Hook(Openable):
         """
         return (channel, msg)
 
-    async def process(self, channel, msg):
+    async def process(self, channel, msg, source, primary):
         """
-        Handle an incoming message from the host.
+        Handle an incoming message received by any plug.
 
         Args:
             channel (.Channel):
                 Original source of this message.
             msg (.Message):
-                Original message received from another plug.
+                Raw message received from another plug.
+            source (.Message):
+                Original message data used to generate the raw message, if sent via the plug (e.g.
+                from another hook), equivalent to ``msg`` if the source is otherwise unknown.
+            primary (bool):
+                ``False`` for supplementary messages if the source message required multiple raw
+                messages in order to represent it (e.g. messages with multiple attachments where
+                the underlying network doesn't support it), otherwise ``True``.
         """
 
     def __repr__(self):
