@@ -336,7 +336,7 @@ class TelegramMessage(immp.Message):
         if message["location"]:
             attachments.append(immp.Location(latitude=message["location"]["latitude"],
                                              longitude=message["location"]["longitude"]))
-        return (telegram.host.resolve_channel(telegram, message["chat"]["id"]),
+        return (immp.Channel(telegram, message["chat"]["id"]),
                 cls(id=message["message_id"],
                     at=datetime.fromtimestamp(message["date"]),
                     text=text,
@@ -463,7 +463,7 @@ class TelegramPlug(immp.Plug):
             # Can't create private channels, users must initiate conversations with bots.
             return None
         else:
-            return immp.Channel(None, self, user.id)
+            return immp.Channel(self, user.id)
 
     async def channel_members(self, channel):
         if not self._client:

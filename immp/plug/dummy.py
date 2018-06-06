@@ -24,7 +24,7 @@ class DummyPlug(immp.Plug):
         super().__init__(name, config, host)
         self.counter = count()
         self.user = immp.User(id="dummy", real_name=name)
-        self.channel = self.host.resolve_channel(self, "dummy")
+        self.channel = immp.Channel(self, "dummy")
         self._task = None
 
     async def start(self):

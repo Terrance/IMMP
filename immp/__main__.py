@@ -37,7 +37,7 @@ def main(config):
         host.add_plug(cls(name, spec["config"], host))
     for name, spec in config["channels"].items():
         plug = host.plugs[spec["plug"]]
-        host.add_channel(Channel(name, plug, spec["source"]))
+        host.add_channel(name, Channel(plug, spec["source"]))
     for name, spec in config["hooks"].items():
         cls = resolve_import(spec["path"])
         host.add_hook(cls(name, spec["config"], host))

@@ -226,7 +226,7 @@ class DiscordMessage(immp.Message):
             if embed.image.url and embed.image.url.rsplit(".", 1)[1] in ("jpg", "png", "gif"):
                 attachments.append(immp.File(type=immp.File.Type.image,
                                              source=embed.image.url))
-        return (discord.host.resolve_channel(discord, message.channel.id),
+        return (immp.Channel(discord, message.channel.id),
                 cls(id=message.id,
                     at=message.created_at,
                     text=DiscordRichText.from_markdown(discord, text) if text else None,

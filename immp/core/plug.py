@@ -15,16 +15,13 @@ class Channel:
     inside the plug's network.
 
     Attributes:
-        name (str):
-            User-provided, unique name of the plug, used for config references.
         plug (.Plug):
             Related plug instance where the channel resides.
         source (str):
             Plug-specific channel identifier.
     """
 
-    def __init__(self, name, plug, source):
-        self.name = name
+    def __init__(self, plug, source):
         self.plug = plug
         self.source = source
 
@@ -39,14 +36,14 @@ class Channel:
         return (await self.plug.send(self, msg))
 
     def __eq__(self, other):
-        return isinstance(other, self.__class__) and self.name == other.name
+        return (isinstance(other, self.__class__) and
+                self.plug == other.plug and self.source == other.source)
 
     def __hash__(self):
-        return hash(self.name)
+        return hash((self.plug.name, self.source))
 
     def __repr__(self):
-        return "<{}: {} ({} @ {})>".format(self.__class__.__name__, self.name, self.source,
-                                           self.plug.name)
+        return "<{}: {} @ {}>".format(self.__class__.__name__, self.plug.name, self.source)
 
 
 class PlugStream:

@@ -81,8 +81,8 @@ class SyncHook(immp.Hook, Commandable):
             log.debug("Creating virtual plug '{}'".format(tname))
             self.plug = SyncPlug(tname, self, host)
             host.add_plug(self.plug)
-            self.channel = immp.Channel(tname, self.plug, None)
-            host.add_channel(self.channel)
+            self.channel = immp.Channel(self.plug, None)
+            host.add_channel(tname, self.channel)
         else:
             self.plug = None
 

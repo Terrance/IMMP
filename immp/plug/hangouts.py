@@ -311,7 +311,7 @@ class HangoutsMessage(immp.Message):
             raise NotImplementedError
         if not isinstance(event, hangups.ChatMessageEvent):
             text = immp.RichText(segments)
-        return (hangouts.host.resolve_channel(hangouts, event.conversation_id),
+        return (immp.Channel(hangouts, event.conversation_id),
                 cls(id=event.id_,
                     text=text,
                     user=user,
@@ -378,7 +378,7 @@ class HangoutsPlug(immp.Plug):
         for conv in self._convs.get_all(include_archived=True):
             if conv._conversation.type == hangouts_pb2.CONVERSATION_TYPE_ONE_TO_ONE:
                 if any(part.id_.chat_id == user.id for part in conv.users):
-                    return immp.Channel(None, self, conv.id_)
+                    return immp.Channel(self, conv.id_)
         # TODO: Create conversation.
         return None
 

@@ -4,7 +4,7 @@ import logging
 
 from .error import ConfigError
 from .hook import ResourceHook
-from .plug import Channel, PlugStream
+from .plug import PlugStream
 from .util import OpenState, pretty_str
 
 
@@ -99,22 +99,24 @@ class Host:
             raise RuntimeError("Host and plug are still running")
         del self.plugs[name]
 
-    def add_channel(self, channel):
+    def add_channel(self, name, channel):
         """
         Register a channel to the host.  The channel's plug must be registered first.
 
         Args:
+            name (str):
+                Unique identifier for this channel to be referenced by plugs and hooks.
             channel (.Channel):
                 Existing channel instance to add.
         """
-        if channel.name in self.channels:
-            raise ConfigError("Channel name '{}' already registered".format(channel.name))
+        if name in self.channels:
+            raise ConfigError("Channel name '{}' already registered".format(name))
         if channel.plug.name not in self.plugs:
             raise ConfigError("Channel plug '{}' not yet registered"
                               .format(channel.plug.name))
         log.debug("Adding channel: {} ({}/{})"
-                  .format(channel.name, channel.plug.name, channel.source))
-        self.channels[channel.name] = channel
+                  .format(name, channel.plug.name, channel.source))
+        self.channels[name] = channel
 
     def remove_channel(self, name):
         """
@@ -173,26 +175,6 @@ class Host:
                 raise RuntimeError("Hook '{}' not registered to host".format(name)) from None
             for cls in remove:
                 del self.resources[cls]
-
-    def resolve_channel(self, plug, source):
-        """
-        Take a plug and channel name, and resolve it from the configured channels.
-
-        Args:
-            plug (.Plug):
-                Registered plug instance.
-            source (str):
-                Plug-specific channel identifier.
-
-        Returns:
-            .Channel:
-                Generated channel container object.
-        """
-        for channel in self.channels.values():
-            if channel.plug == plug and channel.source == source:
-                return channel
-        log.debug("Channel plug/source not found: {}/{}".format(plug.name, source))
-        return Channel(None, plug, source)
 
     async def open(self):
         """

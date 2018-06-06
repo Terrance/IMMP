@@ -422,7 +422,7 @@ class SlackMessage(immp.Message):
             history = await slack._api("conversations.history", _Schema.history, params=params)
             if history["messages"] and history["messages"][0]["ts"] == event["thread_ts"]:
                 reply_to = (await cls.from_event(slack, history["messages"][0]))[1]
-        return (slack.host.resolve_channel(slack, event["channel"]),
+        return (immp.Channel(slack, event["channel"]),
                 cls(id=event["ts"],
                     at=datetime.fromtimestamp(int(float(event["ts"]))),
                     original=original,
@@ -548,12 +548,12 @@ class SlackPlug(immp.Plug):
             return
         for direct in self._directs.values():
             if direct["user"] == user.id:
-                return immp.Channel(None, self, direct["id"])
+                return immp.Channel(self, direct["id"])
         # Private channel doesn't exist yet or isn't cached.
         params = {"user": user.id,
                   "return_im": "true"}
         opened = await self._api("im.open", _Schema.im_open, params=params)
-        return immp.Channel(None, self, opened["channel"]["id"])
+        return immp.Channel(self, opened["channel"]["id"])
 
     async def channel_members(self, channel):
         if channel.plug is not self:
