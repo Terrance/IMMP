@@ -361,7 +361,6 @@ class DiscordPlug(immp.Plug):
                 if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
                     img_resp = await attach.get_content(self._session)
                     filename = attach.title or "image_{}.png".format(i)
-                    embeds.append({"image": {"url": "attachment://{}".format(filename)}})
                     data.add_field("file_{}".format(i), img_resp.content, filename=filename)
                 elif isinstance(attach, immp.Location):
                     embeds.append({"title": attach.name or "Location",
@@ -420,9 +419,7 @@ class DiscordPlug(immp.Plug):
                 if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
                     img_resp = await attach.get_content(self._session)
                     filename = attach.title or "image_{}.png".format(i)
-                    embed = discord.Embed()
-                    embed.set_image(url="attachment://{}".format(filename))
-                    embeds.append((embed, discord.File(img_resp.content, filename), "an image"))
+                    embeds.append((None, discord.File(img_resp.content, filename), "an image"))
                 elif isinstance(attach, immp.Location):
                     embed = discord.Embed()
                     embed.title = attach.name or "Location"
