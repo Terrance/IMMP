@@ -96,6 +96,8 @@ class _Schema(object):
 
     send = api({"message_id": int})
 
+    chat = api({"type": str})
+
     updates = api([update])
 
 
@@ -193,7 +195,7 @@ class TelegramSegment(immp.Segment):
             str:
                 HTML-formatted string.
         """
-        text = segment.text
+        text = segment.text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         # Any form of tag nesting (e.g. bold inside italic) isn't supported, so at most one type of
         # formatting may apply for each segment.
         if segment.mention and isinstance(segment.mention.plug, TelegramPlug):
@@ -436,6 +438,7 @@ class TelegramPlug(immp.Plug):
 
     async def user_from_id(self, id):
         if not self._client:
+            log.debug("Client auth required to look up users")
             return None
         try:
             data = await self._client(tl.functions.users.GetFullUserRequest(id))
@@ -446,6 +449,7 @@ class TelegramPlug(immp.Plug):
 
     async def user_from_username(self, username):
         if not self._client:
+            log.debug("Client auth required to look up users")
             return None
         try:
             data = await self._client(tl.functions.contacts.ResolveUsernameRequest(username))
@@ -454,7 +458,7 @@ class TelegramPlug(immp.Plug):
         else:
             return TelegramUser.from_proto_user(self, data.users[0])
 
-    async def private_channel(self, user):
+    async def channel_for_user(self, user):
         if not isinstance(user, TelegramUser):
             return None
         try:
@@ -465,8 +469,13 @@ class TelegramPlug(immp.Plug):
         else:
             return immp.Channel(self, user.id)
 
+    async def channel_is_private(self, channel):
+        data = await self._api("getChat", _Schema.chat, params={"chat_id": channel.source})
+        return data["type"] == "private"
+
     async def channel_members(self, channel):
         if not self._client:
+            log.debug("Client auth required to remove channel members")
             return None
         try:
             # Chat IDs can be negative in the bot API dependent on type, not over MTProto.

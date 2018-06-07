@@ -372,7 +372,7 @@ class HangoutsPlug(immp.Plug):
         user = self._users.get_user(hangups.user.UserID(chat_id=id, gaia_id=id))
         return HangoutsUser.from_user(self, user) if user else None
 
-    async def private_channel(self, user):
+    async def channel_for_user(self, user):
         if not isinstance(user, HangoutsUser) or not isinstance(user.raw, hangups.user.User):
             return None
         for conv in self._convs.get_all(include_archived=True):
@@ -381,6 +381,14 @@ class HangoutsPlug(immp.Plug):
                     return immp.Channel(self, conv.id_)
         # TODO: Create conversation.
         return None
+
+    async def channel_is_private(self, channel):
+        try:
+            conv = self._convs.get(channel.source)
+        except KeyError:
+            return False
+        else:
+            return conv._conversation.type == hangouts_pb2.CONVERSATION_TYPE_ONE_TO_ONE
 
     async def channel_members(self, channel):
         if channel.plug is not self:

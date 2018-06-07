@@ -543,7 +543,7 @@ class SlackPlug(immp.Plug):
                 return user
         return None
 
-    async def private_channel(self, user):
+    async def channel_for_user(self, user):
         if not isinstance(user, SlackUser):
             return
         for direct in self._directs.values():
@@ -554,6 +554,9 @@ class SlackPlug(immp.Plug):
                   "return_im": "true"}
         opened = await self._api("im.open", _Schema.im_open, params=params)
         return immp.Channel(self, opened["channel"]["id"])
+
+    async def channel_is_private(self, channel):
+        return channel.source in self._directs
 
     async def channel_members(self, channel):
         if channel.plug is not self:

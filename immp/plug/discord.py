@@ -319,13 +319,17 @@ class DiscordPlug(immp.Plug):
                 return DiscordUser.from_user(self, member)
         return None
 
-    async def private_channel(self, user):
+    async def channel_for_user(self, user):
         if not isinstance(user, DiscordUser):
             return None
         if not isinstance(user.raw, (discord.Member, discord.User)):
             return None
         dm = user.raw.dm_channel or (await user.raw.create_dm())
         return immp.Channel(None, self, dm.id)
+
+    async def channel_is_private(self, channel):
+        dc_channel = self._client.get_channel(channel.source)
+        return isinstance(dc_channel, discord.DMChannel)
 
     async def channel_members(self, channel):
         if channel.plug is not self:

@@ -25,6 +25,27 @@ class Channel:
         self.plug = plug
         self.source = source
 
+    async def is_private(self):
+        """
+        Equivalent to :meth:`.Plug.channel_is_private`.
+
+        Returns:
+            bool:
+                ``True`` if the channel is private; ``None`` if the service doesn't have a notion
+                of private channels.
+        """
+        return await self.plug.channel_is_private(self)
+
+    async def members(self):
+        """
+        Equivalent to :meth:`.Plug.channel_members`.
+
+        Returns:
+            .User list:
+                Members present in the channel.
+        """
+        return await self.plug.channel_members(self)
+
     async def send(self, msg):
         """
         Push a message object to the related plug on this channel.
@@ -217,7 +238,7 @@ class Plug(Openable):
         """
         return None
 
-    async def private_channel(self, user):
+    async def channel_for_user(self, user):
         """
         Retrieve a :class:`.Channel` representing a private (one-to-one) conversation between a
         given user and the service.  Returns ``None`` if the user does not have a private channel.
@@ -229,6 +250,22 @@ class Plug(Openable):
         Returns:
             .Channel:
                 Private channel for this user.
+        """
+        return None
+
+    async def channel_is_private(self, channel):
+        """
+        Test if a given channel represents a private (one-to-one) conversation between a given user
+        and the service.
+
+        Args:
+            channel (.Channel):
+                Requested channel instance.
+
+        Returns:
+            bool:
+                ``True`` if the channel is private; ``None`` if the service doesn't have a notion
+                of private channels.
         """
         return None
 
