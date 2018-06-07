@@ -450,7 +450,11 @@ class DiscordPlug(immp.Plug):
         return [resp.id for resp in sent]
 
     async def put(self, channel, msg):
-        webhook = self.config["webhooks"].get(channel.name)
+        webhook = None
+        for label, host_channel in self.host.channels.items():
+            if channel == host_channel:
+                webhook = self.config["webhooks"].get(label)
+                break
         dc_channel = self._client.get_channel(channel.source)
         if webhook:
             log.debug("Sending to {} via webhook".format(repr(channel)))
