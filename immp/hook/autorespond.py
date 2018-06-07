@@ -26,7 +26,7 @@ import re
 from voluptuous import ALLOW_EXTRA, Optional, Schema
 
 import immp
-from immp.hook.command import Commandable
+from immp.hook.command import Commandable, CommandScope
 
 
 log = logging.getLogger(__name__)
@@ -56,8 +56,8 @@ class AutoRespondHook(immp.Hook, Commandable):
         self._sent = []
 
     def commands(self):
-        return {"ar-add": self.add,
-                "ar-remove": self.remove}
+        return {CommandScope.any: {"ar-add": self.add,
+                                   "ar-remove": self.remove}}
 
     async def add(self, channel, msg, match, response):
         self.responses[match] = response

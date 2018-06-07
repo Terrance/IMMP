@@ -25,12 +25,12 @@ from peewee import CharField, ForeignKeyField
 from voluptuous import ALLOW_EXTRA, Schema
 
 import immp
-from immp.hook.command import Commandable
+from immp.hook.command import Commandable, CommandScope
 from immp.hook.database import BaseModel, DatabaseHook
 
 
-CROSS = "\U0000274C"
-TICK = "\U00002705"
+CROSS = "\N{CROSS MARK}"
+TICK = "\N{WHITE HEAVY CHECK MARK}"
 
 
 class _Schema(object):
@@ -96,10 +96,10 @@ class IdentityHook(immp.Hook, Commandable):
                 raise immp.ConfigError("No plug '{}' on host".format(label)) from None
 
     def commands(self):
-        return {"id-show": self.show,
-                "id-add": self.add,
-                "id-rename": self.rename,
-                "id-reset": self.reset}
+        return {CommandScope.any: {"id-show": self.show},
+                CommandScope.private: {"id-add": self.add,
+                                       "id-rename": self.rename,
+                                       "id-reset": self.reset}}
 
     async def start(self):
         self.db = self.host.resources[DatabaseHook].db
@@ -186,7 +186,7 @@ class IdentityHook(immp.Hook, Commandable):
         else:
             group.name = name
             group.save()
-            text = "\U00002705 Claimed"
+            text = "{} Claimed".format(TICK)
         await channel.send(immp.Message(text=text))
 
     async def reset(self, channel, msg):
