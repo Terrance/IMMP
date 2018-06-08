@@ -390,13 +390,17 @@ class HangoutsPlug(immp.Plug):
         else:
             return conv._conversation.type == hangouts_pb2.CONVERSATION_TYPE_ONE_TO_ONE
 
-    async def channel_members(self, channel):
-        if channel.plug is not self:
+    async def channel_title(self, channel):
+        try:
+            return self._convs.get(channel.source).name
+        except KeyError:
             return None
+
+    async def channel_members(self, channel):
         try:
             conv = self._convs.get(channel.source)
         except KeyError:
-            return []
+            return None
         else:
             return [HangoutsUser.from_user(self, user) for user in conv.users]
 

@@ -327,6 +327,10 @@ class DiscordPlug(immp.Plug):
         dm = user.raw.dm_channel or (await user.raw.create_dm())
         return immp.Channel(None, self, dm.id)
 
+    async def channel_title(self, channel):
+        dc_channel = self._client.get_channel(channel.source)
+        return dc_channel.name if dc_channel else None
+
     async def channel_is_private(self, channel):
         dc_channel = self._client.get_channel(channel.source)
         return isinstance(dc_channel, discord.DMChannel)

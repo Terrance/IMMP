@@ -558,6 +558,10 @@ class SlackPlug(immp.Plug):
     async def channel_is_private(self, channel):
         return channel.source in self._directs
 
+    async def channel_title(self, channel):
+        sl_channel = self._channels.get(channel.source) or self._directs.get(channel.source)
+        return sl_channel["name"] if sl_channel else None
+
     async def channel_members(self, channel):
         if channel.plug is not self:
             return None

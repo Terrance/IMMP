@@ -96,7 +96,8 @@ class _Schema(object):
 
     send = api({"message_id": int})
 
-    chat = api({"type": str})
+    chat = api({"type": str,
+                Optional("title", default=None): Any(str, None)})
 
     updates = api([update])
 
@@ -470,8 +471,20 @@ class TelegramPlug(immp.Plug):
             return immp.Channel(self, user.id)
 
     async def channel_is_private(self, channel):
-        data = await self._api("getChat", _Schema.chat, params={"chat_id": channel.source})
-        return data["type"] == "private"
+        try:
+            data = await self._api("getChat", _Schema.chat, params={"chat_id": channel.source})
+        except TelegramAPIError:
+            return None
+        else:
+            return data["type"] == "private"
+
+    async def channel_title(self, channel):
+        try:
+            data = await self._api("getChat", _Schema.chat, params={"chat_id": channel.source})
+        except TelegramAPIError:
+            return None
+        else:
+            return data["title"]
 
     async def channel_members(self, channel):
         if not self._client:

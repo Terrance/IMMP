@@ -36,6 +36,16 @@ class Channel:
         """
         return await self.plug.channel_is_private(self)
 
+    async def title(self):
+        """
+        Equivalent to :meth:`.Plug.channel_title`.
+
+        Returns:
+            str:
+                Display name for the channel.
+        """
+        return await self.plug.channel_title(self)
+
     async def members(self):
         """
         Equivalent to :meth:`.Plug.channel_members`.
@@ -256,7 +266,8 @@ class Plug(Openable):
     async def channel_is_private(self, channel):
         """
         Test if a given channel represents a private (one-to-one) conversation between a given user
-        and the service.
+        and the service.  May return ``None`` if the network doesn't have a notion of public/shared
+        and private channels.
 
         Args:
             channel (.Channel):
@@ -264,8 +275,18 @@ class Plug(Openable):
 
         Returns:
             bool:
-                ``True`` if the channel is private; ``None`` if the service doesn't have a notion
-                of private channels.
+                ``True`` if the channel is private.
+        """
+        return None
+
+    async def channel_title(self, channel):
+        """
+        Retrieve the friendly name of this channel, as used in the underlying network.  May return
+        ``None`` if the service doesn't have a notion of titles.
+
+        Returns:
+            str:
+                Display name for the channel
         """
         return None
 
