@@ -92,6 +92,8 @@ class _Schema(object):
                            "error_code": int},
                           extra=ALLOW_EXTRA, required=True))
 
+    me = api(user)
+
     file = api({"file_path": str})
 
     send = api({"message_id": int})
@@ -381,9 +383,6 @@ class TelegramPlug(immp.Plug):
     Plug for a `Telegram <https://telegram.org>`_ bot.
     """
 
-    class Meta(immp.Plug.Meta):
-        network = "Telegram"
-
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
         if self.config["api-id"] and self.config["api-hash"]:
@@ -436,6 +435,13 @@ class TelegramPlug(immp.Plug):
             self._client.disconnect()
             self._client = None
         self._offset = 0
+
+    async def network_name(self):
+        return "Telegram"
+
+    async def network_id(self):
+        me = await self._api("getMe", _Schema.me)
+        return "telegram:{}".format(me["id"])
 
     async def user_from_id(self, id):
         if not self._client:

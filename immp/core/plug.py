@@ -176,16 +176,6 @@ class Plug(Openable):
             Controlling host instance, providing access to plugs.
     """
 
-    class Meta:
-        """
-        Metadata relating to the plug or underlying network.
-
-        Attributes:
-            network (str):
-                Readable name of the network provided by this plug.
-        """
-        network = None
-
     def __init__(self, name, config, host):
         super().__init__()
         self.name = name
@@ -219,6 +209,26 @@ class Plug(Openable):
         plug can be started again.
         """
         await super().stop()
+
+    async def network_name(self):
+        """
+        Get a readable name for use when displaying info about this plug.
+
+        Returns:
+            str:
+                Name of the network provided by this plug.
+        """
+
+    async def network_id(self):
+        """
+        Get a unique and stable identifier for this plug.  This should usually vary by the account
+        or keys being used to connect.  If a network provides multiple distinct spaces, this should
+        also vary on an identifier for that space.
+
+        Returns:
+            str:
+                Identifier for this plug.
+        """
 
     async def user_from_id(self, id):
         """

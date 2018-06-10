@@ -327,9 +327,6 @@ class HangoutsPlug(immp.Plug):
     Plug for `Google Hangouts <https://hangouts.google.com>`_.
     """
 
-    class Meta(immp.Plug.Meta):
-        network = "Hangouts"
-
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
         self._client = None
@@ -367,6 +364,14 @@ class HangoutsPlug(immp.Plug):
         if self._client:
             log.debug("Requesting client disconnect")
             await self._client.disconnect()
+
+    async def network_name(self):
+        return "Hangouts"
+
+    async def network_id(self):
+        resp = await self._client.get_self_info(hangouts_pb2.GetSelfInfoRequest(
+            request_header=self._client.get_request_header()))
+        return "hangouts:{}".format(resp.self_entity.id.chat_id)
 
     async def user_from_id(self, id):
         user = self._users.get_user(hangups.user.UserID(chat_id=id, gaia_id=id))

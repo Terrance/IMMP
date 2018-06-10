@@ -139,7 +139,7 @@ class IdentityHook(immp.Hook, Commandable):
                 plug = self.host.plugs[link.plug]
                 user = await plug.user_from_id(link.user)
                 text.append(immp.Segment("\n"))
-                text.append(immp.Segment("({}) ".format(plug.Meta.network)))
+                text.append(immp.Segment("({}) ".format(await plug.network_name())))
                 if user:
                     if user.link:
                         text.append(immp.Segment(user.real_name or user.username, link=user.link))

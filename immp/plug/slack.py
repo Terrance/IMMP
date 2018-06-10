@@ -106,6 +106,7 @@ class _Schema(object):
                           extra=ALLOW_EXTRA, required=True))
 
     rtm = _api({"url": str,
+                "self": {"id": str},
                 "team": {"domain": str},
                 "users": [user],
                 "channels": [channel],
@@ -442,9 +443,6 @@ class SlackPlug(immp.Plug):
     Plug for a `Slack <https://slack.com>`_ team.
     """
 
-    class Meta(immp.Plug.Meta):
-        network = "Slack"
-
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
         self._team = self._users = self._channels = self._directs = self._bots = None
@@ -500,6 +498,7 @@ class SlackPlug(immp.Plug):
         log.debug("Requesting RTM session")
         rtm = await self._api("rtm.start", _Schema.rtm)
         # Cache useful information about users and channels, to save on queries later.
+        self._user = rtm["self"]
         self._team = rtm["team"]
         self._users = {u["id"]: SlackUser.from_member(self, u) for u in rtm["users"]}
         log.debug("Users ({}): {}".format(len(self._users), ", ".join(self._users.keys())))
@@ -533,6 +532,12 @@ class SlackPlug(immp.Plug):
             log.debug("Closing session")
             await self._session.close()
             self._session = None
+
+    async def network_name(self):
+        return "{} Slack".format(self._team["name"])
+
+    async def network_id(self):
+        return "slack:{}:{}".format(self._team["id"], self._user["id"])
 
     async def user_from_id(self, id):
         return self._users.get(id)
