@@ -93,8 +93,8 @@ class _Schema(object):
                        {"type": Any("channel_joined", "group_joined", "im_created"),
                         "channel": {"id": str}},
                        {"type": str,
-                        Optional("subtype", default=None): Any(str, None)},
-                       extra=ALLOW_EXTRA, required=True))
+                        Optional("subtype", default=None): Any(str, None)}),
+                   extra=ALLOW_EXTRA, required=True)
 
     def _api(nested={}):
         return Schema(Any({"ok": True,
@@ -102,8 +102,8 @@ class _Schema(object):
                                {Optional("next_cursor", default=""): str},
                            **nested},
                           {"ok": False,
-                           "error": str},
-                          extra=ALLOW_EXTRA, required=True))
+                           "error": str}),
+                      extra=ALLOW_EXTRA, required=True)
 
     rtm = _api({"url": str,
                 "self": {"id": str},

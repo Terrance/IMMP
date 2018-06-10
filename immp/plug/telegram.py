@@ -89,8 +89,8 @@ class _Schema(object):
         return Schema(Any(success,
                           {"ok": False,
                            "description": str,
-                           "error_code": int},
-                          extra=ALLOW_EXTRA, required=True))
+                           "error_code": int}),
+                      extra=ALLOW_EXTRA, required=True)
 
     me = api(user)
 
