@@ -43,10 +43,20 @@ class User:
         self.raw = raw
 
     def __eq__(self, other):
-        return isinstance(other, self.__class__) and self.id == other.id
+        if not isinstance(other, self.__class__) or not self.plug.name == other.plug.name:
+            return False
+        if self.id:
+            return self.id == other.id
+        else:
+            return (self.username == other.username and
+                    self.real_name == other.real_name and
+                    self.link == other.link)
 
     def __hash__(self):
-        return hash(self.id)
+        if self.id:
+            return hash(self.id)
+        else:
+            return hash((self.username, self.real_name, self.link))
 
     def __repr__(self):
         return "<{}: {} {}>".format(self.__class__.__name__, repr(self.id),
