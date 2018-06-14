@@ -443,9 +443,18 @@ class SlackPlug(immp.Plug):
     Plug for a `Slack <https://slack.com>`_ team.
     """
 
+    @property
+    def network_name(self):
+        return "{} Slack".format(self._team["name"]) if self._team else "Slack"
+
+    @property
+    def network_id(self):
+        return "slack:{}:{}".format(self._team["id"], self._bot_user["id"]) if self._team else None
+
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
-        self._team = self._users = self._channels = self._directs = self._bots = None
+        self._team = self._bot_user = None
+        self._users = self._channels = self._directs = self._bots = None
         # Connection objects that need to be closed on disconnect.
         self._session = self._socket = self._receive = None
         self._closing = False
@@ -498,7 +507,7 @@ class SlackPlug(immp.Plug):
         log.debug("Requesting RTM session")
         rtm = await self._api("rtm.start", _Schema.rtm)
         # Cache useful information about users and channels, to save on queries later.
-        self._user = rtm["self"]
+        self._bot_user = rtm["self"]
         self._team = rtm["team"]
         self._users = {u["id"]: SlackUser.from_member(self, u) for u in rtm["users"]}
         log.debug("Users ({}): {}".format(len(self._users), ", ".join(self._users.keys())))
@@ -524,6 +533,7 @@ class SlackPlug(immp.Plug):
         self._closing = True
         if self._receive:
             self._receive.cancel()
+            self._receive = None
         if self._socket:
             log.debug("Closing websocket")
             await self._socket.close()
@@ -532,12 +542,7 @@ class SlackPlug(immp.Plug):
             log.debug("Closing session")
             await self._session.close()
             self._session = None
-
-    async def network_name(self):
-        return "{} Slack".format(self._team["name"])
-
-    async def network_id(self):
-        return "slack:{}:{}".format(self._team["id"], self._user["id"])
+        self._team = self._bot_user = None
 
     async def user_from_id(self, id):
         return self._users.get(id)

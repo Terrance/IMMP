@@ -174,6 +174,14 @@ class Plug(Openable):
             Reference to the user-provided configuration.
         host (.Host):
             Controlling host instance, providing access to plugs.
+        network_name (str):
+            Readable name of the underlying network, for use when displaying info about this plug.
+        network_id (str):
+            Unique and stable identifier for this plug.
+
+            This should usually vary by the account or keys being used to connect, but persistent
+            with later connections.  If a network provides multiple distinct spaces, this should
+            also vary by space.
     """
 
     def __init__(self, name, config, host):
@@ -209,26 +217,6 @@ class Plug(Openable):
         plug can be started again.
         """
         await super().stop()
-
-    async def network_name(self):
-        """
-        Get a readable name for use when displaying info about this plug.
-
-        Returns:
-            str:
-                Name of the network provided by this plug.
-        """
-
-    async def network_id(self):
-        """
-        Get a unique and stable identifier for this plug.  This should usually vary by the account
-        or keys being used to connect.  If a network provides multiple distinct spaces, this should
-        also vary on an identifier for that space.
-
-        Returns:
-            str:
-                Identifier for this plug.
-        """
 
     async def user_from_id(self, id):
         """

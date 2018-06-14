@@ -275,6 +275,12 @@ class DiscordPlug(immp.Plug):
     Plug for a `Discord <https://discordapp.com>`_ server.
     """
 
+    network_name = "Discord"
+
+    @property
+    def network_id(self):
+        return "discord:{}".format(self._client.user.id) if self._client else None
+
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
         # Connection objects that need to be closed on disconnect.
@@ -304,12 +310,6 @@ class DiscordPlug(immp.Plug):
             log.debug("Closing session")
             await self._session.close()
             self._session = None
-
-    async def network_name(self):
-        return "Discord"
-
-    async def network_id(self):
-        return "discord:{}".format(self._client.user.id)
 
     async def user_from_id(self, id):
         user = await self._client.get_user_info(id)

@@ -383,6 +383,12 @@ class TelegramPlug(immp.Plug):
     Plug for a `Telegram <https://telegram.org>`_ bot.
     """
 
+    network_name = "Telegram"
+
+    @property
+    def network_id(self):
+        return "telegram:{}".format(self._bot_user["id"]) if self._bot_user else None
+
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
         if self.config["api-id"] and self.config["api-hash"]:
@@ -391,7 +397,7 @@ class TelegramPlug(immp.Plug):
         elif self.config["api-id"] or self.config["api-hash"]:
             raise immp.ConfigError("Both of API ID and hash must be given")
         # Connection objects that need to be closed on disconnect.
-        self._session = self._receive = self._client = None
+        self._session = self._bot_user = self._receive = self._client = None
         self._closing = False
         # Update ID from which to retrieve the next batch.  Should be one higher than the max seen.
         self._offset = 0
@@ -416,6 +422,7 @@ class TelegramPlug(immp.Plug):
     async def start(self):
         await super().start()
         self._session = ClientSession()
+        self._bot_user = await self._api("getMe", _Schema.me)
         if self.config["api-id"]:
             log.debug("Starting client")
             self._client = TelegramClient(None, self.config["api-id"], self.config["api-hash"])
@@ -425,6 +432,7 @@ class TelegramPlug(immp.Plug):
         await super().stop()
         if self._receive:
             self._receive.cancel()
+            self._receive = None
         if self._session:
             log.debug("Closing session")
             await self._session.close()
@@ -434,14 +442,8 @@ class TelegramPlug(immp.Plug):
             await self._client.log_out()
             self._client.disconnect()
             self._client = None
+        self._bot_user = None
         self._offset = 0
-
-    async def network_name(self):
-        return "Telegram"
-
-    async def network_id(self):
-        me = await self._api("getMe", _Schema.me)
-        return "telegram:{}".format(me["id"])
 
     async def user_from_id(self, id):
         if not self._client:
@@ -494,7 +496,7 @@ class TelegramPlug(immp.Plug):
 
     async def channel_members(self, channel):
         if not self._client:
-            log.debug("Client auth required to remove channel members")
+            log.debug("Client auth required to list channel members")
             return None
         try:
             # Chat IDs can be negative in the bot API dependent on type, not over MTProto.

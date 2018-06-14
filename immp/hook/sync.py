@@ -41,6 +41,12 @@ class SyncPlug(immp.Plug):
     Virtual plug that allows sending external messages to a synced conversation.
     """
 
+    network_name = "Sync"
+
+    @property
+    def network_id(self):
+        return "sync:{}".format(self.name)
+
     def __init__(self, name, hook, host):
         super().__init__(name, {}, host)
         self._hook = hook
@@ -84,7 +90,7 @@ class SyncHook(immp.Hook, Commandable):
             self.channel = immp.Channel(self.plug, None)
             host.add_channel(tname, self.channel)
         else:
-            self.plug = None
+            self.plug = self.channel = None
 
     def commands(self):
         return {CommandScope.any: {"sync-members": self.members}}
@@ -125,7 +131,7 @@ class SyncHook(immp.Hook, Commandable):
         try:
             return await channel.send(msg)
         except Exception:
-            log.exception("Failed to relay message to {}".format(channel))
+            log.exception("Failed to relay message to {}".format(repr(channel)))
             return []
 
     async def send(self, msg, source=None):

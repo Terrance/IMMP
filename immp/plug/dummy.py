@@ -20,6 +20,9 @@ class DummyPlug(immp.Plug):
     Test plug that yields a message every 10 seconds.
     """
 
+    network_name = "Dummy"
+    network_id = "dummy"
+
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         self.counter = count()
