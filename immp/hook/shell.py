@@ -53,6 +53,7 @@ they're received, accessible via :attr:`.AsyncShellHook.buffer`.
 import code
 from collections import deque
 import logging
+from pprint import pformat
 
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
@@ -150,8 +151,8 @@ class AsyncShellHook(immp.ResourceHook):
             self._server = None
 
     def _factory(self, streams=None):
-        return aioconsole.AsynchronousConsole(locals={"host": self.host, "shell": self},
-                                              streams=streams)
+        context = {"host": self.host, "shell": self, "immp": immp, "pformat": pformat}
+        return aioconsole.AsynchronousConsole(locals=context, streams=streams)
 
     async def process(self, channel, msg, source, primary):
         await super().process(channel, msg, source, primary)
