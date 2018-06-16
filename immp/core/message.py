@@ -42,6 +42,16 @@ class User:
             self.link = link
         self.raw = raw
 
+    async def private_channel(self):
+        """
+        Equivalent to :meth:`.Plug.channel_for_user`.
+
+        Returns:
+            .Channel:
+                Private channel for this user.
+        """
+        return self.plug.channel_for_user(self)
+
     def __eq__(self, other):
         if not isinstance(other, self.__class__) or not self.plug.name == other.plug.name:
             return False
