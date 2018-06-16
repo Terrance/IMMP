@@ -96,7 +96,7 @@ class _Schema(object):
 
     file = api({"file_path": str})
 
-    send = api({"message_id": int})
+    send = api(message)
 
     chat = api({"type": str,
                 Optional("title", default=None): Any(str, None)})
@@ -423,6 +423,7 @@ class TelegramPlug(immp.Plug):
         await super().start()
         self._session = ClientSession()
         self._bot_user = await self._api("getMe", _Schema.me)
+        self._receive = ensure_future(self._poll())
         if self.config["api-id"]:
             log.debug("Starting client")
             self._client = TelegramClient(None, self.config["api-id"], self.config["api-hash"])
@@ -550,17 +551,18 @@ class TelegramPlug(immp.Plug):
         sent = []
         for endpoint, data in parts:
             result = await self._api(endpoint, _Schema.send, data=data)
+            self.queue(channel, await TelegramMessage.from_message(self, result))
             sent.append(result["message_id"])
         return sent
 
-    async def get(self):
-        while self.state == immp.OpenState.active and not self._closing:
+    async def _poll(self):
+        while self.state in (immp.OpenState.starting, immp.OpenState.active) and not self._closing:
             log.debug("Making long-poll request")
             params = {"offset": self._offset,
                       "timeout": 240}
-            self._receive = ensure_future(self._api("getUpdates", _Schema.updates, params=params))
+            fetch = ensure_future(self._api("getUpdates", _Schema.updates, params=params))
             try:
-                result = await self._receive
+                result = await fetch
             except CancelledError:
                 log.debug("Cancel request for plug '{}' getter".format(self.name))
                 return
@@ -569,11 +571,14 @@ class TelegramPlug(immp.Plug):
                 log.debug("Reconnecting in 3 seconds")
                 await sleep(3)
                 continue
-            finally:
-                self._receive = None
             for update in result:
                 log.debug("Received a message")
                 if any(key in update or "edited_{}".format(key) in update
                        for key in ("message", "channel_post")):
-                    yield await TelegramMessage.from_update(self, update)
+                    try:
+                        channel, msg = await TelegramMessage.from_update(self, update)
+                    except CancelledError:
+                        log.debug("Cancel request for plug '{}' getter".format(self.name))
+                        return
+                    self.queue(channel, msg)
                 self._offset = max(update["update_id"] + 1, self._offset)
