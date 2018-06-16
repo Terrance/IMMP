@@ -51,6 +51,17 @@ class SyncPlug(immp.Plug):
         super().__init__(name, {}, host)
         self._hook = hook
 
+    async def channel_is_private(self, channel):
+        return False if channel == self._hook.channel else None
+
+    async def channel_members(self, channel):
+        if not channel == self._hook.channel:
+            return None
+        members = []
+        for channel in self._hook.channels:
+            members.extend(await channel.members() or [])
+        return members
+
     async def send(self, channel, msg):
         if channel == self._hook.channel:
             await self._hook.send(msg)
