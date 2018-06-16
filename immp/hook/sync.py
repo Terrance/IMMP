@@ -66,7 +66,7 @@ class SyncPlug(immp.Plug):
         if channel == self._hook.channel:
             await self._hook.send(msg)
         else:
-            log.debug("Send to unknown sync channel: {}".format(channel))
+            log.debug("Send to unknown sync channel: {}".format(repr(channel)))
         return []
 
 
@@ -142,7 +142,7 @@ class SyncHook(immp.Hook, Commandable):
         try:
             return await channel.send(msg)
         except Exception:
-            log.exception("Failed to relay message to {}".format(repr(channel)))
+            log.exception("Failed to relay message to channel: {}".format(repr(channel)))
             return []
 
     async def send(self, msg, source=None):

@@ -77,6 +77,6 @@ class AutoRespondHook(immp.Hook, Commandable):
         text = str(source.text)
         for match, response in self.responses.items():
             if re.search(match, text, re.I):
-                log.debug("Matched regex '{}', replying to channel: {}".format(match, channel))
+                log.debug("Matched regex '{}' in channel: {}".format(match, repr(channel)))
                 for id in await channel.send(immp.Message(text=response)):
                     self._sent.append((channel, id))

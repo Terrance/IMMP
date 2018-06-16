@@ -438,7 +438,7 @@ class HangoutsPlug(immp.Plug):
     async def _upload(self, attach):
         async with (await attach.get_content()) as img_content:
             # Hangups expects a file-like object with a synchronous read() method.
-            # NB. The whole files is read into memory by Hangups anyway.
+            # NB. The whole file is read into memory by Hangups anyway.
             # Filename must be present, else Hangups will try (and fail) to read the path.
             photo = await self._client.upload_image(BytesIO(await img_content.read()),
                                                     filename=attach.title or "image.png")
