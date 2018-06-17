@@ -111,7 +111,7 @@ class CommandHook(immp.Hook):
 
     async def process(self, channel, msg, source, primary):
         await super().process(channel, msg, source, primary)
-        if not primary:
+        if not primary or not msg == source:
             return
         if channel in self.channels:
             scope = CommandScope.public
