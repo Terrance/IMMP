@@ -1,0 +1,287 @@
+"""
+Fallback mention and word highlight support for plugs via private channels.
+
+Mentions
+~~~~~~~~
+
+Config:
+    plugs (str list):
+        List of plug names to enable mentions for.
+    usernames (bool):
+        Whether to match network usernames (``True`` by default).
+    real-names (bool):
+        Whether to match user's display names (``False`` by default).
+    ambiguous (bool):
+        Whether to notify multiple potential users of an ambiguous mention (``False`` by default).
+
+For networks that don't provide native user mentions, this plug can send users a private message
+when mentioned by their username or real name.
+
+A mention is matched from each ``@`` sign until whitespace is encountered.  For real names, spaces
+and special characters are ignored, so that e.g. ``@fredbloggs`` will match *Fred Bloggs*.
+
+Partial mentions are supported, failing any exact matches, by basic prefix search on real names.
+For example, ``@fred`` will match *Frederick*, and ``@fredb`` will match *Fred Bloggs*.
+
+Subscriptions
+~~~~~~~~~~~~~
+
+Config:
+    plugs (str list):
+        List of plug names to enable mentions for.
+
+Commands:
+    sub-add <text>:
+        Add a subscription to your trigger list.
+    sub-remove <text>:
+        Remove a subscription from your trigger list.
+    sub-list:
+        Show all active subscriptions.
+
+Allows users to opt in to private message notifications when chosen highlight words are used in a
+group conversation.
+
+.. note::
+    This hook requires an active :class:`.DatabaseHook` to store data.
+"""
+
+from asyncio import wait
+from collections import defaultdict
+import logging
+import re
+
+from peewee import CharField
+from voluptuous import ALLOW_EXTRA, Optional, Schema
+
+import immp
+from immp.hook.command import Commandable, CommandScope
+from immp.hook.database import BaseModel, DatabaseHook
+
+log = logging.getLogger(__name__)
+
+
+TICK = "\N{WHITE HEAVY CHECK MARK}"
+
+
+class _Schema(object):
+
+    config = Schema({"plugs": [str],
+                     Optional("usernames", default=True): bool,
+                     Optional("real-names", default=False): bool,
+                     Optional("ambiguous", default=False): bool},
+                    extra=ALLOW_EXTRA, required=True)
+
+
+class Subscription(BaseModel):
+
+    network = CharField()
+    user = CharField()
+    text = CharField()
+
+
+class _AlertHookBase(immp.Hook):
+
+    def __init__(self, name, config, host):
+        super().__init__(name, _Schema.config(config), host)
+        self.plugs = []
+        for label in self.config["plugs"]:
+            try:
+                self.plugs.append(host.plugs[label])
+            except KeyError:
+                raise immp.ConfigError("No plug '{}' on host".format(label)) from None
+
+
+class MentionsHook(_AlertHookBase):
+    """
+    Hook to send mention alerts via private channels.
+    """
+
+    @staticmethod
+    def clean(text):
+        return re.sub(r"\W", "", text).lower() if text else None
+
+    def match(self, mention, members):
+        """
+        Identify users relevant to a mention.
+
+        Args:
+            mention (str):
+                Raw mention text, e.g. ``@fred``.
+            members (.User list):
+                List of members in the channel where the mention took place.
+
+        Returns:
+            .User set:
+                All applicable members to be notified.
+        """
+        name = self.clean(mention)
+        real_matches = set()
+        real_partials = set()
+        for member in members:
+            if self.config["usernames"] and self.clean(member.username) == name:
+                # Assume usernames are unique, only match the corresponding user.
+                return {member}
+            if self.config["real-names"]:
+                real = self.clean(member.real_name)
+                if real == name:
+                    real_matches.add(member)
+                if real.startswith(name):
+                    real_partials.add(member)
+        if real_matches:
+            # Assume multiple identical real names is unlikely.
+            # If it's the same person with two users, they both get mentioned.
+            return real_matches
+        elif len(real_partials) == 1 or self.config["ambiguous"]:
+            # Return a single partial match if it exists.
+            # Only allow multiple partials if enabled, else ignore the mention.
+            return real_partials
+        else:
+            return set()
+
+    async def process(self, channel, msg, source, primary):
+        await super().process(channel, msg, source, primary)
+        if not primary or channel.plug not in self.plugs or await channel.is_private():
+            return
+        members = await channel.plug.channel_members(channel)
+        if not members:
+            return
+        mentioned = set()
+        for mention in re.findall(r"@\S+", str(source.text)):
+            matches = self.match(mention, members)
+            if matches:
+                log.debug("Mention '{}' applies: {}".format(mention, matches))
+                mentioned.update(matches)
+            else:
+                log.debug("Mention '{}' doesn't apply".format(mention))
+        if not mentioned:
+            return
+        text = immp.RichText()
+        if source.user:
+            text.append(immp.Segment(source.user.real_name or source.user.username,
+                                     link=source.user.link,
+                                     bold=(not source.user.link)),
+                        immp.Segment(" mentioned you"))
+        else:
+            text.append(immp.Segment("You were mentioned"))
+        title = await channel.title()
+        if title:
+            text.append(immp.Segment(" in "),
+                        immp.Segment(title, italic=True))
+        text.append(immp.Segment(":\n"))
+        if isinstance(source.text, immp.RichText):
+            text += source.text
+        else:
+            text.append(immp.Segment(source.text))
+        tasks = []
+        for member in mentioned:
+            if member == source.user:
+                continue
+            private = await channel.plug.channel_for_user(member)
+            if private:
+                tasks.append(private.send(immp.Message(text=text)))
+        if tasks:
+            await wait(tasks)
+
+
+class SubscriptionsHook(_AlertHookBase, Commandable):
+    """
+    Hook to send trigger word alerts via private channels.
+    """
+
+    @classmethod
+    def clean(cls, text):
+        return re.sub(r"[^\w ]", "", text).lower()
+
+    async def start(self):
+        self.db = self.host.resources[DatabaseHook].db
+        self.db.create_tables([Subscription], safe=True)
+
+    def commands(self):
+        return {CommandScope.private: {"sub-add": self.add,
+                                       "sub-remove": self.remove,
+                                       "sub-list": self.list}}
+
+    async def add(self, channel, msg, *words):
+        text = re.sub(r"[^\w ]", "", " ".join(words)).lower()
+        sub, created = Subscription.get_or_create(network=channel.plug.network_id,
+                                                  user=msg.user.id, text=text)
+        resp = "{} {}".format(TICK, "Subscribed" if created else "Already subscribed")
+        await channel.send(immp.Message(text=resp))
+
+    async def remove(self, channel, msg, *words):
+        text = re.sub(r"[^\w ]", "", " ".join(words)).lower()
+        count = Subscription.delete().where(Subscription.network == channel.plug.network_id,
+                                            Subscription.user == msg.user.id,
+                                            Subscription.text == text).execute()
+        resp = "{} {}".format(TICK, "Unsubscribed" if count else "Not subscribed")
+        await channel.send(immp.Message(text=resp))
+
+    async def list(self, channel, msg):
+        subs = list(Subscription.select().where(Subscription.network == channel.plug.network_id,
+                                                Subscription.user == msg.user.id))
+        if subs:
+            lines = ["Current subscriptions:"] + ["- {}".format(sub.text) for sub in subs]
+            await channel.send(immp.Message(text="\n".join(lines)))
+        else:
+            await channel.send(immp.Message(text="No active subscriptions."))
+
+    def match(self, text, members):
+        """
+        Identify users subscribed to text snippets in a message.
+
+        Args:
+            text (str):
+                Cleaned message text.
+            members (.User list):
+                List of members in the channel where the mention took place.
+
+        Returns:
+            (.User, str list) dict:
+                Mapping from applicable users to their triggers.
+        """
+        triggered = defaultdict(list)
+        present = {(member.plug.network_id, str(member.id)): member for member in members}
+        for sub in Subscription.select():
+            key = (sub.network, sub.user)
+            if key in present and sub.text in text:
+                triggered[present[key]].append(sub.text)
+        return triggered
+
+    async def process(self, channel, msg, source, primary):
+        await super().process(channel, msg, source, primary)
+        if not primary or channel.plug not in self.plugs or await channel.is_private():
+            return
+        members = await channel.plug.channel_members(channel)
+        if not members:
+            return
+        triggered = self.match(self.clean(str(source.text)), members)
+        if not triggered:
+            return
+        tasks = []
+        for member, triggers in triggered.items():
+            if member == source.user:
+                continue
+            text = immp.RichText()
+            if source.user:
+                text.append(immp.Segment(source.user.real_name or source.user.username,
+                                         link=source.user.link,
+                                         bold=(not source.user.link)),
+                            immp.Segment(" mentioned "),
+                            immp.Segment(", ".join(triggers), italic=True))
+            else:
+                text.append(immp.Segment(", ".join(triggers), italic=True),
+                            immp.Segment(" mentioned"))
+            title = await channel.title()
+            if title:
+                text.append(immp.Segment(" in "),
+                            immp.Segment(title, italic=True))
+            text.append(immp.Segment(":\n"))
+            if isinstance(source.text, immp.RichText):
+                text += source.text
+            else:
+                text.append(immp.Segment(source.text))
+            private = await channel.plug.channel_for_user(member)
+            if private:
+                tasks.append(private.send(immp.Message(text=text)))
+        if tasks:
+            await wait(tasks)
