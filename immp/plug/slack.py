@@ -326,7 +326,7 @@ class SlackFile(immp.File):
 
     async def get_content(self, sess=None):
         sess = sess or self.slack._session
-        headers = {"Authorization": "Bearer {}".format(self.slack._token)}
+        headers = {"Authorization": "Bearer {}".format(self.slack.config["token"])}
         return await sess.get(self._source, headers=headers)
 
     @classmethod
@@ -421,7 +421,7 @@ class SlackMessage(immp.Message):
         if author and text and re.match(r"<@{}(\|.*?)?> ".format(author), text):
             # Own username at the start of the message, assume it's an action.
             action = True
-            text = re.sub(r"^<@{}|.*?> ".format(author), "", text)
+            text = re.sub(r"^<@{}(\|.*?)?> ".format(author), "", text)
         if event["thread_ts"] and event["thread_ts"] != event["ts"]:
             # We have the parent ID, fetch the rest of the message to embed it.
             params = {"channel": event["channel"],
@@ -622,7 +622,7 @@ class SlackPlug(immp.Plug):
             name = self.config["fallback-name"]
             image = self.config["fallback-image"]
         data = {"channel": channel.source,
-                "as_user": False,
+                "as_user": msg.user is None,
                 "username": name,
                 "icon_url": image}
         if msg.text:
