@@ -408,6 +408,14 @@ class HangoutsPlug(immp.Plug):
         except KeyError:
             return None
 
+    async def channel_rename(self, channel, title):
+        try:
+            conv = self._convs.get(channel.source)
+        except KeyError:
+            return None
+        else:
+            await conv.rename(title)
+
     async def channel_members(self, channel):
         try:
             conv = self._convs.get(channel.source)

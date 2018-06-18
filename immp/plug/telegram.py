@@ -500,6 +500,14 @@ class TelegramPlug(immp.Plug):
         else:
             return data["title"]
 
+    async def channel_rename(self, channel, title):
+        await self._api("setChatTitle", params={"chat_id": channel.source, "title": title})
+        # Telegram API won't echo our messages, so yield a fake one.
+        text = TelegramRichText([TelegramSegment("changed group name to "),
+                                 TelegramSegment(title, bold=True)])
+        self.queue(channel, TelegramMessage(user=TelegramUser.from_bot_user(self, self._bot_user),
+                                            text=text, action=True))
+
     async def channel_members(self, channel):
         if not self._client:
             log.debug("Client auth required to list channel members")
@@ -513,9 +521,7 @@ class TelegramPlug(immp.Plug):
             return [TelegramUser.from_proto_user(self, user) for user in data.users]
 
     async def channel_remove(self, channel, user):
-        data = {"chat_id": channel.source,
-                "user_id": user.id}
-        await self._api("kickChatMember", params=data)
+        await self._api("kickChatMember", params={"chat_id": channel.source, "user_id": user.id})
 
     async def put(self, channel, msg):
         if msg.deleted:

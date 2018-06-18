@@ -46,6 +46,16 @@ class Channel:
         """
         return await self.plug.channel_title(self)
 
+    async def rename(self, title):
+        """
+        Equivalent to :meth:`.Plug.channel_rename`.
+
+        Args:
+            title (str):
+                New display name for the channel.
+        """
+        return await self.plug.channel_rename(self, title)
+
     async def members(self):
         """
         Equivalent to :meth:`.Plug.channel_members`.
@@ -284,9 +294,18 @@ class Plug(Openable):
 
         Returns:
             str:
-                Display name for the channel
+                Display name for the channel.
         """
         return None
+
+    async def channel_rename(self, channel, title):
+        """
+        Update the friendly name of this conversation.
+
+        Args:
+            title (str):
+                New display name for the channel.
+        """
 
     async def channel_members(self, channel):
         """
