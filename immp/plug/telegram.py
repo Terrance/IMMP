@@ -421,6 +421,7 @@ class TelegramPlug(immp.Plug):
 
     async def start(self):
         await super().start()
+        self._closing = False
         self._session = ClientSession()
         self._bot_user = await self._api("getMe", _Schema.me)
         self._receive = ensure_future(self._poll())
@@ -431,6 +432,7 @@ class TelegramPlug(immp.Plug):
 
     async def stop(self):
         await super().stop()
+        self._closing = True
         if self._receive:
             self._receive.cancel()
             self._receive = None
@@ -551,12 +553,13 @@ class TelegramPlug(immp.Plug):
         sent = []
         for endpoint, data in parts:
             result = await self._api(endpoint, _Schema.send, data=data)
-            self.queue(channel, await TelegramMessage.from_message(self, result))
+            ext_channel, ext_msg = await TelegramMessage.from_message(self, result)
+            self.queue(ext_channel, ext_msg)
             sent.append(result["message_id"])
         return sent
 
     async def _poll(self):
-        while self.state in (immp.OpenState.starting, immp.OpenState.active) and not self._closing:
+        while not self._closing:
             log.debug("Making long-poll request")
             params = {"offset": self._offset,
                       "timeout": 240}
