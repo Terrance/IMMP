@@ -74,7 +74,7 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 
-class _Schema(object):
+class _Schema:
 
     config_shell = Schema({Optional("all", default=False): bool,
                            Optional("console", default=None): Any("ptpython", None)},

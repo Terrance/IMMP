@@ -30,7 +30,7 @@ import immp
 log = logging.getLogger(__name__)
 
 
-class _Schema(object):
+class _Schema:
 
     config = Schema({"url": str}, extra=ALLOW_EXTRA, required=True)
 

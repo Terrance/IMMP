@@ -29,7 +29,7 @@ from immp.hook.command import Commandable, CommandScope
 log = logging.getLogger(__name__)
 
 
-class _Schema(object):
+class _Schema:
 
     config = Schema({"channels": All([str], Length(min=1)),
                      Optional("plug", default=None): Any(str, None)},

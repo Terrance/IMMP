@@ -32,7 +32,7 @@ import immp
 log = logging.getLogger(__name__)
 
 
-class _Schema(object):
+class _Schema:
 
     config = Schema({"prefix": str,
                      Optional("plugs", default=list): [str],
@@ -58,7 +58,7 @@ class CommandScope(Enum):
     public = 2
 
 
-class Commandable(object):
+class Commandable:
     """
     Interface for hooks to implement, allowing them to provide their own commands.
     """

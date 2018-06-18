@@ -51,7 +51,7 @@ class OpenState(Enum):
     stopping = 3
 
 
-class Openable(object):
+class Openable:
     """
     Abstract class to provide open and close hooks.  Subclasses should implement :meth:`start`
     and :meth:`stop`, whilst users should make use of :meth:`open` and :meth:`close`.

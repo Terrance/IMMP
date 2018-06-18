@@ -66,7 +66,7 @@ CROSS = "\N{CROSS MARK}"
 TICK = "\N{WHITE HEAVY CHECK MARK}"
 
 
-class _Schema(object):
+class _Schema:
 
     config = Schema({"plugs": [str],
                      Optional("usernames", default=True): bool,
