@@ -12,6 +12,8 @@ Commands:
         Create a new identity, or link to an existing one from a second user.
     id-rename <name>:
         Rename the current identity.
+    id-password <pwd>:
+        Update the password for the current identity.
     id-reset:
         Delete the current identity and all linked users.
 
@@ -106,6 +108,7 @@ class IdentityHook(immp.Hook, Commandable):
         return {CommandScope.any: {"id-show": self.show},
                 CommandScope.private: {"id-add": self.add,
                                        "id-rename": self.rename,
+                                       "id-password": self.password,
                                        "id-reset": self.reset}}
 
     async def start(self):
@@ -199,6 +202,18 @@ class IdentityHook(immp.Hook, Commandable):
             group.name = name
             group.save()
             text = "{} Claimed".format(TICK)
+        await channel.send(immp.Message(text=text))
+
+    async def password(self, channel, msg, pwd):
+        if not msg.user:
+            return
+        group = self.find(msg.user)
+        if not group:
+            text = "{} Not identified".format(CROSS)
+        else:
+            group.pwd = IdentityGroup.hash(pwd)
+            group.save()
+            text = "{} Changed".format(TICK)
         await channel.send(immp.Message(text=text))
 
     async def reset(self, channel, msg):
