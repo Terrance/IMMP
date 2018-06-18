@@ -371,6 +371,7 @@ class HangoutsPlug(immp.Plug):
         else:
             log.debug("Queueing new message event")
             self.queue(channel, msg)
+        await self._convs.get(event.conversation_id).update_read_timestamp()
 
     async def stop(self):
         await super().stop()
