@@ -409,6 +409,8 @@ class Message:
             Collection of users that just joined the channel.
         left (.User list):
             Collection of users that just parted the channel.
+        title (str):
+            New channel title, if this message represents a rename.
         attachments (.Attachment list):
             Additional data included in the message.
         raw:
@@ -416,7 +418,8 @@ class Message:
     """
 
     def __init__(self, id=None, at=None, original=None, text=None, user=None, action=False,
-                 deleted=False, reply_to=None, joined=None, left=None, attachments=None, raw=None):
+                 deleted=False, reply_to=None, joined=None, left=None, title=None,
+                 attachments=None, raw=None):
         self.id = id
         self.at = at or datetime.now()
         self.original = original
@@ -427,6 +430,7 @@ class Message:
         self.reply_to = reply_to
         self.joined = joined or []
         self.left = left or []
+        self.title = title
         self.attachments = attachments or []
         self.raw = raw
 

@@ -85,6 +85,8 @@ class _Schema:
                                            "deleted_ts": str}),
                          _plain_msg.extend({"subtype": Any("file_share", "file_mention"),
                                             "file": file}),
+                         _plain_msg.extend({"subtype": Any("channel_name", "group_name"),
+                                            "name": str}),
                          _plain_msg.extend({Optional("subtype", default=None): Any(str, None)})))
 
     event = Schema(Any(message,
@@ -92,6 +94,8 @@ class _Schema:
                         "user": user},
                        {"type": Any("channel_joined", "group_joined", "im_created"),
                         "channel": {"id": str}},
+                       {"type": Any("channel_rename", "group_rename"),
+                        "channel": {"id": str, "name": str}},
                        {"type": str,
                         Optional("subtype", default=None): Any(str, None)}),
                    extra=ALLOW_EXTRA, required=True)
@@ -377,6 +381,7 @@ class SlackMessage(immp.Message):
         reply_to = None
         joined = None
         left = None
+        title = None
         attachments = []
         if event["subtype"] == "bot_message":
             # Event has the bot's app ID, not user ID.
@@ -408,6 +413,9 @@ class SlackMessage(immp.Message):
         elif event["subtype"] in ("channel_leave", "group_leave"):
             action = True
             left = [user]
+        elif event["subtype"] in ("channel_name", "group_name"):
+            action = True
+            title = event["name"]
         elif event["subtype"] == "me_message":
             action = True
         if author and text and re.match(r"<@{}(\|.*?)?> ".format(author), text):
@@ -434,6 +442,7 @@ class SlackMessage(immp.Message):
                     reply_to=reply_to,
                     joined=joined,
                     left=left,
+                    title=title,
                     attachments=attachments,
                     raw=json))
 
@@ -699,6 +708,9 @@ class SlackPlug(immp.Plug):
             elif event["type"] == "im_created":
                 # A DM appeared, add to our cache.
                 self._directs[event["channel"]["id"]] = event["channel"]
+            elif event["type"] in ("channel_rename", "group_rename"):
+                # A group or channel was renamed, update our cache.
+                self._channels[event["channel"]["id"]]["name"] = event["channel"]["name"]
             elif event["type"] == "message" and not event["subtype"] == "message_replied":
                 # A new message arrived, push it back to the host.
                 yield (await SlackMessage.from_event(self, event))

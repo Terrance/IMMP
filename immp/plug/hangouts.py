@@ -239,6 +239,7 @@ class HangoutsMessage(immp.Message):
         action = False
         joined = None
         left = None
+        title = None
         attachments = []
         if isinstance(event, hangups.ChatMessageEvent):
             segments = [HangoutsSegment.from_segment(segment) for segment in event.segments]
@@ -300,6 +301,7 @@ class HangoutsMessage(immp.Message):
                                         .format("en" if is_history else "dis"))]
         elif isinstance(event, hangups.RenameEvent):
             action = True
+            title = event.new_name
             segments = [HangoutsSegment("renamed the hangout to "),
                         HangoutsSegment(event.new_name, bold=True)]
         elif isinstance(event, hangups.GroupLinkSharingModificationEvent):
@@ -318,6 +320,7 @@ class HangoutsMessage(immp.Message):
                     action=action,
                     joined=joined,
                     left=left,
+                    title=title,
                     attachments=attachments,
                     raw=event))
 

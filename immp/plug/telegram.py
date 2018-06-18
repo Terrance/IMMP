@@ -292,10 +292,12 @@ class TelegramMessage(immp.Message):
         reply_to = None
         joined = None
         left = None
+        title = None
         attachments = []
         if message["from"]:
             user = TelegramUser.from_bot_user(telegram, message["from"])
         if message["new_chat_title"]:
+            title = message["new_chat_title"]
             action = True
         if message["new_chat_members"]:
             joined = [(TelegramUser.from_bot_user(telegram, member))
@@ -350,6 +352,7 @@ class TelegramMessage(immp.Message):
                     reply_to=reply_to,
                     joined=joined,
                     left=left,
+                    title=title,
                     attachments=attachments,
                     raw=message))
 
