@@ -62,6 +62,9 @@ class IdentityGroup(BaseModel):
     def select_links(cls):
         return cls.select(cls, IdentityLink).join(IdentityLink)
 
+    def __repr__(self):
+        return "<{}: #{} {}>".format(self.__class__.__name__, self.id, repr(self.name))
+
 
 class IdentityLink(BaseModel):
     """
@@ -70,15 +73,19 @@ class IdentityLink(BaseModel):
     Attributes:
         group (.IdentityGroup):
             Containing group instance.
-        plug (.Plug):
-            Plug that this user belongs to.
+        network (str):
+            Network identifier that the user belongs to.
         user (str):
             User identifier as given by the plug.
     """
 
     group = ForeignKeyField(IdentityGroup, related_name="links")
-    plug = CharField()
+    network = CharField()
     user = CharField()
+
+    def __repr__(self):
+        return "<{}: #{} {} @ {} {}>".format(self.__class__.__name__, self.id, repr(self.user),
+                                             repr(self.network), repr(self.group))
 
 
 class IdentityHook(immp.Hook, Commandable):
@@ -121,7 +128,7 @@ class IdentityHook(immp.Hook, Commandable):
             return None
         try:
             return (IdentityGroup.select_links()
-                                 .where(IdentityLink.plug == user.plug.name,
+                                 .where(IdentityLink.network == user.plug.network_id,
                                         IdentityLink.user == user.id).get())
         except IdentityGroup.DoesNotExist:
             return None
@@ -136,7 +143,11 @@ class IdentityHook(immp.Hook, Commandable):
             text = immp.RichText([immp.Segment(name, bold=True),
                                   immp.Segment(" may appear as:")])
             for link in group.links:
-                plug = self.host.plugs[link.plug]
+                for plug in self.host.plugs.values():
+                    if plug.network_id == link.network:
+                        break
+                else:
+                    continue
                 user = await plug.user_from_id(link.user)
                 text.append(immp.Segment("\n"))
                 text.append(immp.Segment("({}) ".format(plug.network_name)))
@@ -169,7 +180,8 @@ class IdentityHook(immp.Hook, Commandable):
             if exists and not group.pwd == pwd:
                 text = "{} Password incorrect".format(CROSS)
             else:
-                IdentityLink.create(group=group, plug=msg.user.plug.name, user=msg.user.id)
+                IdentityLink.create(group=group, network=msg.user.plug.network_id,
+                                    user=msg.user.id)
                 text = "{} {}".format(TICK, "Added" if exists else "Claimed")
         await channel.send(immp.Message(text=text))
 

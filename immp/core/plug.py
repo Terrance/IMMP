@@ -449,4 +449,5 @@ class Plug(Openable):
         return []
 
     def __repr__(self):
-        return "<{}: {}>".format(self.__class__.__name__, self.name)
+        return "<{}{}>".format(self.__class__.__name__,
+                               ": {}".format(self.network_id) if self.network_id else "")

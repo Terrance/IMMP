@@ -76,17 +76,47 @@ class _Schema:
 
 
 class SubTrigger(BaseModel):
+    """
+    Individual subscription trigger phrase for an individual user.
+
+    Attributes:
+        network (str):
+            Network identifier that the user belongs to.
+        user (str):
+            User's own identifier.
+        text (str):
+            Subscription text that they wish to be notified on.
+    """
 
     network = CharField()
     user = CharField()
     text = CharField()
 
+    def __repr__(self):
+        return "<{}: #{} {} ({} @ {})>".format(self.__class__.__name__, self.id, repr(self.text),
+                                               repr(self.user), repr(self.network))
+
 
 class SubExclude(BaseModel):
+    """
+    Exclusion for a trigger in a specific channel.
+
+    Attributes:
+        trigger (.SubTrigger):
+            Containing trigger instance.
+        network (str):
+            Network identifier that the channel belongs to.
+        user (str):
+            Channel's own identifier.
+    """
 
     trigger = ForeignKeyField(model=SubTrigger, related_name="excludes")
     network = CharField()
     channel = CharField()
+
+    def __repr__(self):
+        return "<{}: #{} {} @ {} {}>".format(self.__class__.__name__, self.id, repr(self.user),
+                                             repr(self.network), repr(self.trigger))
 
 
 class _AlertHookBase(immp.Hook):
