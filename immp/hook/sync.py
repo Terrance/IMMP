@@ -70,7 +70,7 @@ class SyncPlug(immp.Plug):
         return []
 
 
-@immp.config_props(channels=True)
+@immp.config_props("channels")
 class SyncHook(immp.Hook, Commandable):
     """
     Hook to propagate messages between two or more channels.

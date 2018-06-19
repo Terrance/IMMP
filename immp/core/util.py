@@ -2,6 +2,8 @@ from asyncio import Condition
 from enum import Enum
 from importlib import import_module
 
+from .error import ConfigError
+
 
 def resolve_import(path):
     """
@@ -41,26 +43,56 @@ def pretty_str(cls):
     return cls
 
 
-def config_props(plugs=False, channels=False, hooks=False):
+def _make_config_prop(field):
+
+    def config_get(self):
+        """
+        Read a list of object labels from a config dict, and return the corresponding objects.
+        """
+        objs = getattr(self.host, field)
+        try:
+            return tuple(objs[label] for label in self.config[field])
+        except KeyError as e:
+            raise ConfigError("No {} {} on host".format(field[:-1], repr(e.args[0]))) from None
+
+    def config_set(self, value):
+        """
+        Replace a list of object labels in a config dict according to the given objects.
+        """
+        objs = getattr(self.host, field)
+        labels = []
+        for val in value:
+            for label, obj in objs.items():
+                if val == obj:
+                    labels.append(label)
+                    break
+            else:
+                raise ConfigError("{} {} not registered to host"
+                                  .format(field.title()[:-1], repr(val)))
+        # Update the config list in place, in case anyone has a reference to it.
+        self.config[field].clear()
+        self.config[field].extend(labels)
+
+    return property(config_get, config_set)
+
+
+def config_props(*fields):
     """
     Callable class decorator to add :attr:`plugs`, :attr:`channels` and :attr:`hooks` helper
     properties.  Works with :class:`.Hook` or :class:`.Plug` to read the corresponding config key
     and look up the referenced objects by label.
+
+    Args:
+        fields (str list):
+            Can be one or more of ``plugs``, ``channels``, ``hooks``.
     """
+    for field in fields:
+        if field not in ("plugs", "channels", "hooks"):
+            raise KeyError(field)
 
     def inner(cls):
-        if plugs:
-            def plug_getter(self):
-                return [self.host.plugs[label] for label in self.config["plugs"]]
-            cls.plugs = property(plug_getter)
-        if channels:
-            def channel_getter(self):
-                return [self.host.channels[label] for label in self.config["channels"]]
-            cls.channels = property(channel_getter)
-        if hooks:
-            def hook_getter(self):
-                return [self.host.hooks[label] for label in self.config["hooks"]]
-            cls.hooks = property(hook_getter)
+        for field in fields:
+            setattr(cls, field, _make_config_prop(field))
         return cls
 
     return inner

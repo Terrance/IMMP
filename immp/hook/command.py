@@ -74,7 +74,7 @@ class Commandable:
         return {}
 
 
-@immp.config_props(plugs=True, channels=True, hooks=True)
+@immp.config_props("plugs", "channels", "hooks")
 class CommandHook(immp.Hook):
     """
     Generic command handler for other hooks.

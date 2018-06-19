@@ -119,7 +119,7 @@ class SubExclude(BaseModel):
                                              repr(self.network), repr(self.trigger))
 
 
-@immp.config_props(plugs=True)
+@immp.config_props("plugs")
 class _AlertHookBase(immp.Hook):
 
     def __init__(self, name, config, host):

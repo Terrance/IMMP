@@ -39,7 +39,7 @@ class _Schema:
                     extra=ALLOW_EXTRA, required=True)
 
 
-@immp.config_props(channels=True)
+@immp.config_props("channels")
 class AutoRespondHook(immp.Hook, Commandable):
     """
     Basic text responses for given trigger words and phrases.

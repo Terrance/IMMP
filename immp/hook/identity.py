@@ -90,7 +90,7 @@ class IdentityLink(BaseModel):
                                              repr(self.network), repr(self.group))
 
 
-@immp.config_props(plugs=True)
+@immp.config_props("plugs")
 class IdentityHook(immp.Hook, Commandable):
     """
     Hook for managing physical users with multiple logical links across different plugs.
