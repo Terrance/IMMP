@@ -9,7 +9,8 @@ from voluptuous import REMOVE_EXTRA, Any, Optional, Schema
 from immp import Channel, Host, resolve_import
 
 
-_schema = Schema({"plugs": {str: {"path": str, Optional("config", default=dict): dict}},
+_schema = Schema({Optional("path", default=list): [str],
+                  "plugs": {str: {"path": str, Optional("config", default=dict): dict}},
                   "channels": {str: {"plug": str, "source": object}},
                   "hooks": {str: {"path": str, Optional("config", default=dict): dict}},
                   Optional("logging", default=None): Any(dict, None)},
@@ -23,6 +24,8 @@ class LocalFilter(logging.Filter):
 
 
 def main(config):
+    for path in config["path"]:
+        sys.path.append(path)
     if config["logging"]:
         logging.config.dictConfig(config["logging"])
     else:
