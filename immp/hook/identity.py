@@ -90,6 +90,7 @@ class IdentityLink(BaseModel):
                                              repr(self.network), repr(self.group))
 
 
+@immp.config_props(plugs=True)
 class IdentityHook(immp.Hook, Commandable):
     """
     Hook for managing physical users with multiple logical links across different plugs.
@@ -97,12 +98,6 @@ class IdentityHook(immp.Hook, Commandable):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
-        self.plugs = []
-        for label in self.config["plugs"]:
-            try:
-                self.plugs.append(host.plugs[label])
-            except KeyError:
-                raise immp.ConfigError("No plug '{}' on host".format(label)) from None
 
     def commands(self):
         return {CommandScope.any: {"id-show": self.show},

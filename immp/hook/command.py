@@ -74,6 +74,7 @@ class Commandable:
         return {}
 
 
+@immp.config_props(plugs=True, channels=True, hooks=True)
 class CommandHook(immp.Hook):
     """
     Generic command handler for other hooks.
@@ -81,32 +82,16 @@ class CommandHook(immp.Hook):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
-        self.plugs = []
-        for label in self.config["plugs"]:
-            try:
-                self.plugs.append(host.plugs[label])
-            except KeyError:
-                raise immp.ConfigError("No plug '{}' on host".format(label)) from None
-        self.channels = []
-        for label in self.config["channels"]:
-            try:
-                self.channels.append(host.channels[label])
-            except KeyError:
-                raise immp.ConfigError("No channel '{}' on host".format(label)) from None
         self.commands = defaultdict(dict)
-        for label in self.config["hooks"]:
-            try:
-                hook = host.hooks[label]
-            except KeyError:
-                raise immp.ConfigError("No hook '{}' on host".format(label)) from None
+        for hook in self.hooks:
             if not isinstance(hook, Commandable):
                 raise immp.ConfigError("Hook '{}' does not support commands"
-                                       .format(label)) from None
+                                       .format(hook.name)) from None
             commands = hook.commands()
             for scope in CommandScope:
                 if commands.get(scope):
                     log.debug("Adding commands for hook '{}' ({} scope): {}"
-                              .format(label, scope.name, ", ".join(commands[scope])))
+                              .format(hook.name, scope.name, ", ".join(commands[scope])))
                     self.commands[scope].update(commands[scope])
 
     async def process(self, channel, msg, source, primary):

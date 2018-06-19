@@ -20,7 +20,7 @@ from asyncio import BoundedSemaphore, gather
 from collections import defaultdict
 import logging
 
-from voluptuous import ALLOW_EXTRA, All, Any, Length, Optional, Schema
+from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
 from immp.hook.command import Commandable, CommandScope
@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 class _Schema:
 
-    config = Schema({"channels": All([str], Length(min=1)),
+    config = Schema({"channels": [str],
                      Optional("plug", default=None): Any(str, None)},
                     extra=ALLOW_EXTRA, required=True)
 
@@ -70,6 +70,7 @@ class SyncPlug(immp.Plug):
         return []
 
 
+@immp.config_props(channels=True)
 class SyncHook(immp.Hook, Commandable):
     """
     Hook to propagate messages between two or more channels.
@@ -81,12 +82,6 @@ class SyncHook(immp.Hook, Commandable):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
-        self.channels = []
-        for label in self.config["channels"]:
-            try:
-                self.channels.append(host.channels[label])
-            except KeyError:
-                raise immp.ConfigError("No channel '{}' on host".format(label)) from None
         # Message cache, stores IDs of all synced messages by channel.  Mapping from source
         # messages to [{channel: [ID, ...], ...}] (source IDs may not be unique across networks).
         self._synced = defaultdict(list)

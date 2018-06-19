@@ -39,6 +39,7 @@ class _Schema:
                     extra=ALLOW_EXTRA, required=True)
 
 
+@immp.config_props(channels=True)
 class AutoRespondHook(immp.Hook, Commandable):
     """
     Basic text responses for given trigger words and phrases.
@@ -47,12 +48,6 @@ class AutoRespondHook(immp.Hook, Commandable):
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
         self.responses = self.config["responses"]
-        self.channels = []
-        for label in self.config["channels"]:
-            try:
-                self.channels.append(host.channels[label])
-            except KeyError:
-                raise immp.ConfigError("No channel '{}' on host".format(label)) from None
         self._sent = []
 
     def commands(self):

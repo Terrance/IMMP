@@ -1,6 +1,6 @@
 from asyncio import Condition
 from enum import Enum
-import importlib
+from importlib import import_module
 
 
 def resolve_import(path):
@@ -16,7 +16,7 @@ def resolve_import(path):
             Class object imported from module.
     """
     module, class_ = path.rsplit(".", 1)
-    return getattr(importlib.import_module(module), class_)
+    return getattr(import_module(module), class_)
 
 
 def pretty_str(cls):
@@ -39,6 +39,31 @@ def pretty_str(cls):
 
     cls.__str__ = __str__
     return cls
+
+
+def config_props(plugs=False, channels=False, hooks=False):
+    """
+    Callable class decorator to add :attr:`plugs`, :attr:`channels` and :attr:`hooks` helper
+    properties.  Works with :class:`.Hook` or :class:`.Plug` to read the corresponding config key
+    and look up the referenced objects by label.
+    """
+
+    def inner(cls):
+        if plugs:
+            def plug_getter(self):
+                return [self.host.plugs[label] for label in self.config["plugs"]]
+            cls.plugs = property(plug_getter)
+        if channels:
+            def channel_getter(self):
+                return [self.host.channels[label] for label in self.config["channels"]]
+            cls.channels = property(channel_getter)
+        if hooks:
+            def hook_getter(self):
+                return [self.host.hooks[label] for label in self.config["hooks"]]
+            cls.hooks = property(hook_getter)
+        return cls
+
+    return inner
 
 
 class OpenState(Enum):

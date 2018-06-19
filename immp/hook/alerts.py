@@ -83,7 +83,7 @@ class SubTrigger(BaseModel):
         network (str):
             Network identifier that the user belongs to.
         user (str):
-            User's own identifier.
+            User identifier as given by the plug.
         text (str):
             Subscription text that they wish to be notified on.
     """
@@ -119,16 +119,11 @@ class SubExclude(BaseModel):
                                              repr(self.network), repr(self.trigger))
 
 
+@immp.config_props(plugs=True)
 class _AlertHookBase(immp.Hook):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
-        self.plugs = []
-        for label in self.config["plugs"]:
-            try:
-                self.plugs.append(host.plugs[label])
-            except KeyError:
-                raise immp.ConfigError("No plug '{}' on host".format(label)) from None
 
 
 class MentionsHook(_AlertHookBase):
@@ -274,8 +269,8 @@ class SubscriptionsHook(_AlertHookBase, Commandable):
         await channel.send(immp.Message(text=resp))
 
     async def list(self, channel, msg):
-        subs = list(SubTrigger.select().where(SubTrigger.network == channel.plug.network_id,
-                                              SubTrigger.user == msg.user.id))
+        subs = sorted(SubTrigger.select().where(SubTrigger.network == channel.plug.network_id,
+                                                SubTrigger.user == msg.user.id))
         if subs:
             lines = ["Current subscriptions:"] + ["- {}".format(sub.text) for sub in subs]
             await channel.send(immp.Message(text="\n".join(lines)))
