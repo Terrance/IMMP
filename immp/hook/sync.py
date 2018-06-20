@@ -2,17 +2,17 @@
 Bridge multiple channels into a single unified conversation.
 
 Config:
-    channels (str list):
-        List of channel names to manage.
+    channels ((str, str list) dict):
+        Mapping from virtual channel names to lists of channel names to bridge.
     plug (str):
         Name of a virtual plug to register for this sync.
 
 When a message is received from any of the listed channels, a copy is pushed to all other channels
 participating in the bridge.
 
-If ``plug`` is specified, a virtual plug is registered under that name, with a single channel of
-the same name.  Other hooks may reference this channel, to work with all channels in that sync as
-one.  This allows them to listen to a unified stream of messages, or push new messages to all
+If ``plug`` is specified, a virtual plug is registered under that name, with a channel for each
+defined bridge.  Other hooks may reference these channels, to work with all channels in that sync
+as one.  This allows them to listen to a unified stream of messages, or push new messages to all
 synced channels.
 """
 
@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 class _Schema:
 
-    config = Schema({"channels": [str],
+    config = Schema({"channels": {str: [str]},
                      Optional("plug", default=None): Any(str, None)},
                     extra=ALLOW_EXTRA, required=True)
 
@@ -48,29 +48,28 @@ class SyncPlug(immp.Plug):
         return "sync:{}".format(self.name)
 
     def __init__(self, name, hook, host):
-        super().__init__(name, {}, host)
+        super().__init__(name, hook.config, host)
         self._hook = hook
 
     async def channel_is_private(self, channel):
-        return False if channel == self._hook.channel else None
+        return False if channel.source in self.config["channels"] else None
 
     async def channel_members(self, channel):
-        if not channel == self._hook.channel:
+        if channel.source not in self.config["channels"]:
             return None
         members = []
-        for channel in self._hook.channels:
-            members.extend(await channel.members() or [])
+        for synced in self._hook.channels[channel.source]:
+            members.extend(await synced.members() or [])
         return members
 
     async def send(self, channel, msg):
-        if channel == self._hook.channel:
-            await self._hook.send(msg)
+        if channel.source in self.config["channels"]:
+            await self._hook.send(channel.source, msg)
+            return []
         else:
-            log.debug("Send to unknown sync channel: {}".format(repr(channel)))
-        return []
+            raise immp.PlugError("Send to unknown sync channel: {}".format(repr(channel)))
 
 
-@immp.config_props("channels")
 class SyncHook(immp.Hook, Commandable):
     """
     Hook to propagate messages between two or more channels.
@@ -89,14 +88,33 @@ class SyncHook(immp.Hook, Commandable):
         self._lock = BoundedSemaphore()
         # Add a virtual plug to the host, for external subscribers.
         if self.config["plug"]:
-            tname = self.config["plug"]
-            log.debug("Creating virtual plug '{}'".format(tname))
-            self.plug = SyncPlug(tname, self, host)
+            log.debug("Creating virtual plug: {}".format(repr(self.config["plug"])))
+            self.plug = SyncPlug(self.config["plug"], self, host)
             host.add_plug(self.plug)
-            self.channel = immp.Channel(self.plug, None)
-            host.add_channel(tname, self.channel)
+            for label in self.config["channels"]:
+                host.add_channel(label, immp.Channel(self.plug, label))
         else:
-            self.plug = self.channel = None
+            self.plug = None
+
+    @property
+    def channels(self):
+        try:
+            return {virtual: [self.host.channels[label] for label in labels]
+                    for virtual, labels in self.config["channels"].items()}
+        except KeyError as e:
+            raise immp.ConfigError("No channel {} on host".format(repr(e.args[0]))) from None
+
+    def label_for_channel(self, channel):
+        labels = []
+        for label, channels in self.channels.items():
+            if channel in channels:
+                labels.append(label)
+        if not labels:
+            raise immp.ConfigError("Channel {} not bridged".format(repr(channel)))
+        elif len(labels) > 1:
+            raise immp.ConfigError("Channel {} defined more than once".format(repr(channel)))
+        else:
+            return labels[0]
 
     def commands(self):
         return {CommandScope.any: {"sync-members": self.members}}
@@ -104,7 +122,7 @@ class SyncHook(immp.Hook, Commandable):
     async def members(self, channel, msg):
         members = defaultdict(list)
         missing = False
-        for synced in self.channels:
+        for synced in self.channels[channel.source]:
             local = (await synced.plug.channel_members(synced))
             if local:
                 members[synced.plug.network_name] += local
@@ -140,11 +158,13 @@ class SyncHook(immp.Hook, Commandable):
             log.exception("Failed to relay message to channel: {}".format(repr(channel)))
             return []
 
-    async def send(self, msg, source=None):
+    async def send(self, label, msg, source=None):
         """
         Send a message to all channels in this sync.
 
         Args:
+            label (str):
+                Bridge that defines the underlying synced channels to send to.
             msg (.Message):
                 External message to push.
             source (.Channel):
@@ -152,19 +172,21 @@ class SyncHook(immp.Hook, Commandable):
                 (used to avoid retransmitting a message we just received).
         """
         queue = []
-        for channel in self.channels:
+        for synced in self.channels[label]:
             # If it's the channel we just got the message from, return the ID without resending.
-            queue.append(self._noop_send(msg) if channel == source else self._send(channel, msg))
+            queue.append(self._noop_send(msg) if synced == source else self._send(synced, msg))
         # Just like with plugs, when sending a new (external) message to all channels in a
         # sync, we need to wait for all plugs to complete before processing further messages.
         with (await self._lock):
             # Send all the messages in parallel, and match the resulting IDs up by channel.
-            ids = dict(zip(self.channels, await gather(*queue)))
+            ids = dict(zip(self.channels[label], await gather(*queue)))
             self._synced[msg].append(ids)
 
     async def process(self, channel, msg, source, primary):
         await super().process(channel, msg, source, primary)
-        if channel not in self.channels:
+        try:
+            label = self.label_for_channel(channel)
+        except immp.ConfigError:
             return
         with (await self._lock):
             # No critical section here, just wait for any pending messages to be sent.
@@ -173,9 +195,8 @@ class SyncHook(immp.Hook, Commandable):
             # This is a synced message being echoed back from another channel.
             log.debug("Ignoring synced message: {}".format(repr(source)))
             return
-        log.debug("Syncing message to {} channel(s): {}"
-                  .format(len(self.channels) - 1, repr(source)))
-        await self.send(source, channel)
+        log.debug("Sending message to synced channel {}".format(repr(label)))
+        await self.send(label, source, channel)
         # Push a copy of the message to the sync channel, if running.
         if self.plug:
-            self.plug.queue(self.channel, source)
+            self.plug.queue(immp.Channel(self.plug, label), source)
