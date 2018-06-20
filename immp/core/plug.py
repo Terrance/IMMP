@@ -138,7 +138,7 @@ class PlugStream:
         for task in done:
             plug = self._plugs[task]
             try:
-                channel, msg, source, extra = task.result()
+                channel, msg, source, primary = task.result()
             except StopAsyncIteration:
                 log.debug("Plug '{}' finished yielding during process".format(plug.name))
                 del self._coros[plug]
@@ -147,7 +147,7 @@ class PlugStream:
                 del self._coros[plug]
             else:
                 log.debug("Received: {} {}".format(repr(channel), repr(msg)))
-                await self.callback(channel, msg, source, extra)
+                await self.callback(channel, msg, source, primary)
                 self._queue(plug)
             finally:
                 del self._plugs[task]
@@ -167,6 +167,9 @@ class PlugStream:
                 log.debug("Resuming tasks to collect final messages")
                 await self._wait()
         log.debug("All tasks completed")
+
+    def __repr__(self):
+        return "<{}: {} tasks>".format(self.__class__.__name__, len(self._coros))
 
 
 @pretty_str
