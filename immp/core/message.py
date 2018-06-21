@@ -123,7 +123,10 @@ class Segment:
         return hash(self.text)
 
     def __str__(self):
-        return self.text
+        text = self.text
+        if self.link:
+            text = "{} [{}]".format(text, self.link)
+        return text
 
     def __repr__(self):
         attrs = [" {}".format(attr) for attr in ("bold", "italic", "underline", "strike", "code",
