@@ -334,6 +334,11 @@ class DiscordPlug(immp.Plug):
         dc_channel = self._client.get_channel(channel.source)
         return dc_channel.name if dc_channel else None
 
+    async def channel_rename(self, channel, title):
+        dc_channel = self._client.get_channel(channel.source)
+        if dc_channel:
+            await dc_channel.edit(name=title)
+
     async def channel_is_private(self, channel):
         dc_channel = self._client.get_channel(channel.source)
         return isinstance(dc_channel, discord.DMChannel)
