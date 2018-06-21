@@ -69,7 +69,9 @@ class _Schema:
                       Optional("entities", default=[]): [entity],
                       Optional("reply_to_message", default=None):
                           Any(lambda v: _Schema.message(v), None),
-                      Optional("photo", default=[]): [{"file_id": str, "width": int}],
+                      Optional("photo", default=[]): [{"file_id": str}],
+                      Optional("sticker", default=None):
+                          Any({"emoji": str, "file_id": str}, None),
                       Optional("location", default=None):
                           Any({"latitude": float, "longitude": float}, None),
                       Optional("new_chat_members", default=[]): [user],
@@ -340,6 +342,15 @@ class TelegramMessage(immp.Message):
             url = ("https://api.telegram.org/file/bot{}/{}"
                    .format(telegram.config["token"], file["file_path"]))
             attachments.append(immp.File(type=immp.File.Type.image, source=url))
+        if message["sticker"]:
+            params = {"file_id": message["sticker"]["file_id"]}
+            file = await telegram._api("getFile", _Schema.file, params=params)
+            url = ("https://api.telegram.org/file/bot{}/{}"
+                   .format(telegram.config["token"], file["file_path"]))
+            attachments.append(immp.File(type=immp.File.Type.image, source=url))
+            if not text:
+                action = True
+                text = "sent {} sticker".format(message["sticker"]["emoji"])
         if message["location"]:
             attachments.append(immp.Location(latitude=message["location"]["latitude"],
                                              longitude=message["location"]["longitude"]))
