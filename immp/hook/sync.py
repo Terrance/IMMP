@@ -83,7 +83,7 @@ class SyncHook(immp.Hook, Commandable):
         super().__init__(name, _Schema.config(config), host)
         # Message cache, stores IDs of all synced messages by channel.  Mapping from source
         # messages to [{channel: [ID, ...], ...}] (source IDs may not be unique across networks).
-        self._synced = defaultdict(list)
+        self._synced = {}
         # Hook lock, to put a hold on retrieving messages whilst a send is in progress.
         self._lock = BoundedSemaphore()
         # Add a virtual plug to the host, for external subscribers.
@@ -180,7 +180,7 @@ class SyncHook(immp.Hook, Commandable):
         with (await self._lock):
             # Send all the messages in parallel, and match the resulting IDs up by channel.
             ids = dict(zip(self.channels[label], await gather(*queue)))
-            self._synced[msg].append(ids)
+            self._synced[msg] = ids
 
     async def process(self, channel, msg, source, primary):
         await super().process(channel, msg, source, primary)
@@ -191,7 +191,7 @@ class SyncHook(immp.Hook, Commandable):
         with (await self._lock):
             # No critical section here, just wait for any pending messages to be sent.
             pass
-        if any(msg.id in sync[channel] for sync in self._synced[source]):
+        if source in self._synced and msg.id in self._synced[source].get(channel, []):
             # This is a synced message being echoed back from another channel.
             log.debug("Ignoring synced message: {}".format(repr(source)))
             return
