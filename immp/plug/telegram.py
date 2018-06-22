@@ -23,7 +23,7 @@ a bot session -- the bot gains some extra permissions from the "app", but access
     Python module.
 """
 
-from asyncio import CancelledError, ensure_future, sleep
+from asyncio import CancelledError, TimeoutError, ensure_future, sleep
 from collections import defaultdict
 from datetime import datetime
 import logging
@@ -424,6 +424,8 @@ class TelegramPlug(immp.Plug):
                     resp.raise_for_status()
                 except ClientResponseError as e:
                     raise TelegramAPIError("Bad response code: {}".format(resp.status)) from e
+                except TimeoutError as e:
+                    raise TelegramAPIError("Request timed out") from e
                 else:
                     json = await resp.json()
         except ClientError as e:
@@ -594,6 +596,9 @@ class TelegramPlug(immp.Plug):
                 log.debug("Reconnecting in 3 seconds")
                 await sleep(3)
                 continue
+            except Exception as e:
+                log.exception("Uncaught exception during long-poll: {}".format(e))
+                raise
             for update in result:
                 log.debug("Received a message")
                 if any(key in update or "edited_{}".format(key) in update
