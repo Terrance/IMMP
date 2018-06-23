@@ -95,7 +95,8 @@ class DiscordUser(immp.User):
 
 class DiscordRichText(immp.RichText):
 
-    tags = {"**": "bold", "_": "italic", "~": "strike", "`": "code", "```": "pre"}
+    tags = {"**": "bold", "*": "italic", "__": "underline", "~~": "strike",
+            "`": "code", "```": "pre"}
 
     @classmethod
     def _sub_channel(cls, discord, match):

@@ -166,11 +166,12 @@ class RichText:
         normalised = []
         for segment in self._segments:
             clone = copy(segment)
-            match = re.match(r"(\s*)(.*)(\s*)$", clone.text, re.DOTALL)
+            match = re.match(r"(\s*)(.*?)(\s*)$", clone.text, re.DOTALL)
             before, clone.text, after = match.groups()
             if before:
                 normalised.append(Segment(before))
-            normalised.append(clone)
+            if clone.text:
+                normalised.append(clone)
             if after:
                 normalised.append(Segment(after))
         return RichText(normalised)
