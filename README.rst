@@ -16,11 +16,13 @@ The following extra modules are required:
 
 Further modules may also be needed for certain features:
 
-- `aioconsole <https://aioconsole.readthedocs.io>`_ (for async shell)
-- `anyconfig <https://python-anyconfig.readthedocs.io>`_ (for running from command-line)
-- `discord.py <https://discordpy.readthedocs.io/en/rewrite/>`_ **1.0+** (for Discord)
-- `hangups <https://hangups.readthedocs.io>`_ (for Hangouts)
-- `ptpython <https://github.com/jonathanslenders/ptpython>`_ (for blocking shell)
+- `aioconsole <https://aioconsole.readthedocs.io>`_ (async shell)
+- `anyconfig <https://python-anyconfig.readthedocs.io>`_ (running from command-line)
+- `discord.py <https://discordpy.readthedocs.io/en/rewrite/>`_ **1.0+** (Discord)
+- emoji (Discord, Slack)
+- `hangups <https://hangups.readthedocs.io>`_ (Hangouts)
+- `peewee <https://peewee.readthedocs.io/en/latest/>`_ (databases)
+- `ptpython <https://github.com/jonathanslenders/ptpython>`_ (optional: blocking shell)
 
 Terminology
 -----------
@@ -40,24 +42,25 @@ Prepare a config file in a format of your choosing, e.g. in YAML:
 .. code:: yaml
 
     plugs:
-      demo-team:
-        path: immp.plug.slack.SlackPlug
+      demo:
+        path: demo.DemoPlug
         config:
-          token: xoxb-...
+          api-key: xyzzy
 
     channels:
       foo:
-        transport: demo-team
-        source: C0...
+        plug: demo
+        source: 12345
       bar:
-        transport: demo-team
-        source: G0...
+        plug: demo
+        source: 98765
 
     hooks:
-      demo-sync:
-        path: immp.hook.sync.SyncHook
+      test:
+        path: test.TestHook
         config:
           channels: [foo, bar]
+          args: [123, 456]
 
 All labels under the top-level names are effectively free text, and are used to reference from
 other sections.
