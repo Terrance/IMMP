@@ -422,18 +422,16 @@ class TelegramPlug(immp.Plug):
         try:
             async with self._session.post(url, **kwargs) as resp:
                 try:
-                    resp.raise_for_status()
-                except ClientResponseError as e:
-                    raise TelegramAPIError("Bad response code: {}".format(resp.status)) from e
-                except TimeoutError as e:
-                    raise TelegramAPIError("Request timed out") from e
-                else:
                     json = await resp.json()
+                    data = schema(json)
+                except ClientResponseError as e:
+                    raise TelegramAPIError("Bad response with code: {}".format(resp.status)) from e
         except ClientError as e:
             raise TelegramAPIError("Request failed") from e
-        data = schema(json)
+        except TimeoutError as e:
+            raise TelegramAPIError("Request timed out") from e
         if not data["ok"]:
-            raise TelegramAPIError(data["description"], data["error_code"])
+            raise TelegramAPIError(data["error_code"], data["description"])
         return data["result"]
 
     async def start(self):
