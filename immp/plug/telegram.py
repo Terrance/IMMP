@@ -298,22 +298,20 @@ class TelegramMessage(immp.Message):
         attachments = []
         if message["from"]:
             user = TelegramUser.from_bot_user(telegram, message["from"])
-        if message["new_chat_title"]:
-            title = message["new_chat_title"]
-            action = True
-        if message["new_chat_members"]:
-            joined = [(TelegramUser.from_bot_user(telegram, member))
-                      for member in message["new_chat_members"]]
-            action = True
-        if message["left_chat_member"]:
-            left = [TelegramUser.from_bot_user(telegram, message["left_chat_member"])]
-            action = True
+        if message["reply_to_message"]:
+            reply_to = (await cls.from_message(telegram, message["reply_to_message"]))[1]
+        # At most one of these fields will be set.
         if message["text"]:
             text = TelegramRichText.from_entities(message["text"], message["entities"])
         elif message["new_chat_title"]:
+            title = message["new_chat_title"]
+            action = True
             text = TelegramRichText([TelegramSegment("changed group name to "),
                                      TelegramSegment(message["new_chat_title"], bold=True)])
         elif message["new_chat_members"]:
+            joined = [(TelegramUser.from_bot_user(telegram, member))
+                      for member in message["new_chat_members"]]
+            action = True
             if joined == [user]:
                 text = TelegramRichText([TelegramSegment("joined group via invite link")])
             else:
@@ -324,6 +322,8 @@ class TelegramMessage(immp.Message):
                                 TelegramSegment(", "))
                 text = text[:-1]
         elif message["left_chat_member"]:
+            left = [TelegramUser.from_bot_user(telegram, message["left_chat_member"])]
+            action = True
             if left == [user]:
                 text = TelegramRichText([TelegramSegment("left group")])
             else:
@@ -332,9 +332,7 @@ class TelegramMessage(immp.Message):
                 text = TelegramRichText([TelegramSegment("removed "),
                                          TelegramSegment(part.real_name,
                                                          bold=(not link), link=link)])
-        if message["reply_to_message"]:
-            reply_to = (await cls.from_message(telegram, message["reply_to_message"]))[1]
-        if message["photo"]:
+        elif message["photo"]:
             # This is a list of resolutions, find the original sized one to return.
             photo = max(message["photo"], key=lambda photo: photo["height"])
             params = {"file_id": photo["file_id"]}
@@ -342,7 +340,7 @@ class TelegramMessage(immp.Message):
             url = ("https://api.telegram.org/file/bot{}/{}"
                    .format(telegram.config["token"], file["file_path"]))
             attachments.append(immp.File(type=immp.File.Type.image, source=url))
-        if message["sticker"]:
+        elif message["sticker"]:
             params = {"file_id": message["sticker"]["file_id"]}
             file = await telegram._api("getFile", _Schema.file, params=params)
             url = ("https://api.telegram.org/file/bot{}/{}"
@@ -351,9 +349,12 @@ class TelegramMessage(immp.Message):
             if not text:
                 action = True
                 text = "sent {} sticker".format(message["sticker"]["emoji"])
-        if message["location"]:
+        elif message["location"]:
             attachments.append(immp.Location(latitude=message["location"]["latitude"],
                                              longitude=message["location"]["longitude"]))
+        else:
+            # No support for this message type.
+            raise NotImplementedError
         return (immp.Channel(telegram, message["chat"]["id"]),
                 cls(id=message["message_id"],
                     at=datetime.fromtimestamp(message["date"]),
@@ -605,6 +606,8 @@ class TelegramPlug(immp.Plug):
                        for key in ("message", "channel_post")):
                     try:
                         channel, msg = await TelegramMessage.from_update(self, update)
+                    except NotImplementedError:
+                        log.debug("Skipping message with no usable parts")
                     except CancelledError:
                         log.debug("Cancel request for plug '{}' getter".format(self.name))
                         return
