@@ -53,7 +53,8 @@ class _Schema:
                      Optional("playing", default=None): Any(str, None)},
                     extra=ALLOW_EXTRA, required=True)
 
-    webhook = Schema({"id": str}, extra=ALLOW_EXTRA, required=True)
+    webhook = Schema(Any({"code": int, "message": str}, {"id": str}),
+                     extra=ALLOW_EXTRA, required=True)
 
 
 class DiscordAPIError(immp.PlugError):
@@ -424,6 +425,8 @@ class DiscordPlug(immp.Plug):
         async with self._session.post("{}?wait=true".format(webhook), data=data) as resp:
             json = await resp.json()
         message = _Schema.webhook(json)
+        if "code" in message:
+            raise DiscordAPIError("{}: {}".format(message["code"], message["message"]))
         return [int(message["id"])]
 
     async def _put_client(self, channel, msg):
