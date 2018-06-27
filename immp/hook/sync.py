@@ -178,9 +178,13 @@ class SyncHook(immp.Hook, Commandable):
         # Just like with plugs, when sending a new (external) message to all channels in a
         # sync, we need to wait for all plugs to complete before processing further messages.
         with (await self._lock):
+            channels = self.channels[label]
             # Send all the messages in parallel, and match the resulting IDs up by channel.
-            ids = dict(zip(self.channels[label], await gather(*queue)))
-            self._synced[msg] = ids
+            ids = defaultdict(list, zip(channels, await gather(*queue)))
+            revisions = defaultdict(list)
+            if source:
+                revisions[source].append((msg.id, msg.revision))
+            self._synced[msg] = (ids, revisions)
 
     async def process(self, channel, msg, source, primary):
         await super().process(channel, msg, source, primary)
@@ -191,11 +195,20 @@ class SyncHook(immp.Hook, Commandable):
         with (await self._lock):
             # No critical section here, just wait for any pending messages to be sent.
             pass
-        if source in self._synced and msg.id in self._synced[source].get(channel, []):
-            # This is a synced message being echoed back from another channel.
-            log.debug("Ignoring synced message: {}".format(repr(source)))
-            return
-        log.debug("Sending message to synced channel {}".format(repr(label)))
+        pair = (msg.id, msg.revision)
+        if source in self._synced:
+            ids, revisions = self._synced[source]
+            if msg.id in ids[channel]:
+                if pair in revisions[channel]:
+                    # This is a synced message being echoed back from another channel.
+                    log.debug("Ignoring synced revision: {}/{}".format(*pair))
+                    return
+                revisions[channel].append(pair)
+                if len(revisions[channel]) == 1:
+                    # New revision, message has been updated.
+                    log.debug("Ignoring initial revision: {}/{}".format(*pair))
+                    return
+        log.debug("Sending message to synced channel {}: {}/{}".format(repr(label), *pair))
         await self.send(label, source, channel)
         # Push a copy of the message to the sync channel, if running.
         if self.plug:
