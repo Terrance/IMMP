@@ -309,6 +309,16 @@ class HangoutsMessage(immp.Message):
             is_shared = event.new_status == hangouts_pb2.GROUP_LINK_SHARING_STATUS_ON
             segments = [HangoutsSegment("{}abled joining the hangout by link"
                                         .format("en" if is_shared else "dis"))]
+        elif isinstance(event, hangups.HangoutEvent):
+            action = True
+            texts = {hangouts_pb2.HANGOUT_EVENT_TYPE_START: "started a call",
+                     hangouts_pb2.HANGOUT_EVENT_TYPE_END: "ended the call",
+                     hangouts_pb2.HANGOUT_EVENT_TYPE_JOIN: "joined the call",
+                     hangouts_pb2.HANGOUT_EVENT_TYPE_LEAVE: "left the call"}
+            try:
+                segments = [HangoutsSegment(texts[event.event_type])]
+            except KeyError:
+                raise NotImplementedError
         else:
             raise NotImplementedError
         if not isinstance(event, hangups.ChatMessageEvent):
@@ -367,7 +377,7 @@ class HangoutsPlug(immp.Plug):
         try:
             channel, msg = HangoutsMessage.from_event(self, event)
         except NotImplementedError:
-            log.warn("Skipping unimplemented message event")
+            log.warn("Skipping unimplemented '{}' event type".format(event.__class__.__name__))
         else:
             log.debug("Queueing new message event")
             self.queue(channel, msg)
