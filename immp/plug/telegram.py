@@ -64,6 +64,7 @@ class _Schema:
     message = Schema({"message_id": int,
                       "chat": {"id": int},
                       "date": int,
+                      Optional("edit_date", default=None): Any(int, None),
                       Optional("from", default=None): Any(user, None),
                       Optional("text", default=None): Any(str, None),
                       Optional("entities", default=[]): [entity],
@@ -358,6 +359,8 @@ class TelegramMessage(immp.Message):
         return (immp.Channel(telegram, message["chat"]["id"]),
                 cls(id=message["message_id"],
                     at=datetime.fromtimestamp(message["date"]),
+                    revision=message["edit_date"] or message["date"],
+                    edited=bool(message["edit_date"]),
                     text=text,
                     user=user,
                     action=action,
@@ -387,10 +390,7 @@ class TelegramMessage(immp.Message):
             if update.get(key):
                 return await cls.from_message(telegram, update[key])
             elif update.get("edited_{}".format(key)):
-                channel, msg = await cls.from_message(telegram, update["edited_{}".format(key)])
-                # Messages are edited in-place, no new ID is issued.
-                msg.original = msg.id
-                return (channel, msg)
+                return await cls.from_message(telegram, update["edited_{}".format(key)])
 
 
 class TelegramPlug(immp.Plug):

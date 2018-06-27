@@ -375,9 +375,10 @@ class SlackMessage(immp.Message):
                 Parsed message object.
         """
         event = _Schema.message(json)
-        original = None
-        action = False
+        id = revision = event["ts"]
+        edited = False
         deleted = False
+        action = False
         reply_to = None
         joined = None
         left = None
@@ -389,15 +390,16 @@ class SlackMessage(immp.Message):
             text = event["text"]
         elif event["subtype"] == "message_changed":
             # Original message details are under a nested "message" key.
-            original = event["message"]["ts"]
+            id = event["message"]["ts"]
+            edited = True
             text = event["message"]["text"]
             # NB: Editing user may be different to the original sender.
             author = event["message"]["edited"]["user"] or event["message"]["user"]
         elif event["subtype"] == "message_deleted":
-            original = event["deleted_ts"]
+            id = event["deleted_ts"]
+            deleted = True
             author = None
             text = None
-            deleted = True
         else:
             author = event["user"]
             text = event["text"]
@@ -432,13 +434,14 @@ class SlackMessage(immp.Message):
             if history["messages"] and history["messages"][0]["ts"] == event["thread_ts"]:
                 reply_to = (await cls.from_event(slack, history["messages"][0]))[1]
         return (immp.Channel(slack, event["channel"]),
-                cls(id=event["ts"],
+                cls(id=id,
                     at=datetime.fromtimestamp(int(float(event["ts"]))),
-                    original=original,
+                    revision=revision,
+                    edited=edited,
+                    deleted=deleted,
                     text=SlackRichText.from_mrkdwn(slack, text) if text else None,
                     user=user,
                     action=action,
-                    deleted=deleted,
                     reply_to=reply_to,
                     joined=joined,
                     left=left,

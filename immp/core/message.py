@@ -394,19 +394,22 @@ class Message:
 
     Attributes:
         id (str):
-            Unique (to the plug) message identifier.
+            Unique (to the plug) message identifier, which should persist across edits and deletes.
         at (datetime.datetime):
             Timestamp of the message according to the external server.
-        original (str):
-            ID of the original message, which this message is an update of.
+        revision (str):
+            Key to uniquely identify updates to a previous message, defaults to :attr:`id`.  Need
+            not be in the same format as the main identifier.
+        edited (bool):
+            Whether the message content has been changed.
+        deleted (bool):
+            Whether the message was deleted from its source.
         text (str):
             Plain text representation of the message.
         user (.User):
             User profile that sent the message.
         action (bool):
             Whether this message should be presented as an action involving its user.
-        deleted (bool):
-            Whether the message was deleted from its source.
         reply_to (.Message):
             Parent message, which this message replies to.
         joined (.User list):
@@ -421,16 +424,17 @@ class Message:
             Optional plug-specific underlying message or event object.
     """
 
-    def __init__(self, id=None, at=None, original=None, text=None, user=None, action=False,
-                 deleted=False, reply_to=None, joined=None, left=None, title=None,
+    def __init__(self, id=None, at=None, revision=None, edited=False, deleted=False, text=None,
+                 user=None, action=False, reply_to=None, joined=None, left=None, title=None,
                  attachments=None, raw=None):
         self.id = id
         self.at = at or datetime.now()
-        self.original = original
+        self.revision = revision or id
+        self.edited = edited
+        self.deleted = deleted
         self.text = text
         self.user = user
         self.action = action
-        self.deleted = deleted
         self.reply_to = reply_to
         self.joined = joined or []
         self.left = left or []
@@ -485,10 +489,10 @@ class Message:
             output.prepend(Segment(delimiter))
             if not action:
                 output.prepend(Segment(":", bold=True))
-            if self.original:
+            if self.edited:
                 output.prepend(Segment(" [edit]"))
             output.prepend(Segment(name, bold=True))
-        elif self.original:
+        elif self.edited:
             output.prepend(Segment("[edit] "))
         if action:
             for segment in output:

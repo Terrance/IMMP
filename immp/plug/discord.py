@@ -198,7 +198,7 @@ class DiscordMessage(immp.Message):
     """
 
     @classmethod
-    def from_message(cls, discord, message):
+    def from_message(cls, discord, message, edited=False, deleted=False):
         """
         Convert a :class:`discord.Message` into a :class:`.Message`.
 
@@ -207,6 +207,10 @@ class DiscordMessage(immp.Message):
                 Related plug instance that provides the event.
             message (discord.Message):
                 Discord message object received from a channel.
+            edited (bool):
+                Whether this message comes from an edit event.
+            deleted (bool):
+                Whether this message comes from a delete event.
 
         Returns:
             .DiscordMessage:
@@ -231,6 +235,11 @@ class DiscordMessage(immp.Message):
         return (immp.Channel(discord, message.channel.id),
                 cls(id=message.id,
                     at=message.created_at,
+                    # Edited timestamp is blank for new messages, but updated in existing objects
+                    # when the message is later edited.  Here we just take the current value.
+                    revision=message.edited_at or message.created_at,
+                    edited=edited,
+                    deleted=deleted,
                     text=DiscordRichText.from_markdown(discord, text) if text else None,
                     user=DiscordUser.from_user(discord, message.author),
                     attachments=attachments,
@@ -260,15 +269,12 @@ class DiscordClient(discord.Client):
         if before.content == after.content:
             # Text content hasn't changed -- maybe just a link unfurl embed added.
             return
-        channel, msg = DiscordMessage.from_message(self._plug, after)
-        # Edits don't generate a new ID.
-        msg.original = msg.id
+        channel, msg = DiscordMessage.from_message(self._plug, after, edited=True)
         self._plug.queue(channel, msg)
 
     async def on_message_delete(self, message):
         log.debug("Received a deleted message")
-        channel, msg = DiscordMessage.from_message(self._plug, message)
-        msg.deleted = True
+        channel, msg = DiscordMessage.from_message(self._plug, message, deleted=True)
         self._plug.queue(channel, msg)
 
 
