@@ -504,11 +504,13 @@ class Message:
         return output
 
     def __eq__(self, other):
-        return isinstance(other, self.__class__) and self.id == other.id
+        return (isinstance(other, self.__class__) and self.id and
+                (self.id, self.revision) == (other.id, other.revision))
 
     def __hash__(self):
-        return hash(self.id)
+        return hash((self.id, self.revision))
 
     def __repr__(self):
-        return "<{}: {} ({} @ {}): {}>".format(self.__class__.__name__, repr(self.id),
-                                               repr(self.user), self.at, repr(str(self.text)))
+        return "<{}: {}/{} ({} @ {}): {}>".format(self.__class__.__name__, repr(self.id),
+                                                  repr(self.revision), repr(self.user), self.at,
+                                                  repr(str(self.text)))
