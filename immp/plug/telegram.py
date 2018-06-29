@@ -535,6 +535,15 @@ class TelegramPlug(immp.Plug):
     async def channel_remove(self, channel, user):
         await self._api("kickChatMember", params={"chat_id": channel.source, "user_id": user.id})
 
+    async def _form_data(self, base, field, attach):
+        data = FormData(base)
+        if attach.source:
+            data.add_field(field, attach.source)
+        else:
+            img_resp = await attach.get_content(self._session)
+            data.add_field(field, img_resp.content, filename=attach.title or field)
+        return data
+
     async def put(self, channel, msg):
         if msg.deleted:
             # TODO
@@ -543,40 +552,48 @@ class TelegramPlug(immp.Plug):
         if msg.text or msg.reply_to:
             rich = msg.render(quote_reply=True)
             text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
-            parts.append(("sendMessage", {"chat_id": channel.source,
-                                          "text": text,
-                                          "parse_mode": "HTML"}))
+            parts.append(await self._api("sendMessage", _Schema.send,
+                                         params={"chat_id": channel.source,
+                                                 "text": text,
+                                                 "parse_mode": "HTML"}))
         for attach in msg.attachments:
-            if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
+            if isinstance(attach, immp.File):
                 # Upload an image file to Telegram in its own message.
                 # Prefer a source URL if available, else fall back to re-uploading the file.
-                data = FormData({"chat_id": str(channel.source)})
+                base = {"chat_id": str(channel.source)}
                 if msg.user:
-                    data.add_field("caption", "{} sent an image"
-                                              .format(msg.user.real_name or msg.user.username))
-                if attach.source:
-                    data.add_field("photo", attach.source)
-                else:
-                    img_resp = await attach.get_content(self._session)
-                    data.add_field("photo", img_resp.content, filename=attach.title or "photo")
-                parts.append(("sendPhoto", data))
+                    base["caption"] = ("{} sent an image"
+                                       .format(msg.user.real_name or msg.user.username))
+                done = False
+                if attach.type == immp.File.Type.image:
+                    data = await self._form_data(base, "photo", attach)
+                    try:
+                        parts.append(await self._api("sendPhoto", _Schema.send, data=data))
+                    except TelegramAPIError:
+                        log.debug("Failed to upload image, falling back to document upload")
+                    else:
+                        done = True
+                if not done:
+                    data = await self._form_data(base, "document", attach)
+                    parts.append(await self._api("sendDocument", _Schema.send, data=data))
             elif isinstance(attach, immp.Location):
-                parts.append(("sendLocation", {"chat_id": channel.source,
-                                               "latitude": attach.latitude,
-                                               "longitude": attach.longitude}))
+                parts.append(await self._api("sendLocation", _Schema.send,
+                                             params={"chat_id": channel.source,
+                                                     "latitude": attach.latitude,
+                                                     "longitude": attach.longitude}))
                 if msg.user:
                     caption = immp.Message(user=msg.user, text="sent a location", action=True)
                     text = "".join(TelegramSegment.to_html(self, segment)
                                    for segment in caption.render())
-                    parts.append(("sendMessage", {"chat_id": channel.source,
-                                                  "text": text,
-                                                  "parse_mode": "HTML"}))
+                    parts.append(await self._api("sendMessage", _Schema.send,
+                                                 params={"chat_id": channel.source,
+                                                         "text": text,
+                                                         "parse_mode": "HTML"}))
         sent = []
-        for endpoint, data in parts:
-            result = await self._api(endpoint, _Schema.send, data=data)
+        for result in parts:
             ext_channel, ext_msg = await TelegramMessage.from_message(self, result)
             self.queue(ext_channel, ext_msg)
-            sent.append(result["message_id"])
+            sent.append((channel.source, result["message_id"]))
         return sent
 
     async def _poll(self):
