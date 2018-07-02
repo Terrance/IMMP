@@ -58,6 +58,32 @@ class CommandScope(Enum):
     public = 2
 
 
+@immp.pretty_str
+class Command:
+    """
+    Container of a command function.
+
+    Attributes:
+        name (str):
+            Command name, used to access the command when directly following the prefix.
+        fn (method):
+            Callback function to process the command usage.
+        scope (.CommandScope):
+            Accessibility of this command for the different channel types.
+    """
+
+    def __init__(self, name, fn, scope=CommandScope.any):
+        self.name = name
+        self.fn = fn
+        self.scope = scope
+
+    def __call__(self, *args, **kwargs):
+        return self.fn(*args, **kwargs)
+
+    def __repr__(self):
+        return "<{}: {} @ {}>".format(self.__class__.__name__, self.name, self.scope)
+
+
 class Commandable:
     """
     Interface for hooks to implement, allowing them to provide their own commands.
@@ -68,10 +94,10 @@ class Commandable:
         Generate a list of commands to be registered with the command hook.
 
         Returns:
-            (str, function) dict:
-                Mapping from command names to callback functions.
+            .Command list:
+                Commands available from the implementer.
         """
-        return {}
+        return []
 
 
 @immp.config_props("plugs", "channels", "hooks")
@@ -87,12 +113,9 @@ class CommandHook(immp.Hook):
             if not isinstance(hook, Commandable):
                 raise immp.ConfigError("Hook '{}' does not support commands"
                                        .format(hook.name)) from None
-            commands = hook.commands()
-            for scope in CommandScope:
-                if commands.get(scope):
-                    log.debug("Adding commands for hook '{}' ({} scope): {}"
-                              .format(hook.name, scope.name, ", ".join(commands[scope])))
-                    self.commands[scope].update(commands[scope])
+            for command in hook.commands():
+                log.debug("Adding command from hook '{}': {}".format(hook.name, repr(command)))
+                self.commands[command.scope][command.name] = command
 
     async def process(self, channel, msg, source, primary):
         await super().process(channel, msg, source, primary)

@@ -56,7 +56,7 @@ from peewee import CharField, ForeignKeyField
 from voluptuous import ALLOW_EXTRA, Optional, Schema
 
 import immp
-from immp.hook.command import Commandable, CommandScope
+from immp.hook.command import Command, Commandable, CommandScope
 from immp.hook.database import BaseModel, DatabaseHook
 
 log = logging.getLogger(__name__)
@@ -232,10 +232,10 @@ class SubscriptionsHook(_AlertHookBase, Commandable):
         self.db.create_tables([SubTrigger, SubExclude], safe=True)
 
     def commands(self):
-        return {CommandScope.private: {"sub-add": self.add,
-                                       "sub-remove": self.remove,
-                                       "sub-list": self.list},
-                CommandScope.public: {"sub-exclude": self.exclude}}
+        return [Command("sub-add", self.add, CommandScope.private),
+                Command("sub-remove", self.remove, CommandScope.private),
+                Command("sub-list", self.list, CommandScope.private),
+                Command("sub-exclude", self.exclude, CommandScope.public)]
 
     async def add(self, channel, msg, *words):
         text = re.sub(r"[^\w ]", "", " ".join(words)).lower()

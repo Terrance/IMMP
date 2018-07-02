@@ -27,7 +27,7 @@ from peewee import CharField, ForeignKeyField
 from voluptuous import ALLOW_EXTRA, Schema
 
 import immp
-from immp.hook.command import Commandable, CommandScope
+from immp.hook.command import Command, Commandable, CommandScope
 from immp.hook.database import BaseModel, DatabaseHook
 
 
@@ -100,11 +100,11 @@ class IdentityHook(immp.Hook, Commandable):
         super().__init__(name, _Schema.config(config), host)
 
     def commands(self):
-        return {CommandScope.any: {"id-show": self.show},
-                CommandScope.private: {"id-add": self.add,
-                                       "id-rename": self.rename,
-                                       "id-password": self.password,
-                                       "id-reset": self.reset}}
+        return [Command("id-show", self.show, CommandScope.any),
+                Command("id-add", self.add, CommandScope.private),
+                Command("id-rename", self.rename, CommandScope.private),
+                Command("id-password", self.password, CommandScope.private),
+                Command("id-reset", self.reset, CommandScope.private)]
 
     async def start(self):
         self.db = self.host.resources[DatabaseHook].db

@@ -23,7 +23,7 @@ import logging
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
-from immp.hook.command import Commandable, CommandScope
+from immp.hook.command import Command, Commandable, CommandScope
 
 
 log = logging.getLogger(__name__)
@@ -117,7 +117,7 @@ class SyncHook(immp.Hook, Commandable):
             return labels[0]
 
     def commands(self):
-        return {CommandScope.any: {"sync-members": self.members}}
+        return [Command("sync-members", self.members, CommandScope.any)]
 
     async def members(self, channel, msg):
         members = defaultdict(list)
