@@ -237,7 +237,7 @@ class DiscordMessage(immp.Message):
                     at=message.created_at,
                     # Edited timestamp is blank for new messages, but updated in existing objects
                     # when the message is later edited.  Here we just take the current value.
-                    revision=message.edited_at or message.created_at,
+                    revision=(message.edited_at or message.created_at).timestamp(),
                     edited=edited,
                     deleted=deleted,
                     text=DiscordRichText.from_markdown(discord, text) if text else None,
