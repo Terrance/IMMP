@@ -51,8 +51,10 @@ class AutoRespondHook(immp.Hook, Commandable):
         self._sent = []
 
     def commands(self):
-        return [Command("ar-add", self.add, CommandScope.any),
-                Command("ar-remove", self.remove, CommandScope.any)]
+        return [Command("ar-add", self.add, CommandScope.any, "<match> <response>",
+                        "Add a new trigger / response pair."),
+                Command("ar-remove", self.remove, CommandScope.any, "<match>",
+                        "Remove an existing trigger.")]
 
     async def add(self, channel, msg, match, response):
         self.responses[match] = response

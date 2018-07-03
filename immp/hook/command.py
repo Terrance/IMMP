@@ -70,15 +70,21 @@ class Command:
             Callback function to process the command usage.
         scope (.CommandScope):
             Accessibility of this command for the different channel types.
+        args (str):
+            Readable summary of accepted arguments, e.g. ``<arg1> "<arg2>" [optional]``.
+        help (str):
+            Full description of the command.
     """
 
-    def __init__(self, name, fn, scope=CommandScope.any):
+    def __init__(self, name, fn, scope=CommandScope.any, args=None, help=None):
         self.name = name
         self.fn = fn
         self.scope = scope
+        self.args = args
+        self.help = help
 
-    def __call__(self, *args, **kwargs):
-        return self.fn(*args, **kwargs)
+    async def __call__(self, *args, **kwargs):
+        return await self.fn(*args, **kwargs)
 
     def __repr__(self):
         return "<{}: {} @ {}>".format(self.__class__.__name__, self.name, self.scope)
@@ -101,43 +107,77 @@ class Commandable:
 
 
 @immp.config_props("plugs", "channels", "hooks")
-class CommandHook(immp.Hook):
+class CommandHook(immp.Hook, Commandable):
     """
     Generic command handler for other hooks.
     """
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
-        self.commands = defaultdict(dict)
-        for hook in self.hooks:
+        self._commands = defaultdict(dict)
+        for hook in (self,) + self.hooks:
             if not isinstance(hook, Commandable):
                 raise immp.ConfigError("Hook '{}' does not support commands"
                                        .format(hook.name)) from None
             for command in hook.commands():
                 log.debug("Adding command from hook '{}': {}".format(hook.name, repr(command)))
-                self.commands[command.scope][command.name] = command
+                self._commands[command.scope][command.name] = command
+
+    async def scope(self, channel):
+        if channel in self.channels:
+            return CommandScope.public
+        elif channel.plug in self.plugs and await channel.is_private():
+            return CommandScope.private
+        else:
+            return None
+
+    def get(self, scope, name):
+        return (self._commands[scope].get(name) or
+                self._commands[CommandScope.any].get(name))
+
+    def commands(self):
+        return [Command("help", self.help, CommandScope.any, "[command]",
+                        "Show details about the given command, or list available commands.")]
+
+    async def help(self, channel, msg, name=None):
+        scope = await self.scope(channel)
+        if name:
+            command = self.get(scope, name)
+            if command:
+                text = immp.RichText([immp.Segment(command.name, bold=True)])
+                if command.args:
+                    text.append(immp.Segment(" {}".format(command.args)))
+                if command.help:
+                    text.append(immp.Segment(":\n", bold=True),
+                                immp.Segment(command.help))
+            else:
+                text = "\N{CROSS MARK} No such command"
+        else:
+            text = immp.RichText([immp.Segment("Available commands:", bold=True)])
+            commands = (list(self._commands[scope].values()) +
+                        list(self._commands[CommandScope.any].values()))
+            for command in sorted(commands, key=lambda c: c.name):
+                text.append(immp.Segment("\n- {}".format(command.name)))
+        await channel.send(immp.Message(text=text))
 
     async def process(self, channel, msg, source, primary):
         await super().process(channel, msg, source, primary)
         if not primary or not msg == source:
             return
-        if channel in self.channels:
-            scope = CommandScope.public
-        elif channel.plug in self.plugs and await channel.is_private():
-            scope = CommandScope.private
-        else:
+        scope = await self.scope(channel)
+        if not scope:
             return
         if not (source.text and str(source.text).startswith(self.config["prefix"])):
             return
         try:
             # TODO: Preserve formatting.
-            command = split(str(source.text)[len(self.config["prefix"]):])
+            name, *args = split(str(source.text)[len(self.config["prefix"]):])
         except ValueError:
             return
-        func = (self.commands[scope].get(command[0]) or
-                self.commands[CommandScope.any].get(command[0]))
-        if func:
+        command = self.get(scope, name)
+        if command:
             try:
-                await func(channel, source, *command[1:])
+                log.debug("Executing command in channel: {} {}".format(repr(channel), source.text))
+                await command(channel, source, *args)
             except Exception:
                 log.exception("Exception whilst running command: {}".format(source.text))

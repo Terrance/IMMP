@@ -100,11 +100,16 @@ class IdentityHook(immp.Hook, Commandable):
         super().__init__(name, _Schema.config(config), host)
 
     def commands(self):
-        return [Command("id-show", self.show, CommandScope.any),
-                Command("id-add", self.add, CommandScope.private),
-                Command("id-rename", self.rename, CommandScope.private),
-                Command("id-password", self.password, CommandScope.private),
-                Command("id-reset", self.reset, CommandScope.private)]
+        return [Command("id-show", self.show, CommandScope.any, "<name>",
+                        "Recall a known identity and all of its links."),
+                Command("id-add", self.add, CommandScope.private, "<name> <pwd>",
+                        "Create a new identity, or link to an existing one from a second user."),
+                Command("id-rename", self.rename, CommandScope.private, "<name>",
+                        "Rename the current identity."),
+                Command("id-password", self.password, CommandScope.private, "<pwd>",
+                        "Update the password for the current identity."),
+                Command("id-reset", self.reset, CommandScope.private, None,
+                        "Delete the current identity and all linked users.")]
 
     async def start(self):
         self.db = self.host.resources[DatabaseHook].db

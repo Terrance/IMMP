@@ -7,6 +7,10 @@ Config:
     plug (str):
         Name of a virtual plug to register for this sync.
 
+Commands:
+    sync-members:
+        List all members of the current conversation, across all channels.
+
 When a message is received from any of the listed channels, a copy is pushed to all other channels
 participating in the bridge.
 
@@ -117,7 +121,8 @@ class SyncHook(immp.Hook, Commandable):
             return labels[0]
 
     def commands(self):
-        return [Command("sync-members", self.members, CommandScope.any)]
+        return [Command("sync-members", self.members, CommandScope.any, None,
+                        "List all members of the current conversation, across all channels.")]
 
     async def members(self, channel, msg):
         members = defaultdict(list)

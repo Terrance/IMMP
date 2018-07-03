@@ -232,10 +232,14 @@ class SubscriptionsHook(_AlertHookBase, Commandable):
         self.db.create_tables([SubTrigger, SubExclude], safe=True)
 
     def commands(self):
-        return [Command("sub-add", self.add, CommandScope.private),
-                Command("sub-remove", self.remove, CommandScope.private),
-                Command("sub-list", self.list, CommandScope.private),
-                Command("sub-exclude", self.exclude, CommandScope.public)]
+        return [Command("sub-add", self.add, CommandScope.private, "<text>",
+                        "Add a subscription to your trigger list."),
+                Command("sub-remove", self.remove, CommandScope.private, "<text>",
+                        "Remove a subscription from your trigger list."),
+                Command("sub-list", self.list, CommandScope.private, None,
+                        "Show all active subscriptions."),
+                Command("sub-exclude", self.exclude, CommandScope.public, "<text>",
+                        "Don't trigger a specific subscription in the current public channel.")]
 
     async def add(self, channel, msg, *words):
         text = re.sub(r"[^\w ]", "", " ".join(words)).lower()
