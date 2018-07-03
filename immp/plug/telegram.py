@@ -357,7 +357,9 @@ class TelegramMessage(immp.Message):
             # No support for this message type.
             raise NotImplementedError
         return (immp.Channel(telegram, message["chat"]["id"]),
-                cls(id=message["message_id"],
+                # Message IDs are just a sequence, only unique to their channel and not the whole
+                # network.  Pair with the chat ID for a network-unique value.
+                cls(id=(message["chat"]["id"], message["message_id"]),
                     at=datetime.fromtimestamp(message["date"]),
                     revision=message["edit_date"] or message["date"],
                     edited=bool(message["edit_date"]),
