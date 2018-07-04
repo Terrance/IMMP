@@ -75,9 +75,11 @@ class _Schema:
                           Any({"emoji": str, "file_id": str}, None),
                       Optional("location", default=None):
                           Any({"latitude": float, "longitude": float}, None),
+                      Optional("group_chat_created", default=False): bool,
                       Optional("new_chat_members", default=[]): [user],
                       Optional("left_chat_member", default=None): Any(user, None),
-                      Optional("new_chat_title", default=None): Any(str, None)},
+                      Optional("new_chat_title", default=None): Any(str, None),
+                      Optional("migrate_to_chat_id", default=None): Any(int, None)},
                      extra=ALLOW_EXTRA, required=True)
 
     update = Schema({"update_id": int,
@@ -304,6 +306,10 @@ class TelegramMessage(immp.Message):
         # At most one of these fields will be set.
         if message["text"]:
             text = TelegramRichText.from_entities(message["text"], message["entities"])
+        elif message["group_chat_created"]:
+            action = True
+            text = TelegramRichText([TelegramSegment("created the group "),
+                                     TelegramSegment(message["chat"]["title"], bold=True)])
         elif message["new_chat_title"]:
             title = message["new_chat_title"]
             action = True
@@ -416,6 +422,8 @@ class TelegramPlug(immp.Plug):
         # Connection objects that need to be closed on disconnect.
         self._session = self._bot_user = self._receive = self._client = None
         self._closing = False
+        # Temporary tracking of migrated chats for the current session.
+        self._migrations = {}
         # Update ID from which to retrieve the next batch.  Should be one higher than the max seen.
         self._offset = 0
 
@@ -464,6 +472,8 @@ class TelegramPlug(immp.Plug):
             self._client = None
         self._bot_user = None
         self._offset = 0
+        if self._migrations:
+            log.warning("Chat migrations require a config update before next run")
 
     async def user_from_id(self, id):
         if not self._client:
@@ -550,19 +560,23 @@ class TelegramPlug(immp.Plug):
         if msg.deleted:
             # TODO
             return []
+        chat = channel.source
+        while chat in self._migrations:
+            log.debug("Following chat migration: {} -> {}".format(chat, self._migrations[chat]))
+            chat = self._migrations[chat]
         parts = []
         if msg.text or msg.reply_to:
             rich = msg.render(quote_reply=True)
             text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
             parts.append(await self._api("sendMessage", _Schema.send,
-                                         params={"chat_id": channel.source,
+                                         params={"chat_id": chat,
                                                  "text": text,
                                                  "parse_mode": "HTML"}))
         for attach in msg.attachments:
             if isinstance(attach, immp.File):
                 # Upload an image file to Telegram in its own message.
                 # Prefer a source URL if available, else fall back to re-uploading the file.
-                base = {"chat_id": str(channel.source)}
+                base = {"chat_id": str(chat)}
                 if msg.user:
                     base["caption"] = ("{} sent an image"
                                        .format(msg.user.real_name or msg.user.username))
@@ -580,7 +594,7 @@ class TelegramPlug(immp.Plug):
                     parts.append(await self._api("sendDocument", _Schema.send, data=data))
             elif isinstance(attach, immp.Location):
                 parts.append(await self._api("sendLocation", _Schema.send,
-                                             params={"chat_id": channel.source,
+                                             params={"chat_id": chat,
                                                      "latitude": attach.latitude,
                                                      "longitude": attach.longitude}))
                 if msg.user:
@@ -588,14 +602,14 @@ class TelegramPlug(immp.Plug):
                     text = "".join(TelegramSegment.to_html(self, segment)
                                    for segment in caption.render())
                     parts.append(await self._api("sendMessage", _Schema.send,
-                                                 params={"chat_id": channel.source,
+                                                 params={"chat_id": chat,
                                                          "text": text,
                                                          "parse_mode": "HTML"}))
         sent = []
         for result in parts:
             ext_channel, ext_msg = await TelegramMessage.from_message(self, result)
             self.queue(ext_channel, ext_msg)
-            sent.append((channel.source, result["message_id"]))
+            sent.append((chat, result["message_id"]))
         return sent
 
     async def _poll(self):
@@ -619,6 +633,15 @@ class TelegramPlug(immp.Plug):
                 raise
             for update in result:
                 log.debug("Received a message")
+                if "message" in update and update["message"]["migrate_to_chat_id"]:
+                    old = update["message"]["chat"]["id"]
+                    new = update["message"]["migrate_to_chat_id"]
+                    log.warning("Chat has migrated: {} -> {}".format(old, new))
+                    self._migrations[old] = new
+                    for name, channel in self.host.channels.items():
+                        if channel.plug is self and channel.source == old:
+                            log.debug("Updating named channel {} in place".format(repr(name)))
+                            channel.source = new
                 if any(key in update or "edited_{}".format(key) in update
                        for key in ("message", "channel_post")):
                     try:
@@ -628,5 +651,6 @@ class TelegramPlug(immp.Plug):
                     except CancelledError:
                         log.debug("Cancel request for plug '{}' getter".format(self.name))
                         return
-                    self.queue(channel, msg)
+                    else:
+                        self.queue(channel, msg)
                 self._offset = max(update["update_id"] + 1, self._offset)
