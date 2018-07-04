@@ -52,7 +52,7 @@ class SyncPlug(immp.Plug):
         return "sync:{}".format(self.name)
 
     def __init__(self, name, hook, host):
-        super().__init__(name, hook.config, host)
+        super().__init__(name, hook.config, host, virtual=True)
         self._hook = hook
 
     async def channel_is_private(self, channel):

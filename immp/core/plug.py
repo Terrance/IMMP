@@ -187,6 +187,8 @@ class Plug(Openable):
             Reference to the user-provided configuration.
         host (.Host):
             Controlling host instance, providing access to plugs.
+        virtual (bool):
+            ``True`` if managed by another component (e.g. a hook that exposes plug functionality).
         network_name (str):
             Readable name of the underlying network, for use when displaying info about this plug.
         network_id (str):
@@ -197,11 +199,12 @@ class Plug(Openable):
             also vary by space.
     """
 
-    def __init__(self, name, config, host):
+    def __init__(self, name, config, host, virtual=False):
         super().__init__()
         self.name = name
         self.config = config
         self.host = host
+        self.virtual = virtual
         # Active generator created from get(), referenced to cancel on disconnect.
         self._getter = None
         # Message queue, to move processing from the event stream to the generator.
