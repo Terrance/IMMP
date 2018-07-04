@@ -180,17 +180,23 @@ class Host:
         """
         Connect all open plugs and start all hooks.
         """
-        await wait([plug.open() for plug in self.plugs.values()])
-        await wait([hook.open() for hook in self.resources.values()])
-        await wait([hook.open() for hook in self.hooks.values()])
+        if self.plugs:
+            await wait([plug.open() for plug in self.plugs.values()])
+        if self.resources:
+            await wait([hook.open() for hook in self.resources.values()])
+        if self.hooks:
+            await wait([hook.open() for hook in self.hooks.values()])
 
     async def close(self):
         """
         Disconnect all open plugs and stop all hooks.
         """
-        await wait([hook.close() for hook in self.hooks.values()])
-        await wait([hook.close() for hook in self.resources.values()])
-        await wait([plug.close() for plug in self.plugs.values()])
+        if self.hooks:
+            await wait([hook.close() for hook in self.hooks.values()])
+        if self.resources:
+            await wait([hook.close() for hook in self.resources.values()])
+        if self.plugs:
+            await wait([plug.close() for plug in self.plugs.values()])
 
     async def _callback(self, channel, msg, source, primary):
         for hook in chain(self.resources.values(), self.hooks.values()):
