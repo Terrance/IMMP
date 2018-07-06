@@ -23,6 +23,7 @@ Further modules may also be needed for certain features:
 - `hangups <https://hangups.readthedocs.io>`_ (Hangouts)
 - `peewee <https://peewee.readthedocs.io/en/latest/>`_ (databases)
 - `ptpython <https://github.com/jonathanslenders/ptpython>`_ (optional: blocking shell)
+- `telethon <https://telethon.readthedocs.io/en/latest>`_ (optional: Telegram)
 
 Terminology
 -----------
