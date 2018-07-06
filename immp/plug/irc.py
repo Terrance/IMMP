@@ -6,6 +6,8 @@ Config:
         Hostname of the server.
     server.port (int):
         Non-SSL port of the server.
+    server.ssl (bool):
+        Whether to connect using SSL.
     server.password (str):
         Optional password required for the server.
     user.nick (str):
@@ -32,6 +34,7 @@ class _Schema():
 
     config = Schema({"server": {"host": str,
                                 "port": int,
+                                Optional("ssl", default=False): bool,
                                 Optional("password", default=None): Any(str, None)},
                      "user": {"nick": str,
                               "real-name": str}},
@@ -184,7 +187,8 @@ class IRCPlug(immp.Plug):
     async def start(self):
         host = self.config["server"]["host"]
         port = self.config["server"]["port"]
-        reader, self._writer = await open_connection(host, port)
+        ssl = self.config["server"]["ssl"] or None
+        reader, self._writer = await open_connection(host, port, ssl=ssl)
         self._reader = ensure_future(self._read_loop(reader, host, port))
         if self.config["server"]["password"]:
             self.write(Line("PASS", self.config["server"]["password"]))
