@@ -126,6 +126,59 @@ class Line:
                                      " {}".format(repr(list(self.args))) if self.args else "")
 
 
+class IRCSegment(immp.Segment):
+    """
+    Plug-friendly representation of IRC message formatting.
+    """
+
+    @classmethod
+    def to_formatted(cls, segment):
+        """
+        Convert a :class:`.Segment` into text formatted using IRC ASCII escape sequences.
+
+        Args:
+            segment (.Segment)
+                Message segment created by another plug.
+
+        Returns:
+            str:
+                Code-formatted string.
+        """
+        text = segment.text
+        if segment.bold:
+            text = "\x02{}\x02".format(text)
+        if segment.italic:
+            text = "\x1d{}\x1d".format(text)
+        if segment.underline:
+            text = "\x1f{}\x1f".format(text)
+        if segment.strike:
+            # Muted text by colouring it grey.  Includes a default background colour to avoid
+            # accidental combinations with a literal comma in a following segment.
+            text = "\x0314{}\x0399,99".format(text)
+        return text
+
+
+class IRCRichText(immp.RichText):
+    """
+    Wrapper for IRC-specific encoding of formatting.
+    """
+
+    @classmethod
+    def to_formatted(cls, rich):
+        """
+        Convert a :class:`.RichText` into text formatted using IRC ASCII escape sequences.
+
+        Args:
+            rich (.RichText):
+                Parsed rich text container.
+
+        Returns:
+            str:
+                Code-formatted string.
+        """
+        return "".join(IRCSegment.to_formatted(segment) for segment in rich).replace("\t", " ")
+
+
 class IRCMessage(immp.Message):
     """
     Message originating from IRC.
@@ -241,7 +294,7 @@ class IRCPlug(immp.Plug):
     async def send(self, channel, msg):
         if msg.deleted or not msg.text:
             return
-        for text in str(msg.text).replace("\t", " ").split("\n"):
+        for text in IRCRichText.to_formatted(msg.text).split("\n"):
             if msg.edited:
                 text = "[edit] {}".format(text)
             if msg.user:
