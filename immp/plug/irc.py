@@ -294,7 +294,11 @@ class IRCPlug(immp.Plug):
     async def send(self, channel, msg):
         if msg.deleted or not msg.text:
             return
-        for text in IRCRichText.to_formatted(msg.text).split("\n"):
+        if isinstance(msg.text, immp.RichText):
+            formatted = IRCRichText.to_formatted(msg.text)
+        else:
+            formatted = str(msg.text)
+        for text in formatted.split("\n"):
             if msg.edited:
                 text = "[edit] {}".format(text)
             if msg.user:
