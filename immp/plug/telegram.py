@@ -591,7 +591,10 @@ class TelegramPlug(immp.Plug):
                         done = True
                 if not done:
                     data = await self._form_data(base, "document", attach)
-                    parts.append(await self._api("sendDocument", _Schema.send, data=data))
+                    try:
+                        parts.append(await self._api("sendDocument", _Schema.send, data=data))
+                    except TelegramAPIError:
+                        log.exception("Failed fallback upload too")
             elif isinstance(attach, immp.Location):
                 parts.append(await self._api("sendLocation", _Schema.send,
                                              params={"chat_id": chat,
