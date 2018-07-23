@@ -12,6 +12,9 @@ Config:
         List of channels to process public commands in (independent of *plugs* above).
     hooks (str list):
         List of hooks to enable commands for.
+    admins ((str, str list) dict):
+        Users authorised to execute administrative commands, a mapping of network identifiers to
+        lists of user identifiers.
 
 The binding works by making commands exposed by all listed hooks available to all listed channels,
 and to the private channels of all listed plugs.  Note that the channels need not belong to any
@@ -24,7 +27,7 @@ from enum import Enum
 import logging
 from shlex import split
 
-from voluptuous import ALLOW_EXTRA, Optional, Schema
+from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
 
@@ -37,7 +40,8 @@ class _Schema:
     config = Schema({"prefix": str,
                      Optional("plugs", default=list): [str],
                      Optional("channels", default=list): [str],
-                     "hooks": [str]},
+                     Optional("hooks", default=list): [str],
+                     Optional("admins", default=dict): Any({}, {str: [int]})},
                     extra=ALLOW_EXTRA, required=True)
 
 
@@ -52,10 +56,13 @@ class CommandScope(Enum):
             Only private channels, as configured per-plug.
         public:
             Only non-private channels, as configured per-channel.
+        admin:
+            Only authorised users in private channels.
     """
     any = 0
     private = 1
     public = 2
+    admin = 3
 
 
 @immp.pretty_str
@@ -123,17 +130,21 @@ class CommandHook(immp.Hook, Commandable):
                 log.debug("Adding command from hook '{}': {}".format(hook.name, repr(command)))
                 self._commands[command.scope][command.name] = command
 
-    async def scope(self, channel):
+    async def scopes(self, channel, user):
+        scopes = []
         if channel in self.channels:
-            return CommandScope.public
-        elif channel.plug in self.plugs and await channel.is_private():
-            return CommandScope.private
-        else:
-            return None
+            scopes.extend([CommandScope.any, CommandScope.public])
+        if channel.plug in self.plugs and await channel.is_private():
+            scopes.extend([CommandScope.any, CommandScope.private])
+            if user and user.id in self.config["admins"].get(user.plug.name, []):
+                scopes.append(CommandScope.admin)
+        return list(reversed(scopes))
 
-    def get(self, scope, name):
-        return (self._commands[scope].get(name) or
-                self._commands[CommandScope.any].get(name))
+    def get(self, scopes, name):
+        for scope in scopes:
+            if name in self._commands[scope]:
+                return self._commands[scope][name]
+        return None
 
     def commands(self):
         return [Command("help", self.help, CommandScope.any, "[command]",
@@ -164,8 +175,8 @@ class CommandHook(immp.Hook, Commandable):
         await super().process(channel, msg, source, primary)
         if not primary or not msg == source:
             return
-        scope = await self.scope(channel)
-        if not scope:
+        scopes = await self.scopes(channel, msg.user)
+        if not scopes:
             return
         if not (source.text and str(source.text).startswith(self.config["prefix"])):
             return
@@ -174,10 +185,11 @@ class CommandHook(immp.Hook, Commandable):
             name, *args = split(str(source.text)[len(self.config["prefix"]):])
         except ValueError:
             return
-        command = self.get(scope, name)
-        if command:
-            try:
-                log.debug("Executing command in channel: {} {}".format(repr(channel), source.text))
-                await command(channel, source, *args)
-            except Exception:
-                log.exception("Exception whilst running command: {}".format(source.text))
+        command = self.get(scopes, name)
+        if not command:
+            return
+        try:
+            log.debug("Executing command in channel: {} {}".format(repr(channel), source.text))
+            await command(channel, source, *args)
+        except Exception:
+            log.exception("Exception whilst running command: {}".format(source.text))
