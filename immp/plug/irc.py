@@ -185,9 +185,9 @@ class IRCMessage(immp.Message):
     """
 
     @classmethod
-    def from_privmsg(cls, irc, line):
+    def from_line(cls, irc, line):
         """
-        Convert a PRIVMSG :class:`.Line` into a :class:`.Message`.
+        Convert a :class:`.Line` into a :class:`.Message`.
 
         Args:
             irc (.IRCPlug):
@@ -205,17 +205,30 @@ class IRCMessage(immp.Message):
             # Private messages arrive "from A to B", and should be sent "from B to A".
             channel = nick
         user = immp.User(plug=irc, id=line.source, username=nick, raw=line)
-        text = line.args[1]
         action = False
-        match = re.match(r"\x01ACTION ([^\x01]*)\x01", text)
-        if match:
-            text = match.group(1)
+        joined = []
+        left = []
+        if line.command == "JOIN":
+            text = "joined {}".format(channel)
             action = True
+            joined.append(user)
+        elif line.command == "PART":
+            text = "left {}".format(channel)
+            action = True
+            left.append(user)
+        else:
+            text = line.args[1]
+            match = re.match(r"\x01ACTION ([^\x01]*)\x01", text)
+            if match:
+                text = match.group(1)
+                action = True
         return (immp.Channel(irc, channel),
                 immp.Message(id=Line.now(),
                              user=user,
                              text=text,
                              action=action,
+                             joined=joined,
+                             left=left,
                              raw=line))
 
 
@@ -228,6 +241,8 @@ class IRCPlug(immp.Plug):
         super().__init__(name, _Schema.config(config), host)
         self._conds = defaultdict(Condition)
         self._reader = self._writer = None
+        # Don't yield messages for initial self-joins.
+        self._joins = set()
 
     @property
     def network_name(self):
@@ -247,11 +262,12 @@ class IRCPlug(immp.Plug):
             self.write(Line("PASS", self.config["server"]["password"]))
         self.write(Line("NICK", self.config["user"]["nick"]),
                    Line("USER", "immp", "0", "*", self.config["user"]["real-name"]))
-        await self._writer.drain()
         await self.wait("001")
         for channel in self.host.channels.values():
             if channel.plug == self and channel.source.startswith("#"):
+                self._joins.add(channel.source)
                 self.write(Line("JOIN", channel.source))
+        await self._writer.drain()
 
     async def stop(self):
         if self._reader:
@@ -283,8 +299,18 @@ class IRCPlug(immp.Plug):
             self._conds[line.command].notify_all()
         if line.command == "PING":
             self.write(Line("PONG", *line.args))
-        elif line.command == "PRIVMSG":
-            self.queue(*IRCMessage.from_privmsg(self, line))
+        elif line.command in ("JOIN", "PART", "PRIVMSG"):
+            channel, msg = IRCMessage.from_line(self, line)
+            if msg.joined and msg.joined[0].username == self.config["user"]["nick"]:
+                if channel.source in self._joins:
+                    self._joins.remove(channel.source)
+                    return
+            self.queue(channel, msg)
+        elif line.command == "433":
+            # Nickname in use, try another.
+            self.config["user"]["nick"] += "_"
+            self.write(Line("NICK", self.config["user"]["nick"]),
+                       Line("USER", "immp", "0", "*", self.config["user"]["real-name"]))
 
     def write(self, *lines):
         for line in lines:
