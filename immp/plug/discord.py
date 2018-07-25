@@ -223,7 +223,7 @@ class DiscordMessage(immp.Message):
             text = message.content
         for attach in message.attachments:
             type = immp.File.Type.unknown
-            if attach.filename.rsplit(".", 1)[1] in ("jpg", "png", "gif"):
+            if attach.filename.endswith((".jpg", ".png", ".gif")):
                 type = immp.File.Type.image
             attachments.append(immp.File(title=attach.filename,
                                          type=type,
