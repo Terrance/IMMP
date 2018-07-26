@@ -121,14 +121,6 @@ class CommandHook(immp.Hook, Commandable):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
-        self._commands = defaultdict(dict)
-        for hook in (self,) + self.hooks:
-            if not isinstance(hook, Commandable):
-                raise immp.ConfigError("Hook '{}' does not support commands"
-                                       .format(hook.name)) from None
-            for command in hook.commands():
-                log.debug("Adding command from hook '{}': {}".format(hook.name, repr(command)))
-                self._commands[command.scope][command.name] = command
 
     async def scopes(self, channel, user):
         scopes = []
@@ -141,14 +133,29 @@ class CommandHook(immp.Hook, Commandable):
         return list(reversed(scopes))
 
     def get(self, scopes, name):
+        commands = self.all_commands
         for scope in scopes:
-            if name in self._commands[scope]:
-                return self._commands[scope][name]
+            try:
+                return commands[scope][name]
+            except KeyError:
+                continue
         return None
 
     def commands(self):
         return [Command("help", self.help, CommandScope.any, "[command]",
                         "Show details about the given command, or list available commands.")]
+
+    @property
+    def all_commands(self):
+        commands = defaultdict(dict)
+        for hook in (self,) + self.hooks:
+            if not isinstance(hook, Commandable):
+                raise immp.ConfigError("Hook '{}' does not support commands"
+                                       .format(hook.name)) from None
+            for command in hook.commands():
+                log.debug("Adding command from hook '{}': {}".format(hook.name, repr(command)))
+                commands[command.scope][command.name] = command
+        return commands
 
     async def help(self, channel, msg, name=None):
         scopes = await self.scopes(channel, msg.user)
@@ -165,7 +172,8 @@ class CommandHook(immp.Hook, Commandable):
                 text = "\N{CROSS MARK} No such command"
         else:
             text = immp.RichText([immp.Segment("Available commands:", bold=True)])
-            commands = [command for scope in scopes for command in self._commands[scope].values()]
+            commands = [command for scope in scopes
+                        for command in self.all_commands[scope].values()]
             for command in sorted(commands, key=lambda c: c.name):
                 text.append(immp.Segment("\n- {}".format(command.name)))
         await channel.send(immp.Message(text=text))
