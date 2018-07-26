@@ -209,8 +209,7 @@ class SyncHook(immp.Hook, Commandable):
                     log.debug("Ignoring synced revision: {}/{}".format(*pair))
                     return
                 revisions[channel].append(pair)
-                if len(revisions[channel]) == 1:
-                    # New revision, message has been updated.
+                if len(revisions[channel]) <= len(ids[channel]):
                     log.debug("Ignoring initial revision: {}/{}".format(*pair))
                     return
         log.debug("Sending message to synced channel {}: {}/{}".format(repr(label), *pair))
