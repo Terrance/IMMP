@@ -151,9 +151,9 @@ class CommandHook(immp.Hook, Commandable):
                         "Show details about the given command, or list available commands.")]
 
     async def help(self, channel, msg, name=None):
-        scope = await self.scope(channel)
+        scopes = await self.scopes(channel, msg.user)
         if name:
-            command = self.get(scope, name)
+            command = self.get(scopes, name)
             if command:
                 text = immp.RichText([immp.Segment(command.name, bold=True)])
                 if command.args:
@@ -165,8 +165,7 @@ class CommandHook(immp.Hook, Commandable):
                 text = "\N{CROSS MARK} No such command"
         else:
             text = immp.RichText([immp.Segment("Available commands:", bold=True)])
-            commands = (list(self._commands[scope].values()) +
-                        list(self._commands[CommandScope.any].values()))
+            commands = [command for scope in scopes for command in self._commands[scope].values()]
             for command in sorted(commands, key=lambda c: c.name):
                 text.append(immp.Segment("\n- {}".format(command.name)))
         await channel.send(immp.Message(text=text))
