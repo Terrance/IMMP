@@ -206,6 +206,32 @@ class RichText:
         """
         self._segments += segments
 
+    def indent(self, chars="  "):
+        """
+        Prefix each line of text with another string.
+
+        Args:
+            chars (str):
+                Prefix characters to prepend to each line.
+
+        Returns:
+            .RichText:
+                Indented message text instance.
+        """
+        clone = RichText()
+        if not self:
+            return clone
+        clone.append(Segment(chars))
+        for segment in self:
+            for i, line in enumerate(segment.text.split("\n")):
+                if i > 0:
+                    clone.append(Segment("\n{}".format(chars)))
+                if line:
+                    new = copy(segment)
+                    new.text = line
+                    clone.append(new)
+        return clone
+
     def trim(self, length):
         """
         Reduce a long message text to a snippet with an ellipsis.
@@ -442,7 +468,7 @@ class Message:
         self.attachments = attachments or []
         self.raw = raw
 
-    def render(self, *, real_name=True, delimiter=" ", quote_reply=False, trim=None):
+    def render(self, *, real_name=True, delimiter="\n", quote_reply=False, trim=None):
         """
         Add the sender's name (if present) to the start of the message text, suitable for sending
         as-is on plugs that need all the textual message content in the body.
@@ -452,7 +478,8 @@ class Message:
                 ``True`` (default) to display real names, or ``False`` to prefer usernames.  If
                 only one kind of name is available, it will be used regardless of this setting.
             delimiter (str):
-                Characters added between the sender's name and the message text (space by default).
+                Characters added between the sender's name and the message text (a new line by
+                default).
             quote_reply (bool):
                 ``True`` to quote the parent message before the current one, prefixed with ``>``
                 (not quoted by default).
@@ -486,8 +513,10 @@ class Message:
             what = "{} files".format(count) if count > 1 else "this file"
             output.append(Segment("sent {}".format(what)))
         if name:
-            output.prepend(Segment(delimiter))
-            if not action:
+            if action:
+                output.prepend(Segment(" "))
+            else:
+                output.prepend(Segment(delimiter))
                 output.prepend(Segment(":", bold=True))
             if self.edited:
                 output.prepend(Segment(" [edit]"))
@@ -498,9 +527,8 @@ class Message:
             for segment in output:
                 segment.italic = True
         if quote_reply and self.reply_to:
-            output.prepend(Segment("> "),
-                           *self.reply_to.render(real_name=real_name, trim=32),
-                           Segment("\n"))
+            quoted = self.reply_to.render(real_name=real_name, delimiter=delimiter, trim=32)
+            output.prepend(*(quoted.indent("\N{BOX DRAWINGS LIGHT VERTICAL} ")), Segment("\n"))
         return output
 
     def __eq__(self, other):
