@@ -69,7 +69,8 @@ class _Schema:
                         Optional("channel", default=None): Any(str, None),
                         Optional("edited", default={"user": None}):
                             {Optional("user", default=None): Any(str, None)},
-                        Optional("thread_ts", default=None): Any(str, None)},
+                        Optional("thread_ts", default=None): Any(str, None),
+                        Optional("files", default=list): [file]},
                        extra=ALLOW_EXTRA, required=True)
 
     _plain_msg = _base_msg.extend({"user": str, "text": str})
@@ -80,11 +81,10 @@ class _Schema:
                                            Optional("username", default=None): Any(str, None),
                                            Optional("icons", default=dict): Any(dict, None)}),
                          _base_msg.extend({"subtype": "message_changed",
-                                           "message": lambda v: _Schema.message(v)}),
+                                           "message": lambda v: _Schema.message(v),
+                                           "previous_message": lambda v: _Schema.message(v)}),
                          _base_msg.extend({"subtype": "message_deleted",
                                            "deleted_ts": str}),
-                         _plain_msg.extend({"subtype": Any("file_share", "file_mention"),
-                                            "file": file}),
                          _plain_msg.extend({"subtype": Any("channel_name", "group_name"),
                                             "name": str}),
                          _plain_msg.extend({Optional("subtype", default=None): Any(str, None)})))
@@ -134,6 +134,11 @@ class SlackAPIError(immp.PlugError):
     """
     Generic error from the Slack API.
     """
+
+
+class SuppressMessage(Exception):
+    # Don't yield a message for this event.
+    pass
 
 
 class SlackUser(immp.User):
@@ -389,6 +394,10 @@ class SlackMessage(immp.Message):
             author = slack._bot_to_user.get(event["bot_id"])
             text = event["text"]
         elif event["subtype"] == "message_changed":
+            if event["message"]["text"] == event["previous_message"]["text"]:
+                # Message remains unchanged.  Can be caused by link unfurling (adds an attachment)
+                # or deleting replies (reply is removed from event.replies in new *and old*).
+                raise SuppressMessage
             # Original message details are under a nested "message" key.
             id = event["message"]["ts"]
             edited = True
@@ -406,9 +415,6 @@ class SlackMessage(immp.Message):
         user = None
         if author:
             user = slack._users.get(author, SlackUser(id=author, plug=slack))
-        if event["subtype"] in ("file_share", "file_mention"):
-            action = True
-            attachments.append(SlackFile.from_file(slack, event["file"]))
         elif event["subtype"] in ("channel_join", "group_join"):
             action = True
             joined = [user]
@@ -433,6 +439,8 @@ class SlackMessage(immp.Message):
             history = await slack._api("conversations.history", _Schema.history, params=params)
             if history["messages"] and history["messages"][0]["ts"] == event["thread_ts"]:
                 reply_to = (await cls.from_event(slack, history["messages"][0]))[1]
+        for file in event["files"]:
+            attachments.append(SlackFile.from_file(slack, file))
         return (immp.Channel(slack, event["channel"]),
                 cls(id=id,
                     at=datetime.fromtimestamp(int(float(event["ts"]))),
@@ -606,14 +614,13 @@ class SlackPlug(immp.Plug):
                 data.add_field("file", img_resp.content, filename="file")
                 upload = await self._api("files.upload", _Schema.upload, data=data)
                 uploads.append(upload["file"]["id"])
-        for upload in uploads:
+        if uploads:
             # Slack doesn't provide us with a message ID, so we have to find it ourselves.
-            params = {"channel": channel.source,
-                      "limit": 100}
-            history = await self._api("conversations.history", _Schema.history, params=params)
+            history = await self._api("conversations.history", _Schema.history,
+                                      params={"channel": channel.source, "limit": 100})
             for message in history["messages"]:
-                if message["subtype"] in ("file_share", "file_mention"):
-                    if message["file"]["id"] in uploads:
+                for file in message["files"]:
+                    if file["id"] in uploads:
                         sent.append(message["ts"])
             if len(sent) < len(uploads):
                 # Of the 100 messages we just looked at, at least one file wasn't found.
@@ -716,4 +723,7 @@ class SlackPlug(immp.Plug):
                 self._channels[event["channel"]["id"]]["name"] = event["channel"]["name"]
             elif event["type"] == "message" and not event["subtype"] == "message_replied":
                 # A new message arrived, push it back to the host.
-                yield (await SlackMessage.from_event(self, event))
+                try:
+                    yield (await SlackMessage.from_event(self, event))
+                except SuppressMessage:
+                    pass
