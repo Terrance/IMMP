@@ -402,6 +402,8 @@ class SlackMessage(immp.Message):
             id = event["message"]["ts"]
             edited = True
             text = event["message"]["text"]
+            if event["message"]["subtype"] == "me_message":
+                action = True
             # NB: Editing user may be different to the original sender.
             author = event["message"]["edited"]["user"] or event["message"]["user"]
         elif event["subtype"] == "message_deleted":
@@ -415,7 +417,11 @@ class SlackMessage(immp.Message):
         user = None
         if author:
             user = slack._users.get(author, SlackUser(id=author, plug=slack))
-        elif event["subtype"] in ("channel_join", "group_join"):
+            if text and re.match(r"<@{}(\|.*?)?> ".format(author), text):
+                # Own username at the start of the message, assume it's an action.
+                action = True
+                text = re.sub(r"^<@{}(\|.*?)?> ".format(author), "", text)
+        if event["subtype"] in ("channel_join", "group_join"):
             action = True
             joined = [user]
         elif event["subtype"] in ("channel_leave", "group_leave"):
@@ -426,10 +432,6 @@ class SlackMessage(immp.Message):
             title = event["name"]
         elif event["subtype"] == "me_message":
             action = True
-        if author and text and re.match(r"<@{}(\|.*?)?> ".format(author), text):
-            # Own username at the start of the message, assume it's an action.
-            action = True
-            text = re.sub(r"^<@{}(\|.*?)?> ".format(author), "", text)
         if event["thread_ts"] and event["thread_ts"] != event["ts"]:
             # We have the parent ID, fetch the rest of the message to embed it.
             params = {"channel": event["channel"],
