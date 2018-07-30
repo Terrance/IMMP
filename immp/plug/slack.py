@@ -211,9 +211,9 @@ class SlackRichText(immp.RichText):
     # This still isn't perfect, but provides a good approximation outside of edge cases.
     # Slack only has limited documentation: https://get.slack.help/hc/en-us/articles/202288908
     _outside_chars = r"0-9a-z*_~"
-    _tag_chars = r"*_~`"
+    _tag_chars = r"```|[*_~`]"
     _inside_chars = r"\s\1"
-    _format_regex = re.compile(r"(?<![{0}\\])(```|[{1}])(?![{2}])(.+?)(?<![{2}\\])\1(?![{0}])"
+    _format_regex = re.compile(r"(?<![{0}\\])({1})(?![{2}])(.+?)(?<![{2}\\])\1(?![{0}])"
                                .format(_outside_chars, _tag_chars, _inside_chars))
 
     @classmethod

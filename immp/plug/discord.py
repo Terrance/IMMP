@@ -96,8 +96,18 @@ class DiscordUser(immp.User):
 
 class DiscordRichText(immp.RichText):
 
-    tags = {"**": "bold", "*": "italic", "__": "underline", "~~": "strike",
+    tags = {"**": "bold", "*": "italic", "_": "italic", "__": "underline", "~~": "strike",
             "`": "code", "```": "pre"}
+    # A rather complicated expression to match formatting tags according to the following rules:
+    # 1) Outside of formatting may not be adjacent to alphanumeric or other formatting characters.
+    # 2) Inside of formatting may not be adjacent to whitespace or the current formatting character.
+    # 3) Formatting characters may be escaped with a backslash.
+    # This still isn't perfect, but provides a good approximation outside of edge cases.
+    _outside_chars = r"0-9a-z*_~"
+    _tag_chars = r"```|\*\*|__|~~|[*_`]"
+    _inside_chars = r"\s\1"
+    _format_regex = re.compile(r"(?<![{0}\\])({1})(?![{2}])(.+?)(?<![{2}\\])\1(?![{0}])"
+                               .format(_outside_chars, _tag_chars, _inside_chars))
 
     @classmethod
     def _sub_channel(cls, discord, match):
@@ -118,30 +128,42 @@ class DiscordRichText(immp.RichText):
             .DiscordRichText:
                 Parsed rich text container.
         """
-        # TODO: Full Markdown parser.
-        mentions = defaultdict(dict)
+        changes = defaultdict(dict)
+        while True:
+            match = cls._format_regex.search(text)
+            if not match:
+                break
+            start = match.start()
+            end = match.end()
+            tag = match.group(1)
+            # Strip the tag characters from the message.
+            text = text[:start] + match.group(2) + text[end:]
+            end -= 2 * len(tag)
+            # Record the range where the format is applied.
+            field = cls.tags[tag]
+            changes[start][field] = True
+            changes[end][field] = False
         for match in re.finditer(r"<@!?(\d+)>", text):
             user = discord._client.get_user(int(match.group(1)))
             if user:
-                mentions[match.start()] = DiscordUser.from_user(discord, user)
-                mentions[match.end()] = None
+                changes[match.start()]["mention"] = DiscordUser.from_user(discord, user)
+                changes[match.end()]["mention"] = None
         segments = []
-        points = list(mentions.keys())
+        points = list(changes.keys())
         # Iterate through text in change start/end pairs.
         for start, end in zip([0] + points, points + [len(text)]):
             if start == end:
                 # Zero-length segment at the start or end, ignore it.
                 continue
-            if mentions[start]:
-                user = mentions[start]
+            if changes[start].get("mention"):
+                user = changes[start]["mention"]
                 part = "@{}".format(user.username or user.real_name)
             else:
-                user = None
                 part = emojize(text[start:end], use_aliases=True)
                 # Strip Discord channel/emoji tags, replace with a plain text representation.
                 part = re.sub(r"<#(\d+)>", partial(cls._sub_channel, discord), part)
                 part = re.sub(r"<(:[^: ]+:)\d+>", r"\1", part)
-            segments.append(immp.Segment(part, mention=user))
+            segments.append(immp.Segment(part, **changes[start]))
         return cls(segments)
 
     @classmethod
