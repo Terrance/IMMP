@@ -424,6 +424,8 @@ class DiscordPlug(immp.Plug):
         if image:
             payload["avatar_url"] = image
         if rich:
+            if msg.edited:
+                rich.append(immp.Segment(" (edited)", italic=True))
             payload["content"] = DiscordRichText.to_markdown(self, rich.normalise())
         if embeds:
             payload["embeds"] = embeds

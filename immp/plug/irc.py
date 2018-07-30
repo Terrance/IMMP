@@ -325,12 +325,12 @@ class IRCPlug(immp.Plug):
         else:
             formatted = str(msg.text)
         for text in formatted.split("\n"):
-            if msg.edited:
-                text = "[edit] {}".format(text)
             if msg.user:
                 template = "* {} {}" if msg.action else "<{}> {}"
                 text = template.format(msg.user.username or msg.user.real_name, text)
-            elif msg.action:
+            if msg.edited:
+                text = "[edit] {}".format(text)
+            if not msg.user and msg.action:
                 text = "\x01ACTION {}\x01".format(text)
             self.write(Line("PRIVMSG", channel.source, text))
         return []

@@ -635,6 +635,7 @@ class SlackPlug(immp.Plug):
                 "as_user": msg.user is None,
                 "username": name,
                 "icon_url": image}
+        rich = None
         if msg.text:
             if isinstance(msg.text, immp.RichText):
                 rich = msg.text.clone()
@@ -643,10 +644,13 @@ class SlackPlug(immp.Plug):
             if msg.action:
                 for segment in rich:
                     segment.italic = True
-            data["text"] = SlackRichText.to_mrkdwn(self, rich)
         elif uploads:
             what = "{} files".format(len(uploads)) if len(uploads) > 1 else "this file"
-            data["text"] = "_shared {}_".format(what)
+            rich = immp.RichText([immp.Segment("shared {}".format(what), italic=True)])
+        if msg.edited:
+            rich.append(immp.Segment(" (edited)", italic=True))
+        if rich:
+            data["text"] = SlackRichText.to_mrkdwn(self, rich)
         attachments = []
         if msg.reply_to:
             quote = {"footer": ":speech_balloon:",
