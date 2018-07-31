@@ -202,7 +202,7 @@ class Host:
         for hook in chain(self.resources.values(), self.hooks.values()):
             if not hook.state == OpenState.active:
                 continue
-            result = await hook.preprocess(channel, msg, source, primary)
+            result = await hook.before_receive(channel, msg, source, primary)
             if result:
                 channel, msg = result
             else:
@@ -210,7 +210,7 @@ class Host:
                 break
         else:
             hooks = list(self.resources.values()) + list(self.hooks.values())
-            await gather(*(hook.process(channel, msg, source, primary)
+            await gather(*(hook.on_receive(channel, msg, source, primary)
                            for hook in hooks if hook.state == OpenState.active))
 
     async def process(self):

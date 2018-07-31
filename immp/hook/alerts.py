@@ -173,8 +173,8 @@ class MentionsHook(_AlertHookBase):
         else:
             return set()
 
-    async def process(self, channel, msg, source, primary):
-        await super().process(channel, msg, source, primary)
+    async def on_message(self, channel, msg, source, primary):
+        await super().on_message(channel, msg, source, primary)
         if not primary or channel.plug not in self.plugs or await channel.is_private():
             return
         members = await channel.plug.channel_members(channel)
@@ -310,8 +310,8 @@ class SubscriptionsHook(_AlertHookBase, Commandable):
             triggered[present[(trigger.network, trigger.user)]].add(trigger.text)
         return triggered
 
-    async def process(self, channel, msg, source, primary):
-        await super().process(channel, msg, source, primary)
+    async def on_message(self, channel, msg, source, primary):
+        await super().on_message(channel, msg, source, primary)
         if not primary or channel.plug not in self.plugs or await channel.is_private():
             return
         members = await channel.plug.channel_members(channel)

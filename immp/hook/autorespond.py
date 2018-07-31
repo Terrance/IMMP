@@ -64,8 +64,8 @@ class AutoRespondHook(immp.Hook, Commandable):
         del self.responses[match]
         await channel.send(immp.Message(text="\U00002705 Removed"))
 
-    async def process(self, channel, msg, source, primary):
-        await super().process(channel, msg, source, primary)
+    async def on_receive(self, channel, msg, source, primary):
+        await super().on_receive(channel, msg, source, primary)
         if not primary or channel not in self.channels:
             return
         # Skip our own response messages.

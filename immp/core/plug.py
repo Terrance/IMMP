@@ -1,4 +1,5 @@
 from asyncio import BoundedSemaphore, CancelledError, Queue, ensure_future, wait
+from itertools import chain
 import logging
 
 from .error import PlugError
@@ -445,6 +446,21 @@ class Plug(Openable):
         """
         if not self.state == OpenState.active:
             raise PlugError("Can't send messages when not active")
+        # Allow any hooks to modify the outgoing message before sending.
+        original = channel
+        for hook in chain(self.host.resources.values(), self.host.hooks.values()):
+            if not hook.state == OpenState.active:
+                continue
+            result = await hook.before_send(channel, msg)
+            if result:
+                channel, msg = result
+            else:
+                # Message has been suppressed by a hook.
+                break
+        if not original == channel:
+            log.debug("Redirecting message to new channel: {}".format(repr(channel)))
+            # Restart sending with the new channel.
+            return await channel.send(msg)
         # When sending messages asynchronously, the network will likely return the new message
         # before the send request returns with confirmation.  Use the lock when sending in order
         # return the new message ID(s) in advance of them appearing in the receive queue.

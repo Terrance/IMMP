@@ -178,8 +178,8 @@ class CommandHook(immp.Hook, Commandable):
                 text.append(immp.Segment("\n- {}".format(command.name)))
         await channel.send(immp.Message(text=text))
 
-    async def process(self, channel, msg, source, primary):
-        await super().process(channel, msg, source, primary)
+    async def on_receive(self, channel, msg, source, primary):
+        await super().on_receive(channel, msg, source, primary)
         if not primary or not msg == source:
             return
         scopes = await self.scopes(channel, msg.user)

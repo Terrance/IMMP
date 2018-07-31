@@ -34,7 +34,29 @@ class Hook(Openable):
         Perform any teardown tasks.
         """
 
-    async def preprocess(self, channel, msg, source, primary):
+    async def before_send(self, channel, msg):
+        """
+        Modify an outgoing message before it's pushed to the network.  The ``(channel, msg)`` pair
+        must be returned, so hooks may modify in-place or return a different pair.  This method is
+        called for each hook, one after another.  If ``channel`` is modified, the sending will
+        restart on the new channel, meaning this method will be called again for all hooks.
+
+        Hooks may also suppress a message (e.g. if their actions caused it, but it bears no value
+        to the network) by returning ``None``.
+
+        Args:
+            channel (.Channel):
+                Original source of this message.
+            msg (.Message):
+                Raw message received from another plug.
+
+        Returns:
+            (.Channel, .Message) tuple:
+                The augmented or replacement pair, or ``None`` to suppress this message.
+        """
+        return (channel, msg)
+
+    async def before_receive(self, channel, msg, source, primary):
         """
         Modify an incoming message before it's pushed to other hooks.  The ``(channel, msg)`` pair
         must be returned, so hooks may modify in-place or return a different pair.  This method is
@@ -63,7 +85,7 @@ class Hook(Openable):
         """
         return (channel, msg)
 
-    async def process(self, channel, msg, source, primary):
+    async def on_receive(self, channel, msg, source, primary):
         """
         Handle an incoming message received by any plug.
 

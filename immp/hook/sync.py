@@ -191,8 +191,8 @@ class SyncHook(immp.Hook, Commandable):
                 revisions[source].append((msg.id, msg.revision))
             self._synced[msg] = (ids, revisions)
 
-    async def process(self, channel, msg, source, primary):
-        await super().process(channel, msg, source, primary)
+    async def on_receive(self, channel, msg, source, primary):
+        await super().on_receive(channel, msg, source, primary)
         try:
             label = self.label_for_channel(channel)
         except immp.ConfigError:
