@@ -53,14 +53,15 @@ class User:
         return await self.plug.channel_for_user(self)
 
     def __eq__(self, other):
-        if not isinstance(other, self.__class__) or not self.plug.name == other.plug.name:
+        if not isinstance(other, self.__class__):
+            return False
+        if self.plug and not (other.plug and self.plug.name == other.plug.name):
             return False
         if self.id:
             return self.id == other.id
         else:
-            return (self.username == other.username and
-                    self.real_name == other.real_name and
-                    self.link == other.link)
+            return ((self.id, self.username, self.real_name, self.link) ==
+                    (other.id, other.username, other.real_name, other.link))
 
     def __hash__(self):
         if self.id:
@@ -532,8 +533,13 @@ class Message:
         return output
 
     def __eq__(self, other):
-        return (isinstance(other, self.__class__) and self.id and
-                (self.id, self.revision) == (other.id, other.revision))
+        if not isinstance(other, self.__class__):
+            return False
+        if self.id:
+            return (self.id, self.revision) == (other.id, other.revision)
+        else:
+            return ((self.id, self.at, self.user, self.text, self.action, self.reply_to) ==
+                    (other.id, other.at, other.user, other.text, other.action, other.reply_to))
 
     def __hash__(self):
         return hash((self.id, self.revision))
