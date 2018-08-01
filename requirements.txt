@@ -4,6 +4,7 @@ anyconfig
 git+https://github.com/Rapptz/discord.py@rewrite  # Via GitHub until a stable release
 emoji
 hangups
+jinja2
 peewee>=3.0.0
 ptpython
 pyyaml  # Optional dependency of anyconfig

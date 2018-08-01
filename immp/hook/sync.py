@@ -6,6 +6,14 @@ Config:
         Mapping from virtual channel names to lists of channel names to bridge.
     plug (str):
         Name of a virtual plug to register for this sync.
+    identities (str):
+        Name of a registered :class:`.IdentityHook` to provide unified names across networks.
+    name-format(str):
+        Template to use for replacing real names on synced messages, parsed by :mod:`jinja2`.  If
+        not set but the user is identified, it defaults to ``<real name> (<identity name>)``.
+
+        Available variables are ``user`` (:class:`.User`) and ``identity`` (if enabled as above --
+        :class:`.IdentityGroup`, or ``None`` if no link).
 
 Commands:
     sync-members:
@@ -22,12 +30,15 @@ synced channels.
 
 from asyncio import BoundedSemaphore, gather
 from collections import defaultdict
+from copy import copy
 import logging
 
+from jinja2 import Template
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
 from immp.hook.command import Command, Commandable, CommandScope
+from immp.hook.identity import IdentityHook
 
 
 log = logging.getLogger(__name__)
@@ -36,7 +47,9 @@ log = logging.getLogger(__name__)
 class _Schema:
 
     config = Schema({"channels": {str: [str]},
-                     Optional("plug", default=None): Any(str, None)},
+                     Optional("plug", default=None): Any(str, None),
+                     Optional("identities", default=None): Any(str, None),
+                     Optional("name-format", default=None): Any(str, None)},
                     extra=ALLOW_EXTRA, required=True)
 
 
@@ -176,10 +189,33 @@ class SyncHook(immp.Hook, Commandable):
                 Source channel of the message; if set and part of the sync, it will be skipped
                 (used to avoid retransmitting a message we just received).
         """
+        clone = copy(msg)
+        identity = None
+        if clone.user:
+            if self.config["identities"]:
+                # Identities integration: show identity name on synced messages.
+                try:
+                    identities = self.host.hooks[self.config["identities"]]
+                    if not isinstance(identities, IdentityHook):
+                        raise KeyError
+                except KeyError:
+                    raise immp.ConfigError("Hook reference '{}' is not an IdentityHook"
+                                           .format(self.config["identities"])) from None
+                identity = identities.find(clone.user)
+            template = None
+            if self.config["name-format"]:
+                template = Template(self.config["name-format"])
+            elif identity:
+                template = Template("{{ user.real_name or user.username }} ({{ identity.name }})")
+            if template:
+                clone.user = copy(clone.user)
+                clone.user.real_name = template.render(user=clone.user, identity=identity) or None
+                if identity:
+                    clone.user.username = clone.user.username or identity.name
         queue = []
         for synced in self.channels[label]:
             # If it's the channel we just got the message from, return the ID without resending.
-            queue.append(self._noop_send(msg) if synced == source else self._send(synced, msg))
+            queue.append(self._noop_send(clone) if synced == source else self._send(synced, clone))
         # Just like with plugs, when sending a new (external) message to all channels in a
         # sync, we need to wait for all plugs to complete before processing further messages.
         with (await self._lock):
