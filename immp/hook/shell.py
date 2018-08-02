@@ -108,8 +108,8 @@ class ShellHook(immp.ResourceHook):
     def _code(self, loc, glob):
         code.interact(local=dict(glob, **loc))
 
-    async def on_message(self, channel, msg, source, primary):
-        await super().on_message(channel, msg, source, primary)
+    async def on_receive(self, channel, msg, source, primary):
+        await super().on_receive(channel, msg, source, primary)
         if channel in self.host.channels or self.config["all"]:
             log.debug("Entering console: {}".format(repr(msg)))
             self.console(locals(), globals())
@@ -155,6 +155,6 @@ class AsyncShellHook(immp.ResourceHook):
         context = {"host": self.host, "shell": self, "immp": immp, "pformat": pformat}
         return aioconsole.AsynchronousConsole(locals=context, streams=streams)
 
-    async def on_message(self, channel, msg, source, primary):
-        await super().on_message(channel, msg, source, primary)
+    async def on_receive(self, channel, msg, source, primary):
+        await super().on_receive(channel, msg, source, primary)
         self.buffer.append((channel, msg, source))
