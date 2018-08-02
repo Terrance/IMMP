@@ -526,11 +526,6 @@ class TelegramPlug(immp.Plug):
 
     async def channel_rename(self, channel, title):
         await self._api("setChatTitle", params={"chat_id": channel.source, "title": title})
-        # Telegram API won't echo our messages, so yield a fake one.
-        text = TelegramRichText([TelegramSegment("changed group name to "),
-                                 TelegramSegment(title, bold=True)])
-        self.queue(channel, TelegramMessage(user=TelegramUser.from_bot_user(self, self._bot_user),
-                                            text=text, action=True))
 
     async def channel_members(self, channel):
         if not self._client:

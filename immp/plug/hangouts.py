@@ -425,7 +425,8 @@ class HangoutsPlug(immp.Plug):
         except KeyError:
             return None
         else:
-            await conv.rename(title)
+            if not conv.name == title:
+                await conv.rename(title)
 
     async def channel_members(self, channel):
         try:
