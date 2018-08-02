@@ -402,8 +402,13 @@ class HangoutsPlug(immp.Plug):
             if conv._conversation.type == hangouts_pb2.CONVERSATION_TYPE_ONE_TO_ONE:
                 if any(part.id_.chat_id == user.id for part in conv.users):
                     return immp.Channel(self, conv.id_)
-        # TODO: Create conversation.
-        return None
+        request = hangouts_pb2.CreateConversationRequest(
+            request_header=self._client.get_request_header(),
+            type=hangouts_pb2.CONVERSATION_TYPE_ONE_TO_ONE,
+            client_generated_id=self._client.get_client_generated_id(),
+            invitee_id=[hangouts_pb2.InviteeID(gaia_id=user.id)])
+        response = await self._client.create_conversation(request)
+        return immp.Channel(self, response.conversation.conversation_id.id)
 
     async def channel_is_private(self, channel):
         try:
