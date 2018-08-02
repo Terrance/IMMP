@@ -6,6 +6,10 @@ Config:
         Mapping from virtual channel names to lists of channel names to bridge.
     plug (str):
         Name of a virtual plug to register for this sync.
+    joins (bool):
+        Whether to sync join and part messages across the bridge.
+    renames (bool):
+        Whether to sync channel title changes across the bridge.
     identities (str):
         Name of a registered :class:`.IdentityHook` to provide unified names across networks.
     name-format(str):
@@ -48,6 +52,8 @@ class _Schema:
 
     config = Schema({"channels": {str: [str]},
                      Optional("plug", default=None): Any(str, None),
+                     Optional("joins", default=True): bool,
+                     Optional("renames", default=True): bool,
                      Optional("identities", default=None): Any(str, None),
                      Optional("name-format", default=None): Any(str, None)},
                     extra=ALLOW_EXTRA, required=True)
@@ -248,6 +254,12 @@ class SyncHook(immp.Hook, Commandable):
                 if len(revisions[channel]) <= len(ids[channel]):
                     log.debug("Ignoring initial revision: {}/{}".format(*pair))
                     return
+        if not self.config["joins"] and (source.joined or source.left):
+            log.debug("Not syncing join/part message: {}".format(source.id))
+            return
+        if not self.config["renames"] and source.title:
+            log.debug("Not syncing rename message: {}".format(source.id))
+            return
         log.debug("Sending message to synced channel {}: {}/{}".format(repr(label), *pair))
         await self.send(label, source, channel)
         # Push a copy of the message to the sync channel, if running.
