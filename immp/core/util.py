@@ -45,10 +45,23 @@ def pretty_str(cls):
 
 def _make_config_prop(field):
 
+    def _find_hook(self, label):
+        if label in self.host.hooks:
+            return self.host.hooks[label]
+        for cls, hook in self.host.resources.items():
+            if hook.name == label:
+                return hook
+        raise KeyError(label)
+
+    def config_get_hook(self):
+        # Special case read to support resource hooks.
+        try:
+            return tuple(_find_hook(self, label) for label in self.config[field])
+        except KeyError as e:
+            raise ConfigError("No {} {} on host".format(field[:-1], repr(e.args[0]))) from None
+
     def config_get(self):
-        """
-        Read a list of object labels from a config dict, and return the corresponding objects.
-        """
+        # Read a list of object labels from a config dict, and return the corresponding objects.
         objs = getattr(self.host, field)
         try:
             return tuple(objs[label] for label in self.config[field])
@@ -56,9 +69,7 @@ def _make_config_prop(field):
             raise ConfigError("No {} {} on host".format(field[:-1], repr(e.args[0]))) from None
 
     def config_set(self, value):
-        """
-        Replace a list of object labels in a config dict according to the given objects.
-        """
+        # Replace a list of object labels in a config dict according to the given objects.
         objs = getattr(self.host, field)
         labels = []
         for val in value:
@@ -73,7 +84,7 @@ def _make_config_prop(field):
         self.config[field].clear()
         self.config[field].extend(labels)
 
-    return property(config_get, config_set)
+    return property(config_get_hook if field == "hooks" else config_get, config_set)
 
 
 def config_props(*fields):
