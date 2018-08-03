@@ -16,6 +16,8 @@ Commands:
         Update the password for the current identity.
     id-reset:
         Delete the current identity and all linked users.
+    id-role <name> [role]:
+        List roles assigned to an identity, or add/remove a given role.
 
 .. note::
     This hook requires an active :class:`.DatabaseHook` to store data.
@@ -90,6 +92,25 @@ class IdentityLink(BaseModel):
                                              repr(self.network), repr(self.group))
 
 
+class IdentityRole(BaseModel):
+    """
+    Assignment of a role to an identity.
+
+    Attributes:
+        group (.IdentityGroup):
+            Containing group instance.
+        role (str):
+            Plain role identifier.
+    """
+
+    group = ForeignKeyField(IdentityGroup, related_name="roles")
+    role = CharField()
+
+    def __repr__(self):
+        return "<{}: #{} {} {}>".format(self.__class__.__name__, self.id, repr(self.role),
+                                        repr(self.group))
+
+
 @immp.config_props("plugs")
 class IdentityHook(immp.Hook, Commandable):
     """
@@ -109,11 +130,13 @@ class IdentityHook(immp.Hook, Commandable):
                 Command("id-password", self.password, CommandScope.private, "<pwd>",
                         "Update the password for the current identity."),
                 Command("id-reset", self.reset, CommandScope.private, None,
-                        "Delete the current identity and all linked users.")]
+                        "Delete the current identity and all linked users."),
+                Command("id-role", self.role, CommandScope.admin, "<name> <role>",
+                        "List roles assigned to an identity, or add/remove a given role.")]
 
     async def start(self):
         self.db = self.host.resources[DatabaseHook].db
-        self.db.create_tables([IdentityGroup, IdentityLink], safe=True)
+        self.db.create_tables([IdentityGroup, IdentityLink, IdentityRole], safe=True)
 
     def find(self, user):
         """
@@ -225,4 +248,27 @@ class IdentityHook(immp.Hook, Commandable):
         else:
             group.delete()
             text = "{} Reset".format(TICK)
+        await channel.send(immp.Message(text=text))
+
+    async def role(self, channel, msg, name, role=None):
+        try:
+            group = IdentityGroup.get(name=name)
+        except IdentityGroup.DoesNotExist:
+            text = "{} Name not registered".format(CROSS)
+        else:
+            if role:
+                count = IdentityRole.delete().where(IdentityRole.group == group,
+                                                    IdentityRole.role == role).execute()
+                if count:
+                    text = "{} Removed".format(TICK)
+                else:
+                    IdentityRole.create(group=group, role=role)
+                    text = "{} Added".format(TICK)
+            else:
+                roles = IdentityRole.select().where(IdentityRole.group == group)
+                if roles:
+                    labels = [role.role for role in roles]
+                    text = "Roles for {}: {}".format(name, ", ".join(labels))
+                else:
+                    text = "No roles for {}.".format(name)
         await channel.send(immp.Message(text=text))
