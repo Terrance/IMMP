@@ -451,7 +451,11 @@ class Plug(Openable):
         for hook in chain(self.host.resources.values(), self.host.hooks.values()):
             if not hook.state == OpenState.active:
                 continue
-            result = await hook.before_send(channel, msg)
+            try:
+                result = await hook.before_send(channel, msg)
+            except Exception:
+                log.exception("Hook '{}' failed before-send event".format(hook.name))
+                continue
             if result:
                 channel, msg = result
             else:
