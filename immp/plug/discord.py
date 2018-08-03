@@ -391,11 +391,7 @@ class DiscordPlug(immp.Plug):
             name = msg.user.real_name or msg.user.username
             image = msg.user.avatar
         if msg.text:
-            if isinstance(msg.text, immp.RichText):
-                rich = msg.text.clone()
-            else:
-                # Unformatted text received, make a basic rich text instance out of it.
-                rich = immp.RichText([immp.Segment(msg.text)])
+            rich = msg.text.clone()
             if msg.action:
                 for segment in rich:
                     segment.italic = True
@@ -425,15 +421,13 @@ class DiscordPlug(immp.Plug):
             quoted_rich = None
             quoted_action = False
             if msg.reply_to.text:
-                if isinstance(msg.reply_to.text, immp.RichText):
-                    quoted_rich = msg.reply_to.text.clone()
-                else:
-                    quoted_rich = immp.RichText([immp.Segment(msg.reply_to.text)])
+                quoted_rich = msg.reply_to.text.clone()
+                quoted_action = msg.reply_to.action
             elif msg.reply_to.attachments:
-                quoted_action = True
                 count = len(msg.reply_to.attachments)
                 what = "{} files".format(count) if count > 1 else "this file"
                 quoted_rich = immp.RichText([immp.Segment("sent {}".format(what))])
+                quoted_action = True
             if quoted_rich:
                 if quoted_action:
                     for segment in quoted_rich:

@@ -431,8 +431,8 @@ class Message:
             Whether the message content has been changed.
         deleted (bool):
             Whether the message was deleted from its source.
-        text (str):
-            Plain text representation of the message.
+        text (.RichText):
+            Representation of the message text content.
         user (.User):
             User profile that sent the message.
         action (bool):
@@ -468,6 +468,19 @@ class Message:
         self.title = title
         self.attachments = attachments or []
         self.raw = raw
+
+    @property
+    def text(self):
+        return self._text
+
+    @text.setter
+    def text(self, value):
+        if value is None or isinstance(value, RichText):
+            self._text = value
+        elif isinstance(value, str):
+            self._text = RichText([Segment(value)])
+        else:
+            raise ValueError("Message text must be RichText or plain str")
 
     def render(self, *, real_name=True, delimiter="\n", quote_reply=False, trim=None):
         """
@@ -547,4 +560,4 @@ class Message:
     def __repr__(self):
         return "<{}: {}/{} ({} @ {}): {}>".format(self.__class__.__name__, repr(self.id),
                                                   repr(self.revision), repr(self.user), self.at,
-                                                  repr(str(self.text)))
+                                                  repr(str(self.text)) if self.text else None)

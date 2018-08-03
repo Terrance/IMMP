@@ -175,7 +175,9 @@ class MentionsHook(_AlertHookBase):
 
     async def on_receive(self, channel, msg, source, primary):
         await super().on_receive(channel, msg, source, primary)
-        if not primary or channel.plug not in self.plugs or await channel.is_private():
+        if not primary or not source.text:
+            return
+        if channel.plug not in self.plugs or await channel.is_private():
             return
         members = await channel.plug.channel_members(channel)
         if not members:
@@ -203,10 +205,7 @@ class MentionsHook(_AlertHookBase):
             text.append(immp.Segment(" in "),
                         immp.Segment(title, italic=True))
         text.append(immp.Segment(":\n"))
-        if isinstance(source.text, immp.RichText):
-            text += source.text
-        else:
-            text.append(immp.Segment(source.text))
+        text += source.text
         tasks = []
         for member in mentioned:
             if member == source.user:
@@ -312,7 +311,9 @@ class SubscriptionsHook(_AlertHookBase, Commandable):
 
     async def on_receive(self, channel, msg, source, primary):
         await super().on_receive(channel, msg, source, primary)
-        if not primary or channel.plug not in self.plugs or await channel.is_private():
+        if not primary or not source.text:
+            return
+        if channel.plug not in self.plugs or await channel.is_private():
             return
         members = await channel.plug.channel_members(channel)
         if not members:
@@ -339,10 +340,7 @@ class SubscriptionsHook(_AlertHookBase, Commandable):
                 text.append(immp.Segment(" in "),
                             immp.Segment(title, italic=True))
             text.append(immp.Segment(":\n"))
-            if isinstance(source.text, immp.RichText):
-                text += source.text
-            else:
-                text.append(immp.Segment(source.text))
+            text += source.text
             private = await channel.plug.channel_for_user(member)
             if private:
                 tasks.append(private.send(immp.Message(text=text)))

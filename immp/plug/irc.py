@@ -320,10 +320,7 @@ class IRCPlug(immp.Plug):
     async def send(self, channel, msg):
         if msg.deleted or not msg.text:
             return
-        if isinstance(msg.text, immp.RichText):
-            formatted = IRCRichText.to_formatted(msg.text)
-        else:
-            formatted = str(msg.text)
+        formatted = IRCRichText.to_formatted(msg.text)
         for text in formatted.split("\n"):
             if msg.user:
                 template = "* {} {}" if msg.action else "<{}> {}"
