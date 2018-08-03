@@ -16,13 +16,16 @@ class Hook(Openable):
             Reference to the user-provided configuration.
         host (.Host):
             Controlling host instance, providing access to plugs.
+        virtual (bool):
+            ``True`` if managed by another component (e.g. a hook that exposes plug functionality).
     """
 
-    def __init__(self, name, config, host):
+    def __init__(self, name, config, host, virtual=False):
         super().__init__()
         self.name = name
         self.config = config
         self.host = host
+        self.virtual = virtual
 
     async def start(self):
         """

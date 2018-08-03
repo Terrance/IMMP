@@ -50,9 +50,13 @@ def host_to_config(host):
             continue
         config["channels"][name] = {"plug": channel.plug.name, "source": channel.source}
     for cls, hook in host.resources.items():
+        if hook.virtual:
+            continue
         path = "{}.{}".format(cls.__module__, cls.__name__)
         config["hooks"][hook.name] = {"path": path, "config": hook.config}
     for name, hook in host.hooks.items():
+        if hook.virtual:
+            continue
         path = "{}.{}".format(hook.__class__.__module__, hook.__class__.__name__)
         config["hooks"][name] = {"path": path, "config": hook.config}
     return config
