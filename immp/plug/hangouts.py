@@ -106,27 +106,22 @@ class HangoutsSegment(immp.Segment):
                    link=link)
 
     @classmethod
-    def _hangups_segments(cls, text, segment):
-        if segment.link and not text == segment.link:
-            # Hangouts won't render links unless the text matches.
-            # Fall back to multiple segments showing the text and the link separately.
-            clone = copy(segment)
-            clone.link = None
-            return (cls._hangups_segments("{} [".format(text), clone) +
-                    cls._hangups_segments(segment.link, segment) +
-                    cls._hangups_segments("]", clone))
-        else:
-            return [hangups.ChatMessageSegment(text,
-                                               is_bold=segment.bold,
-                                               is_italic=segment.italic,
-                                               is_underline=segment.underline,
-                                               is_strikethrough=segment.strike,
-                                               link_target=segment.link)]
+    def _make_segment(cls, text, segment):
+        return hangups.ChatMessageSegment(text,
+                                          (hangouts_pb2.SEGMENT_TYPE_LINK
+                                           if segment.link else
+                                           hangouts_pb2.SEGMENT_TYPE_TEXT),
+                                          is_bold=segment.bold,
+                                          is_italic=segment.italic,
+                                          is_underline=segment.underline,
+                                          is_strikethrough=segment.strike,
+                                          link_target=segment.link)
 
     @classmethod
     def to_segments(cls, segment):
         """
         Convert a :class:`.Segment` into one or more :class:`hangups.ChatMessageSegment` instances.
+        This will also attempt to create missing link segments for plain URLs within the text.
 
         Args:
             segment (.Segment)
@@ -136,11 +131,31 @@ class HangoutsSegment(immp.Segment):
             hangups.ChatMessageSegment list:
                 Unparsed segment objects.
         """
-        parts = segment.text.split("\n")
-        segments = cls._hangups_segments(parts[0], segment)
-        for part in parts[1:]:
-            segments.append(hangups.ChatMessageSegment("\n", hangouts_pb2.SEGMENT_TYPE_LINE_BREAK))
-            segments += cls._hangups_segments(part, segment)
+        unlinked = copy(segment)
+        unlinked.link = None
+        if segment.link:
+            if segment.text == segment.link:
+                return [cls._make_segment(segment.text, segment)]
+            else:
+                return [cls._make_segment("{} [".format(segment.text), unlinked),
+                        cls._make_segment(segment.link, segment),
+                        cls._make_segment("]", unlinked)]
+        segments = []
+        for i, line in enumerate(segment.text.split("\n")):
+            if i:
+                segments.append(hangups.ChatMessageSegment(
+                    "\n", hangouts_pb2.SEGMENT_TYPE_LINE_BREAK))
+            while True:
+                match = re.search(r"\b([a-z-]+://\S+)\b", line)
+                if not match:
+                    break
+                left, right = match.span()
+                linked = copy(segment)
+                linked.link = line[left:right]
+                segments += [cls._make_segment(line[:left], segment),
+                             cls._make_segment(linked.link, linked)]
+                line = line[right:]
+            segments.append(cls._make_segment(line, unlinked))
         return [segment for segment in segments if segment.text]
 
 
