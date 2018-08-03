@@ -153,7 +153,6 @@ class CommandHook(immp.Hook, Commandable):
                 raise immp.ConfigError("Hook '{}' does not support commands"
                                        .format(hook.name)) from None
             for command in hook.commands():
-                log.debug("Adding command from hook '{}': {}".format(hook.name, repr(command)))
                 commands[command.scope][command.name] = command
         return commands
 
