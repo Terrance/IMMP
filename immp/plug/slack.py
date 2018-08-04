@@ -273,10 +273,12 @@ class SlackRichText(immp.RichText):
                 user = changes[start]["mention"]
                 part = "@{}".format(user.username or user.real_name)
             else:
-                part = emojize(text[start:end], use_aliases=True)
+                part = text[start:end]
                 # Strip Slack channel tags, replace with a plain-text representation.
                 part = re.sub(r"<#([^\|>]+)(?:\|[^>]+)?>", partial(cls._sub_channel, slack), part)
                 part = re.sub(r"<([^\|>]+)(?:\|([^>]+))?>", cls._sub_link, part)
+                part = emojize(part.replace("&lt;", "<").replace("&gt;", ">")
+                                   .replace("&amp;", "&"), use_aliases=True)
             segments.append(immp.Segment(part, **changes[start]))
         return cls(segments)
 
