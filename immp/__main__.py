@@ -5,26 +5,32 @@ import logging.config
 import sys
 
 import anyconfig
-from voluptuous import REMOVE_EXTRA, Any, Optional, Schema
+from voluptuous import ALLOW_EXTRA, REMOVE_EXTRA, Any, Optional, Schema
 
-from immp import Channel, Host, resolve_import
+from immp import Channel, ConfigError, Host, resolve_import
+from immp.hook.runner import RunnerHook
 
 
-_schema = Schema({Optional("path", default=list): [str],
-                  "plugs": {str: {"path": str, Optional("config", default=dict): dict}},
-                  "channels": {str: {"plug": str, "source": object}},
-                  "hooks": {str: {"path": str, Optional("config", default=dict): dict}},
-                  Optional("logging", default=None): Any(dict, None)},
-                 extra=REMOVE_EXTRA, required=True)
+class _Schema:
+
+    logging = Schema({Optional("disable_existing_loggers", default=False): bool},
+                     extra=ALLOW_EXTRA)
+
+    config = Schema({Optional("path", default=list): [str],
+                     "plugs": {str: {"path": str, Optional("config", default=dict): dict}},
+                     "channels": {str: {"plug": str, "source": object}},
+                     "hooks": {str: {"path": str, Optional("config", default=dict): dict}},
+                     Optional("logging", default=None): Any(logging, None)},
+                    extra=REMOVE_EXTRA, required=True)
 
 
 class LocalFilter(logging.Filter):
 
     def filter(self, record):
-        return record.name == "__main__" or record.name.startswith("immp.")
+        return record.name == "__main__" or record.name.split(".", 1)[0] == "immp"
 
 
-def config_to_host(config):
+def config_to_host(config, path, write):
     host = Host()
     for name, spec in config["plugs"].items():
         cls = resolve_import(spec["path"])
@@ -35,31 +41,13 @@ def config_to_host(config):
     for name, spec in config["hooks"].items():
         cls = resolve_import(spec["path"])
         host.add_hook(cls(name, spec["config"], host))
+    try:
+        host.add_hook(RunnerHook("runner", {}, host))
+    except ConfigError:
+        # Prefer existing hook defined within the config itself.
+        pass
+    host.resources[RunnerHook].load(config, path, write)
     return host
-
-
-def host_to_config(host):
-    config = {"plugs": {}, "channels": {}, "hooks": {}}
-    for name, plug in host.plugs.items():
-        if plug.virtual:
-            continue
-        path = "{}.{}".format(plug.__class__.__module__, plug.__class__.__name__)
-        config["plugs"][name] = {"path": path, "config": plug.config}
-    for name, channel in host.channels.items():
-        if channel.plug.virtual:
-            continue
-        config["channels"][name] = {"plug": channel.plug.name, "source": channel.source}
-    for cls, hook in host.resources.items():
-        if hook.virtual:
-            continue
-        path = "{}.{}".format(cls.__module__, cls.__name__)
-        config["hooks"][hook.name] = {"path": path, "config": hook.config}
-    for name, hook in host.hooks.items():
-        if hook.virtual:
-            continue
-        path = "{}.{}".format(hook.__class__.__module__, hook.__class__.__name__)
-        config["hooks"][name] = {"path": path, "config": hook.config}
-    return config
 
 
 def init(logs, paths):
@@ -74,10 +62,10 @@ def init(logs, paths):
 
 
 def main(path, write=False):
-    config = _schema(anyconfig.load(path))
+    config = _Schema.config(anyconfig.load(path))
     init(config["logging"], config["path"])
     log = logging.getLogger(__name__)
-    host = config_to_host(config)
+    host = config_to_host(config, path, write)
     log.info("Creating plugs and hooks")
     loop = asyncio.get_event_loop()
     task = loop.create_task(host.run())
@@ -91,9 +79,7 @@ def main(path, write=False):
     finally:
         loop.close()
         if write:
-            log.info("Writing config file")
-            config.update(host_to_config(host))
-            anyconfig.dump(config, path)
+            host.resources[RunnerHook].write_config()
 
 
 def parse():
