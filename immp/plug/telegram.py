@@ -480,7 +480,7 @@ class TelegramPlug(immp.Plug):
             log.debug("Client auth required to look up users")
             return None
         try:
-            data = await self._client(tl.functions.users.GetFullUserRequest(id))
+            data = await self._client(tl.functions.users.GetFullUserRequest(int(id)))
         except BadRequestError:
             return None
         else:
