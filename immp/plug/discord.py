@@ -364,6 +364,11 @@ class DiscordPlug(immp.Plug):
         dc_channel = self._client.get_channel(channel.source)
         return dc_channel.name if dc_channel else None
 
+    async def channel_link(self, channel):
+        dc_channel = self._client.get_channel(channel.source)
+        return ("https://discordapp.com/channels/{}/{}".format(dc_channel.guild.id, dc_channel.id)
+                if dc_channel else None)
+
     async def channel_rename(self, channel, title):
         dc_channel = self._client.get_channel(channel.source)
         if dc_channel:

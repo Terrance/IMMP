@@ -439,6 +439,9 @@ class HangoutsPlug(immp.Plug):
         except KeyError:
             return None
 
+    async def channel_link(self, channel):
+        return "https://hangouts.google.com/chat/{}".format(channel.source)
+
     async def channel_rename(self, channel, title):
         try:
             conv = self._convs.get(channel.source)

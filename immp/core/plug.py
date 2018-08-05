@@ -47,6 +47,16 @@ class Channel:
         """
         return await self.plug.channel_title(self)
 
+    async def link(self):
+        """
+        Equivalent to :meth:`.Plug.channel_link`.
+
+        Returns:
+            str:
+                Internal deep link to this channel.
+        """
+        return await self.plug.channel_link(self)
+
     async def rename(self, title):
         """
         Equivalent to :meth:`.Plug.channel_rename`.
@@ -302,6 +312,17 @@ class Plug(Openable):
         Returns:
             str:
                 Display name for the channel.
+        """
+        return None
+
+    async def channel_link(self, channel):
+        """
+        Return a URL that acts as a direct link to the given channel.  This is not a join link,
+        rather one that opens a conversation in the client (it may e.g. use a custom protocol).
+
+        Returns:
+            str:
+                Internal deep link to this channel.
         """
         return None
 

@@ -111,7 +111,7 @@ class _Schema:
 
     rtm = _api({"url": str,
                 "self": {"id": str},
-                "team": {"domain": str},
+                "team": {"id": str, "name": str, "domain": str},
                 "users": [user],
                 "channels": [channel],
                 "groups": [channel],
@@ -595,6 +595,9 @@ class SlackPlug(immp.Plug):
     async def channel_title(self, channel):
         sl_channel = self._channels.get(channel.source) or self._directs.get(channel.source)
         return sl_channel["name"] if sl_channel else None
+
+    async def channel_link(self, channel):
+        return "https://{}.slack.com/messages/{}/".format(self._team["domain"], channel.source)
 
     async def channel_members(self, channel):
         if channel.plug is not self:
