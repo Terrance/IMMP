@@ -194,18 +194,23 @@ class MentionsHook(_AlertHookBase):
             return
         text = immp.RichText()
         if source.user:
-            text.append(immp.Segment(source.user.real_name or source.user.username,
-                                     link=source.user.link,
-                                     bold=(not source.user.link)),
+            text.append(immp.Segment(source.user.real_name or source.user.username, bold=True),
                         immp.Segment(" mentioned you"))
         else:
             text.append(immp.Segment("You were mentioned"))
         title = await channel.title()
+        link = await channel.link()
         if title:
             text.append(immp.Segment(" in "),
                         immp.Segment(title, italic=True))
         text.append(immp.Segment(":\n"))
         text += source.text
+        if source.user and source.user.link:
+            text.append(immp.Segment("\n"),
+                        immp.Segment("Go to user", link=source.user.link))
+        if link:
+            text.append(immp.Segment("\n"),
+                        immp.Segment("Go to channel", link=link))
         tasks = []
         for member in mentioned:
             if member == source.user:
@@ -326,23 +331,29 @@ class SubscriptionsHook(_AlertHookBase, Commandable):
         for member, triggers in triggered.items():
             if member == source.user:
                 continue
+            private = await channel.plug.channel_for_user(member)
+            if not private:
+                continue
             text = immp.RichText()
             mentioned = immp.Segment(", ".join(sorted(triggers)), italic=True)
             if source.user:
-                text.append(immp.Segment(source.user.real_name or source.user.username,
-                                         link=source.user.link,
-                                         bold=(not source.user.link)),
+                text.append(immp.Segment(source.user.real_name or source.user.username, bold=True),
                             immp.Segment(" mentioned "), mentioned)
             else:
                 text.append(mentioned, immp.Segment(" mentioned"))
             title = await channel.title()
+            link = await channel.link()
             if title:
                 text.append(immp.Segment(" in "),
                             immp.Segment(title, italic=True))
             text.append(immp.Segment(":\n"))
             text += source.text
-            private = await channel.plug.channel_for_user(member)
-            if private:
-                tasks.append(private.send(immp.Message(text=text)))
+            if source.user and source.user.link:
+                text.append(immp.Segment("\n"),
+                            immp.Segment("Go to user", link=source.user.link))
+            if link:
+                text.append(immp.Segment("\n"),
+                            immp.Segment("Go to channel", link=link))
+            tasks.append(private.send(immp.Message(text=text)))
         if tasks:
             await wait(tasks)
