@@ -17,7 +17,6 @@ Config:
 """
 
 from asyncio import Condition, ensure_future, open_connection, sleep
-from collections import defaultdict
 import logging
 import re
 import time
@@ -204,7 +203,7 @@ class IRCMessage(immp.Message):
         if channel == irc.config["user"]["nick"]:
             # Private messages arrive "from A to B", and should be sent "from B to A".
             channel = nick
-        user = immp.User(plug=irc, id=line.source, username=nick, raw=line)
+        user = immp.User(id=line.source, plug=irc, username=nick, raw=line)
         action = False
         joined = []
         left = []
@@ -239,7 +238,8 @@ class IRCPlug(immp.Plug):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
-        self._conds = defaultdict(Condition)
+        self._waits = []
+        self._data = {}
         self._reader = self._writer = None
         # Don't yield messages for initial self-joins.
         self._joins = set()
@@ -294,9 +294,41 @@ class IRCPlug(immp.Plug):
         await sleep(3)
         await self.start()
 
+    async def _who(self, name):
+        self.write(Line("WHO", name))
+        data = await self.wait("315", collect=("352",))
+        users = []
+        for line in data["352"]:
+            id = "{}!{}@{}".format(line.args[5], line.args[2], line.args[3])
+            users.append(immp.User(id=id, plug=self, username=line.args[5], raw=line))
+        return users
+
+    async def user_from_id(self, id):
+        nick = id.split("!", 1)[0]
+        return immp.User(id=id, plug=self, username=nick)
+
+    async def user_from_username(self, username):
+        for user in await self._who(username):
+            if user.username == username:
+                return user
+        return None
+
+    async def channel_for_user(self, user):
+        return immp.Channel(self, user.username)
+
+    async def channel_is_private(self, channel):
+        return bool(await self.user_from_username(channel.source))
+
+    async def channel_members(self, channel):
+        return await self._who(channel.source)
+
     async def handle(self, line):
-        with await self._conds[line.command]:
-            self._conds[line.command].notify_all()
+        if line.command in self._data:
+            self._data[line.command].append(line)
+        for commands, condition in self._waits:
+            if line.command in commands:
+                with await condition:
+                    condition.notify_all()
         if line.command == "PING":
             self.write(Line("PONG", *line.args))
         elif line.command in ("JOIN", "PART", "PRIVMSG"):
@@ -311,6 +343,27 @@ class IRCPlug(immp.Plug):
             self.config["user"]["nick"] += "_"
             self.write(Line("NICK", self.config["user"]["nick"]),
                        Line("USER", "immp", "0", "*", self.config["user"]["real-name"]))
+
+    async def wait(self, success, fail=(), collect=()):
+        # Add lists to capture data as it comes in.
+        if any(command in self._data for command in fail + collect):
+            raise RuntimeError("Already listening for collected commands")
+        for command in fail + collect:
+            self._data[command] = []
+        # Block until we receive the response code we're looking for.
+        cond = Condition()
+        pair = (((success,) + tuple(fail)), cond)
+        self._waits.append(pair)
+        with await cond:
+            await cond.wait()
+        self._waits.remove(pair)
+        # Retrieve captured data for this wait.
+        if any(self._data[command] for command in fail):
+            raise ValueError("Received error response")
+        data = {command: self._data[command] for command in collect}
+        for command in fail + collect:
+            del self._data[command]
+        return data
 
     def write(self, *lines):
         for line in lines:
@@ -331,8 +384,3 @@ class IRCPlug(immp.Plug):
                 text = "\x01ACTION {}\x01".format(text)
             self.write(Line("PRIVMSG", channel.source, text))
         return []
-
-    async def wait(self, command):
-        # Block until we receive the response code we're looking for.
-        with await (self._conds[command]):
-            await (self._conds[command].wait())
