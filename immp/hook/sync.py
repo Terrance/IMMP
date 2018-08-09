@@ -172,17 +172,16 @@ class SyncHook(immp.Hook, Commandable):
                         immp.Segment("(list may be incomplete)"))
         await channel.send(immp.Message(user=immp.User(real_name="Sync"), text=text))
 
-    async def _noop_send(self, msg):
-        return [msg.id]
-
     async def _send(self, channel, msg):
         try:
-            return await channel.send(msg)
+            ids = await channel.send(msg)
+            log.debug("Synced IDs for {} in {}: {}".format(repr(msg.id), repr(channel), ids))
+            return (channel, ids)
         except Exception:
             log.exception("Failed to relay message to channel: {}".format(repr(channel)))
-            return []
+            return (channel, [])
 
-    async def send(self, label, msg, source=None):
+    async def send(self, label, msg, origin=None):
         """
         Send a message to all channels in this sync.
 
@@ -191,7 +190,7 @@ class SyncHook(immp.Hook, Commandable):
                 Bridge that defines the underlying synced channels to send to.
             msg (.Message):
                 External message to push.
-            source (.Channel):
+            origin (.Channel):
                 Source channel of the message; if set and part of the sync, it will be skipped
                 (used to avoid retransmitting a message we just received).
         """
@@ -219,18 +218,19 @@ class SyncHook(immp.Hook, Commandable):
                 if identity:
                     clone.user.username = clone.user.username or identity.name
         queue = []
-        for synced in self.channels[label]:
-            # If it's the channel we just got the message from, return the ID without resending.
-            queue.append(self._noop_send(clone) if synced == source else self._send(synced, clone))
-        # Just like with plugs, when sending a new (external) message to all channels in a
-        # sync, we need to wait for all plugs to complete before processing further messages.
+        # Just like with plugs, when sending a new (external) message to all channels in a sync, we
+        # need to wait for all plugs to complete before processing further messages.
         with (await self._lock):
-            channels = self.channels[label]
+            for synced in self.channels[label]:
+                if not synced == origin:
+                    queue.append(self._send(synced, clone))
             # Send all the messages in parallel, and match the resulting IDs up by channel.
-            ids = defaultdict(list, zip(channels, await gather(*queue)))
+            ids = defaultdict(list, await gather(*queue))
             revisions = defaultdict(list)
-            if source:
-                revisions[source].append((msg.id, msg.revision))
+            if origin:
+                # For the channel we got the message from, just return the ID without resending.
+                ids[origin].append(msg.id)
+                revisions[origin].append((msg.id, msg.revision))
             self._synced[msg] = (ids, revisions)
 
     async def on_receive(self, channel, msg, source, primary):
