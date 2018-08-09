@@ -77,6 +77,26 @@ class Channel:
         """
         return await self.plug.channel_members(self)
 
+    async def invite(self, user):
+        """
+        Equivalent to :meth:`.Plug.channel_invite`.
+
+        Args:
+            user (.User):
+                New user to invite.
+        """
+        return await self.plug.channel_invite(self, user)
+
+    async def remove(self, user):
+        """
+        Equivalent to :meth:`.Plug.channel_remove`.
+
+        Args:
+            user (.User):
+                Existing user to kick.
+        """
+        return await self.plug.channel_remove(self, user)
+
     async def send(self, msg):
         """
         Push a message object to the related plug on this channel.
@@ -85,7 +105,7 @@ class Channel:
             msg (.Message):
                 Original message received from another channel or plug.
         """
-        return (await self.plug.send(self, msg))
+        return await self.plug.send(self, msg)
 
     def __eq__(self, other):
         return (isinstance(other, self.__class__) and
