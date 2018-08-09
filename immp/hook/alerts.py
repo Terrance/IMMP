@@ -266,24 +266,24 @@ class SubscriptionsHook(_AlertHookBase, Commandable):
             trigger = SubTrigger.get(network=channel.plug.network_id,
                                      user=msg.user.id, text=text)
         except SubTrigger.DoesNotExist:
-            await channel.send(immp.Message(text="{} Not subscribed".format(CROSS)))
-            return
-        exclude, created = SubExclude.get_or_create(trigger=trigger,
-                                                    network=channel.plug.network_id,
-                                                    channel=channel.source)
-        if not created:
-            exclude.delete_instance()
-        resp = "{} {}".format(TICK, "Excluded" if created else "No longer excluded")
+            resp = "{} Not subscribed".format(CROSS)
+        else:
+            exclude, created = SubExclude.get_or_create(trigger=trigger,
+                                                        network=channel.plug.network_id,
+                                                        channel=channel.source)
+            if not created:
+                exclude.delete_instance()
+            resp = "{} {}".format(TICK, "Excluded" if created else "No longer excluded")
         await channel.send(immp.Message(text=resp))
 
     async def list(self, channel, msg):
         subs = sorted(SubTrigger.select().where(SubTrigger.network == channel.plug.network_id,
                                                 SubTrigger.user == msg.user.id))
         if subs:
-            lines = ["Current subscriptions:"] + ["- {}".format(sub.text) for sub in subs]
-            await channel.send(immp.Message(text="\n".join(lines)))
+            resp = "Current subscriptions:{}".format("\n- {}".format(sub.text) for sub in subs)
         else:
-            await channel.send(immp.Message(text="No active subscriptions."))
+            resp = "No active subscriptions."
+        await channel.send(immp.Message(text=resp))
 
     def match(self, text, channel, present):
         """
