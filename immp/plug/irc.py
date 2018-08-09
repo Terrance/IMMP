@@ -56,9 +56,11 @@ class Line:
             Any tags attached to the message.
     """
 
-    FORMAT = re.compile("(?:@(?P<tags>[a-z0-9-]+(?:=[^; ]+)?(?:;[a-z0-9-]+(?:=[^; ]+)?)*) +)?"
-                        "(?::(?P<source>[^ ]+) +)?(?P<command>[a-z]+|[0-9]{3})"
-                        "(?P<args>(?: +[^: ][^ ]*)*)(?: +:(?P<trailing>.*))?", re.I)
+    _format = re.compile("(?:@(?P<tags>[a-z0-9-]+(?:=[^; ]+)?(?:;[a-z0-9-]+(?:=[^; ]+)?)*) +)?"
+                         "(?::(?P<source>[^ ]+) +)?(?P<command>[a-z]+|[0-9]{3})"
+                         "(?P<args>(?: +[^: ][^ ]*)*)(?: +:(?P<trailing>.*))?", re.I)
+
+    _last_ts = 0
 
     def __init__(self, command, *args, source=None, tags=None):
         self.command = command
@@ -69,13 +71,16 @@ class Line:
     @classmethod
     def now(cls):
         """
-        Generate a timestamp suitable for use as a TS value.
+        Generate a timestamp suitable for use as a TS value.  If called twice in quick succession,
+        the value is guaranteed to be unique each time.
 
         Returns:
             str:
                 Current timestamp in seconds.
         """
-        return str(int(time.time()))
+        ts = max(cls._last_ts + 1, int(time.time()))
+        cls._last_ts = ts
+        return str(ts)
 
     @classmethod
     def parse(cls, line):
@@ -90,7 +95,7 @@ class Line:
             .Line:
                 Parsed line.
         """
-        match = cls.FORMAT.match(line)
+        match = cls._format.match(line)
         if not match:
             raise ValueError("Invalid line: '{}'".format(line))
         tagpart, source, command, argpart, trailing = match.groups()
@@ -238,9 +243,12 @@ class IRCPlug(immp.Plug):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
+        self._reader = self._writer = None
+        # Bot's own identifier as seen by the IRC server.
+        self._source = None
+        # Tracking fields for storing incoming data by type.
         self._waits = []
         self._data = {}
-        self._reader = self._writer = None
         # Don't yield messages for initial self-joins.
         self._joins = set()
 
@@ -268,6 +276,7 @@ class IRCPlug(immp.Plug):
                 self._joins.add(channel.source)
                 self.write(Line("JOIN", channel.source))
         await self._writer.drain()
+        self._source = (await self.user_from_username(self.config["user"]["nick"])).id
 
     async def stop(self):
         if self._reader:
@@ -278,6 +287,10 @@ class IRCPlug(immp.Plug):
             log.debug("Closing writer")
             self._writer.close()
             self._writer = None
+        self._source = None
+        self._waits.clear()
+        self._data.clear()
+        self._joins.clear()
 
     async def _read_loop(self, reader, host, port):
         while True:
@@ -370,10 +383,11 @@ class IRCPlug(immp.Plug):
             log.debug("Sending line: {}".format(repr(line)))
             self._writer.write("{}\r\n".format(line).encode())
 
-    async def send(self, channel, msg):
+    async def put(self, channel, msg):
         if msg.deleted or not msg.text:
             return
         formatted = IRCRichText.to_formatted(msg.text)
+        sent = []
         for text in formatted.split("\n"):
             if msg.user:
                 template = "* {} {}" if msg.action else "<{}> {}"
@@ -382,5 +396,10 @@ class IRCPlug(immp.Plug):
                 text = "[edit] {}".format(text)
             if not msg.user and msg.action:
                 text = "\x01ACTION {}\x01".format(text)
-            self.write(Line("PRIVMSG", channel.source, text))
-        return []
+            line = Line("PRIVMSG", channel.source, text)
+            self.write(line)
+            line.source = self._source
+            channel, msg = IRCMessage.from_line(self, line)
+            self.queue(channel, msg)
+            sent.append(msg.id)
+        return sent
