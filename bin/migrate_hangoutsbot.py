@@ -167,7 +167,7 @@ class Data:
             log.debug("Assigned new nickname: {} -> {}".format(uid, nick))
         return nick
 
-    def get_channel(self, plug, source, name=None, synced=False):
+    def add_channel(self, plug, source, name=None):
         if (plug, source) in self.channels.inverse:
             # Already exists under another name.
             name = self.channels.inverse[(plug, source)]
@@ -180,11 +180,7 @@ class Data:
                     name = None
             self.channels[name] = (plug, source)
             log.debug("Assigned new channel: {} -> {}/{}".format(name, plug, source))
-        if synced:
-            # Get the name of the containing sync channel if one exists.
-            return self.syncs.get(name, name)
-        else:
-            return name
+        return name
 
     def add_sync(self, label, *channels):
         for channel in channels:
@@ -203,6 +199,17 @@ class Data:
                 log.debug("Adding channel to sync: {} -> {}".format(channel, label))
                 self.syncs[channel] = label
 
+    def get_synced(self, plug, source):
+        try:
+            name = self.channels.inverse[(plug, source)]
+        except KeyError:
+            return (plug, source)
+        # Get the containing sync channel if one exists.
+        if name in self.syncs:
+            return ("sync", self.syncs[name])
+        else:
+            return (plug, source)
+
     # Migrate Hangouts identities for anyone with a nickname set.
 
     def ho_identities(self):
@@ -214,7 +221,7 @@ class Data:
 
     def syncrooms_syncs(self):
         for i, synced in enumerate(self.config["sync_rooms"]):
-            channels = [self.get_channel("hangouts", ho, "hangouts-syrm-{}-{}".format(i, j))
+            channels = [self.add_channel("hangouts", ho, "hangouts-syrm-{}-{}".format(i, j))
                         for j, ho in enumerate(synced)]
             log.debug("Adding Hangouts sync: {}".format(", ".join(channels)))
             self.add_sync("syncrooms-{}".format(i), *channels)
@@ -237,8 +244,8 @@ class Data:
             # IMMP requires channel names, but we don't have much to go on.
             for i, sync in enumerate(self.config["slackrtm"]["syncs"]):
                 team, channel = sync["channel"]
-                hname = self.get_channel("hangouts", sync["hangout"], "hangouts-srtm-{}".format(i))
-                sname = self.get_channel(plug, channel, "slack-srtm-{}".format(i))
+                hname = self.add_channel("hangouts", sync["hangout"], "hangouts-srtm-{}".format(i))
+                sname = self.add_channel(plug, channel, "slack-srtm-{}".format(i))
                 log.debug("Adding Slack sync: {} <-> {}".format(hname, sname))
                 self.add_sync("slack-{}-{}".format(name, i), hname, sname)
 
@@ -263,8 +270,8 @@ class Data:
         self.plugs["telegram"] = {"path": "immp.plug.telegram.TelegramPlug",
                                   "config": {"token": self.config["telesync"]["api_key"]}}
         for i, (ho, tg) in enumerate(self.memory["telesync"]["ho2tg"].items()):
-            hname = self.get_channel("hangouts", ho, "hangouts-tlsy-{}".format(i))
-            tname = self.get_channel("telegram", int(tg), "telegram-tlsy-{}".format(i))
+            hname = self.add_channel("hangouts", ho, "hangouts-tlsy-{}".format(i))
+            tname = self.add_channel("telegram", int(tg), "telegram-tlsy-{}".format(i))
             log.debug("Adding Telegram sync: {} <-> {}".format(hname, tname))
             self.add_sync("telegram-{}".format(i), hname, tname)
 
@@ -286,20 +293,17 @@ class Data:
         for ho, tldr in self.memory["tldr"].items():
             if not tldr:
                 continue
-            channel = self.get_channel("hangouts", ho, synced=True)
-            if channel in self.channels:
-                plug, source = self.channels[channel]
+            plug, source = self.get_synced("hangouts", ho)
+            if plug == "hangouts":
                 network = self.network_id
             else:
                 # Using a synced channel.
-                if channel in syncs:
+                if source in syncs:
                     # Already processed this tldr via syncrooms sharing.
-                    log.debug("Skipping duplicated synced tldr: {}".format(channel))
+                    log.debug("Skipping duplicated synced tldr: {}".format(source))
                     continue
-                plug = "sync"
-                source = channel
                 network = "sync:sync"
-                syncs.add(channel)
+                syncs.add(source)
             log.debug("Adding {} note(s) to channel: {}/{}".format(len(tldr), plug, source))
             with self.database.atomic():
                 for ts, note in sorted(tldr.items()):
@@ -316,9 +320,9 @@ class Data:
             self.slackrtm_syncs()
         if self.memory["slackrtm"]:
             self.slackrtm_identities()
-        if self.config["telesync"] and self.memory["telesync"]:
+        if self.config["telesync"] and self.memory["telesync"]["ho2tg"]:
             self.telesync_syncs()
-        if self.memory["profilesync"]:
+        if self.memory["profilesync"]["ho2tg"]:
             self.telesync_identities()
         if self.memory["tldr"]:
             self.tldr()
