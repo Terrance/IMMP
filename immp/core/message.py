@@ -26,12 +26,16 @@ class User:
             URL of the user's profile picture.
         link (str):
             Public profile URL, or identifier used for invites.
+        suggested (bool):
+            ``True`` if the display of this user is not important.  Useful for bot messages where
+            displaying the author is superfluous -- plugs may choose to show the user only if
+            required by the network to show something.
         raw:
             Optional plug-specific underlying user object.
     """
 
     def __init__(self, *, id=None, plug=None, username=None, real_name=None, avatar=None,
-                 link=None, raw=None):
+                 link=None, suggested=False, raw=None):
         self.id = id
         self.plug = plug
         self.username = username
@@ -40,6 +44,7 @@ class User:
         if not (hasattr(self.__class__, "link") and isinstance(self.__class__.link, property)):
             # Subclasses may implement as a property, in which case the attribute set would fail.
             self.link = link
+        self.suggested = suggested
         self.raw = raw
 
     async def private_channel(self):
@@ -508,7 +513,7 @@ class Message:
         output = RichText()
         name = None
         action = self.action
-        if self.user:
+        if self.user and not self.user.suggested:
             if real_name:
                 name = self.user.real_name or self.user.username
             else:
