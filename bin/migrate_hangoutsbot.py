@@ -17,6 +17,7 @@ from argparse import ArgumentParser, FileType
 import json
 import logging
 import os.path
+import re
 
 import anyconfig
 from playhouse.db_url import connect
@@ -52,6 +53,9 @@ class _Schema:
         }, extra=REMOVE_EXTRA, required=True)
 
     memory = Schema({
+            "convmem": {str: {
+                "title": str
+            }},
             "user_data": {str: {
                 Optional("_hangups", default=lambda: {"is_self": False}): {"is_self": bool},
                 Optional("nickname", default=""): str
@@ -173,11 +177,15 @@ class Data:
             name = self.channels.inverse[(plug, source)]
             log.debug("Preferring existing channel: {} -> {}/{}".format(name, plug, source))
         else:
-            while not name:
-                self._count += 1
-                name = "{}-{}".format(plug, self._count)
-                if name in self.channels:
-                    name = None
+            if plug == "hangouts" and source in self.memory["convmem"]:
+                # Prefer a name based on the current conv title.
+                title = self.memory["convmem"][source]["title"]
+                name = re.sub(r"[^a-z0-9]+", "-", title, flags=re.I).strip("-")
+            unique = name
+            count = 0
+            while name in self.channels:
+                count += 1
+                name = "{}-{}".format(unique, count)
             self.channels[name] = (plug, source)
             log.debug("Assigned new channel: {} -> {}/{}".format(name, plug, source))
         return name
