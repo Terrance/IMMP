@@ -16,8 +16,8 @@ Commands:
 This hook will listen for messages in all given channels, for text content that matches any of the
 defined regular expressions.  On a match, it will answer with the corresponding response.
 
-Currently, the commands only add/remove responses for the current session -- changes are lost on
-exit as the list will be re-read from config at the next startup.
+Because all responses are defined in the config, you'll need to ensure it's saved when making
+changes via the add/remove commands.
 """
 
 import logging
@@ -27,6 +27,10 @@ from voluptuous import ALLOW_EXTRA, Optional, Schema
 
 import immp
 from immp.hook.command import Command, Commandable, CommandScope
+
+
+CROSS = "\N{CROSS MARK}"
+TICK = "\N{WHITE HEAVY CHECK MARK}"
 
 
 log = logging.getLogger(__name__)
@@ -57,12 +61,17 @@ class AutoRespondHook(immp.Hook, Commandable):
                         "Remove an existing trigger.")]
 
     async def add(self, channel, msg, match, response):
+        text = "Updated" if match in self.responses else "Added"
         self.responses[match] = response
-        await channel.send(immp.Message(text="\U00002705 Added"))
+        await channel.send(immp.Message(text="{} {}".format(TICK, text)))
 
     async def remove(self, channel, msg, match):
-        del self.responses[match]
-        await channel.send(immp.Message(text="\U00002705 Removed"))
+        if match in self.responses:
+            del self.responses[match]
+            text = "{} Removed".format(TICK)
+        else:
+            text = "{} No such response".format(CROSS)
+        await channel.send(immp.Message(text=text))
 
     async def on_receive(self, channel, msg, source, primary):
         await super().on_receive(channel, msg, source, primary)
