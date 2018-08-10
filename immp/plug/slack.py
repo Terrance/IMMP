@@ -566,6 +566,7 @@ class SlackPlug(immp.Plug):
         self._closing = False
         self._session = ClientSession()
         await self._rtm()
+        self._receive = ensure_future(self._poll())
 
     async def stop(self):
         await super().stop()
@@ -708,11 +709,11 @@ class SlackPlug(immp.Plug):
         sent.append(post["ts"])
         return sent
 
-    async def get(self):
+    async def _poll(self):
         while self.state == immp.OpenState.active and not self._closing:
-            self._receive = ensure_future(self._socket.receive_json())
+            fetch = ensure_future(self._socket.receive_json())
             try:
-                json = await self._receive
+                json = await fetch
             except CancelledError:
                 log.debug("Cancel request for plug '{}' getter".format(self.name))
                 return
@@ -726,8 +727,6 @@ class SlackPlug(immp.Plug):
                 await sleep(3)
                 await self._rtm()
                 continue
-            finally:
-                self._receive = None
             event = _Schema.event(json)
             log.debug("Received a '{}' event".format(event["type"]))
             if event["type"] in ("team_join", "user_change"):
@@ -745,6 +744,8 @@ class SlackPlug(immp.Plug):
             elif event["type"] == "message" and not event["subtype"] == "message_replied":
                 # A new message arrived, push it back to the host.
                 try:
-                    yield (await SlackMessage.from_event(self, event))
+                    channel, msg = await SlackMessage.from_event(self, event)
                 except SuppressMessage:
                     pass
+                else:
+                    self.queue(channel, msg)
