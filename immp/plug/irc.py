@@ -270,13 +270,13 @@ class IRCPlug(immp.Plug):
             self.write(Line("PASS", self.config["server"]["password"]))
         self.write(Line("NICK", self.config["user"]["nick"]),
                    Line("USER", "immp", "0", "*", self.config["user"]["real-name"]))
+        # We won't receive this until a valid nick has been set.
         await self.wait("001")
+        self._source = (await self.user_from_username(self.config["user"]["nick"])).id
         for channel in self.host.channels.values():
             if channel.plug == self and channel.source.startswith("#"):
                 self._joins.add(channel.source)
                 self.write(Line("JOIN", channel.source))
-        await self._writer.drain()
-        self._source = (await self.user_from_username(self.config["user"]["nick"])).id
 
     async def stop(self):
         if self._reader:
@@ -346,7 +346,7 @@ class IRCPlug(immp.Plug):
             self.write(Line("PONG", *line.args))
         elif line.command in ("JOIN", "PART", "PRIVMSG"):
             channel, msg = IRCMessage.from_line(self, line)
-            if msg.joined and msg.joined[0].username == self.config["user"]["nick"]:
+            if msg.joined and msg.joined[0].username == self._source.split("!", 1)[0]:
                 if channel.source in self._joins:
                     self._joins.remove(channel.source)
                     return
@@ -387,7 +387,7 @@ class IRCPlug(immp.Plug):
         if msg.deleted or not msg.text:
             return
         formatted = IRCRichText.to_formatted(msg.text)
-        sent = []
+        lines = []
         for text in formatted.split("\n"):
             if msg.user:
                 template = "* {} {}" if msg.action else "<{}> {}"
@@ -398,6 +398,9 @@ class IRCPlug(immp.Plug):
                 text = "\x01ACTION {}\x01".format(text)
             line = Line("PRIVMSG", channel.source, text)
             self.write(line)
+            lines.append(line)
+        sent = []
+        for line in lines:
             line.source = self._source
             channel, msg = IRCMessage.from_line(self, line)
             self.queue(channel, msg)
