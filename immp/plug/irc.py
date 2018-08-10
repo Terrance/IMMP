@@ -385,7 +385,7 @@ class IRCPlug(immp.Plug):
 
     async def put(self, channel, msg):
         if msg.deleted or not msg.text:
-            return
+            return []
         formatted = IRCRichText.to_formatted(msg.text)
         lines = []
         for text in formatted.split("\n"):
