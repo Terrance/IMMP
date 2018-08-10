@@ -68,6 +68,9 @@ class _Schema:
                          Optional("image_url", default=None): Any(str, None)},
                         extra=ALLOW_EXTRA, required=True)
 
+    msg_unfurl = attachment.extend({"channel_id": str,
+                                    "ts": str})
+
     _base_msg = Schema({"ts": str,
                         "type": "message",
                         Optional("channel", default=None): Any(str, None),
@@ -143,6 +146,11 @@ class SlackAPIError(immp.PlugError):
 
 class SuppressMessage(Exception):
     # Don't yield a message for this event.
+    pass
+
+
+class MessageNotFound(Exception):
+    # No match for a given channel and ts pair.
     pass
 
 
@@ -329,6 +337,9 @@ class SlackRichText(immp.RichText):
 
 
 class SlackFile(immp.File):
+    """
+    File attachment originating from Slack.
+    """
 
     def __init__(self, slack, title=None, type=None, source=None):
         super().__init__(title=title, type=type)
@@ -441,17 +452,21 @@ class SlackMessage(immp.Message):
             action = True
         if event["thread_ts"] and event["thread_ts"] != event["ts"]:
             # We have the parent ID, fetch the rest of the message to embed it.
-            params = {"channel": event["channel"],
-                      "latest": event["thread_ts"],
-                      "inclusive": "true",
-                      "limit": 1}
-            history = await slack._api("conversations.history", _Schema.history, params=params)
-            if history["messages"] and history["messages"][0]["ts"] == event["thread_ts"]:
-                reply_to = (await cls.from_event(slack, history["messages"][0]))[1]
+            try:
+                reply_to = await slack.get_message(event["channel"], event["thread_ts"])
+            except MessageNotFound:
+                pass
         for file in event["files"]:
             attachments.append(SlackFile.from_file(slack, file))
         for attach in event["attachments"]:
-            if attach["image_url"]:
+            if attach["is_msg_unfurl"]:
+                unfurl = _Schema.msg_unfurl(attach)
+                # We have the message ID as the timestamp, fetch the whole message to embed it.
+                try:
+                    attachments.append(await slack.get_message(unfurl["channel_id"], unfurl["ts"]))
+                except MessageNotFound:
+                    pass
+            elif attach["image_url"]:
                 attachments.append(immp.File(title=attach["title"],
                                              type=immp.File.Type.image,
                                              source=attach["image_url"]))
@@ -460,6 +475,20 @@ class SlackMessage(immp.Message):
                     text = "{}\n---\n{}".format(text, attach["fallback"])
                 else:
                     text = attach["fallback"]
+        if text:
+            # Messages can be shared either in the UI, or by pasting an archive link.  The latter
+            # unfurls async (it comes through as an edit, which we ignore), so instead we can look
+            # up the message ourselves and embed it.
+            for channel_id, link in re.findall(r"https://{}.slack.com/archives/([^/]+)/p([0-9]+)"
+                                               .format(slack._team["domain"]), text):
+                # Archive links are strange and drop the period from the ts value.
+                ts = link[:-6] + "." + link[-6:]
+                if not any(isinstance(attach, immp.Message) and attach.id == ts
+                           for attach in attachments):
+                    try:
+                        attachments.append(await slack.get_message(channel_id, ts))
+                    except MessageNotFound:
+                        pass
         return (immp.Channel(slack, event["channel"]),
                 cls(id=id,
                     at=datetime.fromtimestamp(int(float(event["ts"]))),
@@ -475,6 +504,72 @@ class SlackMessage(immp.Message):
                     title=title,
                     attachments=attachments,
                     raw=json))
+
+    @classmethod
+    def from_attachment(cls, slack, json):
+        """
+        Convert a message attachment structure into a :class:`.Message`.
+
+        Args:
+            slack (.SlackPlug):
+                Target plug instance for this attachment.
+            json (dict):
+                Slack API `attachment <https://api.slack.com/docs/message-attachments>`_ object.
+
+        Returns:
+            .SlackMessage:
+                Parsed message object.
+        """
+        attach = _Schema.msg_unfurl(json)
+        id = revision = attach["ts"]
+        text = attach["text"]
+        return (immp.Channel(slack, attach["channel_id"]),
+                cls(id=id,
+                    at=datetime.fromtimestamp(int(float(attach["ts"]))),
+                    revision=revision,
+                    text=SlackRichText.from_mrkdwn(slack, text) if text else None,
+                    raw=json))
+
+    @classmethod
+    def to_attachment(cls, slack, msg, reply=False):
+        """
+        Convert a :class:`.Message` to a message attachment structure, suitable for embedding
+        within an outgoing message.
+
+        Args:
+            slack (.SlackPlug):
+                Target plug instance for this attachment.
+            msg (.Message):
+                Original message from another plug or hook.
+            reply (bool):
+                Whether to show a reply icon instead of a quote icon.
+
+        Returns.
+            dict:
+                Slack API `attachment <https://api.slack.com/docs/message-attachments>`_ object.
+        """
+        icon = ":arrow_right_hook:" if reply else ":speech_balloon:"
+        quote = {"footer": icon, "ts": msg.at.timestamp()}
+        if msg.user:
+            quote["author_name"] = msg.user.real_name or msg.user.username
+            quote["author_icon"] = msg.user.avatar
+        quoted_rich = None
+        quoted_action = False
+        if msg.text:
+            quoted_rich = msg.text.clone()
+            quoted_action = msg.action
+        elif msg.attachments:
+            count = len(msg.attachments)
+            what = "{} files".format(count) if count > 1 else "this file"
+            quoted_rich = immp.RichText([immp.Segment("sent {}".format(what))])
+            quoted_action = True
+        if quoted_rich:
+            if quoted_action:
+                for segment in quoted_rich:
+                    segment.italic = True
+            quote["text"] = SlackRichText.to_mrkdwn(slack, quoted_rich)
+            quote["mrkdwn_in"] = ["text"]
+        return quote
 
 
 class SlackPlug(immp.Plug):
@@ -622,6 +717,18 @@ class SlackPlug(immp.Plug):
                                     data={"channel": channel.source})
         return [self._users[member] for member in members]
 
+    async def get_message(self, channel_id, ts):
+        params = {"channel": channel_id,
+                  "latest": ts,
+                  "inclusive": "true",
+                  "limit": 1}
+        history = await self._api("conversations.history", _Schema.history, params=params)
+        if history["messages"] and history["messages"][0]["ts"] == ts:
+            return (await SlackMessage.from_event(self, history["messages"][0]))[1]
+        else:
+            log.debug("Failed to retrieve message '{}' in channel '{}'".format(ts, channel_id))
+            raise MessageNotFound
+
     async def put(self, channel, msg):
         if msg.deleted:
             # TODO
@@ -673,28 +780,7 @@ class SlackPlug(immp.Plug):
             data["text"] = SlackRichText.to_mrkdwn(self, rich)
         attachments = []
         if msg.reply_to:
-            quote = {"footer": ":speech_balloon:",
-                     "ts": msg.reply_to.at.timestamp()}
-            if msg.reply_to.user:
-                quote["author_name"] = msg.reply_to.user.real_name or msg.reply_to.user.username
-                quote["author_icon"] = msg.reply_to.user.avatar
-            quoted_rich = None
-            quoted_action = False
-            if msg.reply_to.text:
-                quoted_rich = msg.reply_to.text.clone()
-                quoted_action = msg.reply_to.action
-            elif msg.reply_to.attachments:
-                count = len(msg.reply_to.attachments)
-                what = "{} files".format(count) if count > 1 else "this file"
-                quoted_rich = immp.RichText([immp.Segment("sent {}".format(what))])
-                quoted_action = True
-            if quoted_rich:
-                if quoted_action:
-                    for segment in quoted_rich:
-                        segment.italic = True
-                quote["text"] = SlackRichText.to_mrkdwn(self, quoted_rich)
-                quote["mrkdwn_in"] = ["text"]
-            attachments.append(quote)
+            attachments.append(SlackMessage.to_attachment(self, msg.reply_to, True))
         for attach in msg.attachments:
             if isinstance(attach, immp.Location):
                 coords = "{}, {}".format(attach.latitude, attach.longitude)
@@ -704,6 +790,8 @@ class SlackPlug(immp.Plug):
                                     "title_link": attach.google_map_url,
                                     "text": attach.address,
                                     "footer": "{}, {}".format(attach.latitude, attach.longitude)})
+            elif isinstance(attach, immp.Message):
+                attachments.append(SlackMessage.to_attachment(self, attach))
         data["attachments"] = json_dumps(attachments)
         post = await self._api("chat.postMessage", _Schema.post, data=data)
         sent.append(post["ts"])

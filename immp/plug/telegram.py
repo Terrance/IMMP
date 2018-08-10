@@ -66,6 +66,8 @@ class _Schema:
                       "date": int,
                       Optional("edit_date", default=None): Any(int, None),
                       Optional("from", default=None): Any(user, None),
+                      Optional("forward_from", default=None): Any(user, None),
+                      Optional("forward_date", default=None): Any(int, None),
                       Optional("text", default=None): Any(str, None),
                       Optional("entities", default=[]): [entity],
                       Optional("reply_to_message", default=None):
@@ -362,22 +364,42 @@ class TelegramMessage(immp.Message):
         else:
             # No support for this message type.
             raise NotImplementedError
-        return (immp.Channel(telegram, message["chat"]["id"]),
-                # Message IDs are just a sequence, only unique to their channel and not the whole
-                # network.  Pair with the chat ID for a network-unique value.
-                cls(id=(message["chat"]["id"], message["message_id"]),
-                    at=datetime.fromtimestamp(message["date"]),
-                    revision=message["edit_date"] or message["date"],
-                    edited=bool(message["edit_date"]),
-                    text=text,
-                    user=user,
-                    action=action,
-                    reply_to=reply_to,
-                    joined=joined,
-                    left=left,
-                    title=title,
-                    attachments=attachments,
-                    raw=message))
+        # Message IDs are just a sequence, only unique to their channel and not the whole network.
+        # Pair with the chat ID for a network-unique value.
+        msg = cls(id=(message["chat"]["id"], message["message_id"]),
+                  at=datetime.fromtimestamp(message["date"]),
+                  revision=message["edit_date"] or message["date"],
+                  edited=bool(message["edit_date"]),
+                  text=text,
+                  user=user,
+                  action=action,
+                  reply_to=reply_to,
+                  joined=joined,
+                  left=left,
+                  title=title,
+                  attachments=attachments,
+                  raw=message)
+        if message["forward_date"]:
+            # Event is a message containing another message.  Inner message has no ID.
+            outer_id = msg.id
+            outer_at = msg.at
+            outer_user = msg.user
+            msg.id = None
+            msg.at = datetime.fromtimestamp(message["forward_date"])
+            msg.revision = message["forward_date"]
+            if message["forward_from"]:
+                msg.user = TelegramUser.from_bot_user(telegram, message["forward_from"])
+            else:
+                msg.user = None
+            msg = cls(id=outer_id,
+                      at=outer_at,
+                      revision=message["date"],
+                      user=outer_user,
+                      action=True,
+                      # Embed the inner message as an attachment.
+                      attachments=[msg],
+                      raw=message)
+        return (immp.Channel(telegram, message["chat"]["id"]), msg)
 
     @classmethod
     async def from_update(cls, telegram, update):
@@ -551,6 +573,53 @@ class TelegramPlug(immp.Plug):
             data.add_field(field, img_resp.content, filename=attach.title or field)
         return data
 
+    async def _upload_attachment(self, chat, msg, attach):
+        # Upload an image file to Telegram in its own message.
+        # Prefer a source URL if available, else fall back to re-uploading the file.
+        base = {"chat_id": str(chat)}
+        if msg.user:
+            base["caption"] = ("{} sent an image"
+                               .format(msg.user.real_name or msg.user.username))
+        if attach.type == immp.File.Type.image:
+            data = await self._form_data(base, "photo", attach)
+            try:
+                return await self._api("sendPhoto", _Schema.send, data=data)
+            except TelegramAPIError:
+                log.debug("Failed to upload image, falling back to document upload")
+        data = await self._form_data(base, "document", attach)
+        try:
+            return await self._api("sendDocument", _Schema.send, data=data)
+        except TelegramAPIError:
+            log.exception("Failed to upload file")
+            return None
+
+    def _requests(self, chat, msg):
+        requests = []
+        if msg.text or msg.reply_to:
+            rich = msg.render(quote_reply=True)
+            text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
+            requests.append(self._api("sendMessage", _Schema.send,
+                                      params={"chat_id": chat,
+                                              "text": text,
+                                              "parse_mode": "HTML"}))
+        for attach in msg.attachments:
+            if isinstance(attach, immp.File):
+                requests.append(self._upload_attachment(chat, msg, attach))
+            elif isinstance(attach, immp.Location):
+                requests.append(self._api("sendLocation", _Schema.send,
+                                          params={"chat_id": chat,
+                                                  "latitude": attach.latitude,
+                                                  "longitude": attach.longitude}))
+                if msg.user:
+                    caption = immp.Message(user=msg.user, text="sent a location", action=True)
+                    text = "".join(TelegramSegment.to_html(self, segment)
+                                   for segment in caption.render())
+                    requests.append(self._api("sendMessage", _Schema.send,
+                                              params={"chat_id": chat,
+                                                      "text": text,
+                                                      "parse_mode": "HTML"}))
+        return requests
+
     async def put(self, channel, msg):
         if msg.deleted:
             # TODO
@@ -559,52 +628,22 @@ class TelegramPlug(immp.Plug):
         while chat in self._migrations:
             log.debug("Following chat migration: {} -> {}".format(chat, self._migrations[chat]))
             chat = self._migrations[chat]
-        parts = []
-        if msg.text or msg.reply_to:
-            rich = msg.render(quote_reply=True)
-            text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
-            parts.append(await self._api("sendMessage", _Schema.send,
-                                         params={"chat_id": chat,
-                                                 "text": text,
-                                                 "parse_mode": "HTML"}))
+        requests = []
         for attach in msg.attachments:
-            if isinstance(attach, immp.File):
-                # Upload an image file to Telegram in its own message.
-                # Prefer a source URL if available, else fall back to re-uploading the file.
-                base = {"chat_id": str(chat)}
-                if msg.user:
-                    base["caption"] = ("{} sent an image"
-                                       .format(msg.user.real_name or msg.user.username))
-                done = False
-                if attach.type == immp.File.Type.image:
-                    data = await self._form_data(base, "photo", attach)
-                    try:
-                        parts.append(await self._api("sendPhoto", _Schema.send, data=data))
-                    except TelegramAPIError:
-                        log.debug("Failed to upload image, falling back to document upload")
-                    else:
-                        done = True
-                if not done:
-                    data = await self._form_data(base, "document", attach)
-                    try:
-                        parts.append(await self._api("sendDocument", _Schema.send, data=data))
-                    except TelegramAPIError:
-                        log.exception("Failed fallback upload too")
-            elif isinstance(attach, immp.Location):
-                parts.append(await self._api("sendLocation", _Schema.send,
-                                             params={"chat_id": chat,
-                                                     "latitude": attach.latitude,
-                                                     "longitude": attach.longitude}))
-                if msg.user:
-                    caption = immp.Message(user=msg.user, text="sent a location", action=True)
-                    text = "".join(TelegramSegment.to_html(self, segment)
-                                   for segment in caption.render())
-                    parts.append(await self._api("sendMessage", _Schema.send,
-                                                 params={"chat_id": chat,
-                                                         "text": text,
-                                                         "parse_mode": "HTML"}))
+            if isinstance(attach, immp.Message):
+                # Generate requests for attached messages first.
+                requests += self._requests(chat, attach)
+        own_requests = self._requests(chat, msg)
+        if requests and not own_requests:
+            # Forwarding a message but no content to show who forwarded it.
+            info = immp.Message(user=msg.user, action=True, text="forwarded a message")
+            own_requests = self._requests(chat, info)
+        requests += own_requests
         sent = []
-        for result in parts:
+        for request in requests:
+            result = await request
+            if not result:
+                continue
             ext_channel, ext_msg = await TelegramMessage.from_message(self, result)
             self.queue(ext_channel, ext_msg)
             sent.append((chat, result["message_id"]))

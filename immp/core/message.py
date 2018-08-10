@@ -420,7 +420,7 @@ class Location(Attachment):
 
 
 @pretty_str
-class Message:
+class Message(Attachment):
     """
     Base message object, understood by all plugs.
 

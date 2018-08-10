@@ -267,6 +267,47 @@ class DiscordMessage(immp.Message):
                     attachments=attachments,
                     raw=message))
 
+    @classmethod
+    def to_webhook_embed(cls, discord, msg, reply=False):
+        """
+        Convert a :class:`.Message` to a message embed structure, suitable for embedding within an
+        outgoing message.
+
+        Args:
+            discord (.DiscordPlug):
+                Target plug instance for this attachment.
+            msg (.Message):
+                Original message from another plug or hook.
+            reply (bool):
+                Whether to show a reply icon instead of a quote icon.
+
+        Returns.
+            dict:
+                Discord API `embed <https://discordapp.com/developers/docs/resources/channel>`_
+                object.
+        """
+        icon = "\N{RIGHTWARDS ARROW WITH HOOK}" if reply else "\N{SPEECH BALLOON}"
+        quote = {"footer": {"text": icon}, "timestamp": msg.at.isoformat()}
+        if msg.user:
+            quote["author"] = {"name": msg.user.real_name or msg.user.username,
+                               "icon_url": msg.user.avatar}
+        quoted_rich = None
+        quoted_action = False
+        if msg.text:
+            quoted_rich = msg.text.clone()
+            quoted_action = msg.action
+        elif msg.attachments:
+            count = len(msg.attachments)
+            what = "{} files".format(count) if count > 1 else "this file"
+            quoted_rich = immp.RichText([immp.Segment("sent {}".format(what))])
+            quoted_action = True
+        if quoted_rich:
+            if quoted_action:
+                for segment in quoted_rich:
+                    segment.italic = True
+            quote["description"] = DiscordRichText.to_markdown(discord, quoted_rich)
+        return quote
+
 
 class DiscordClient(discord.Client):
     """
@@ -416,29 +457,10 @@ class DiscordPlug(immp.Plug):
                                    "thumbnail": {"url": attach.google_image_url(80)},
                                    "footer": {"text": "{}, {}".format(attach.latitude,
                                                                       attach.longitude)}})
+                elif isinstance(attach, immp.Message):
+                    embeds.append(DiscordMessage.to_webhook_embed(self, attach))
         if msg.reply_to:
-            quote = {"footer": {"text": "\N{SPEECH BALLOON}"},
-                     "timestamp": msg.reply_to.at.isoformat()}
-            if msg.reply_to.user:
-                quote["author"] = {"name": (msg.reply_to.user.real_name or
-                                            msg.reply_to.user.username),
-                                   "icon_url": msg.reply_to.user.avatar}
-            quoted_rich = None
-            quoted_action = False
-            if msg.reply_to.text:
-                quoted_rich = msg.reply_to.text.clone()
-                quoted_action = msg.reply_to.action
-            elif msg.reply_to.attachments:
-                count = len(msg.reply_to.attachments)
-                what = "{} files".format(count) if count > 1 else "this file"
-                quoted_rich = immp.RichText([immp.Segment("sent {}".format(what))])
-                quoted_action = True
-            if quoted_rich:
-                if quoted_action:
-                    for segment in quoted_rich:
-                        segment.italic = True
-                quote["description"] = DiscordRichText.to_markdown(self, quoted_rich)
-            embeds.append(quote)
+            embeds.append(DiscordMessage.to_webhook_embed(self, msg.reply_to, True))
         # Null values aren't accepted, only add name/image to data if they're set.
         if name:
             payload["username"] = name
@@ -458,10 +480,7 @@ class DiscordPlug(immp.Plug):
             raise DiscordAPIError("{}: {}".format(message["code"], message["message"]))
         return [int(message["id"])]
 
-    async def _put_client(self, channel, msg):
-        if msg.deleted:
-            # TODO
-            return []
+    async def _requests(self, dc_channel, msg):
         embeds = []
         if msg.attachments:
             for i, attach in enumerate(msg.attachments):
@@ -484,15 +503,32 @@ class DiscordPlug(immp.Plug):
             if len(embeds) == 1:
                 # Attach the only embed to the message text.
                 embed, file, _ = embeds.pop()
-            requests.append(channel.send(content=DiscordRichText.to_markdown(self, rich),
-                                         embed=embed, file=file))
+            requests.append(dc_channel.send(content=DiscordRichText.to_markdown(self, rich),
+                                            embed=embed, file=file))
         for embed, file, desc in embeds:
             # Send any additional embeds in their own separate messages.
             content = None
             if msg.user:
                 label = immp.Message(user=msg.user, text="sent {}".format(desc), action=True)
                 content = DiscordRichText.to_markdown(self, label.render())
-            requests.append(channel.send(content=content, embed=embed, file=file))
+            requests.append(dc_channel.send(content=content, embed=embed, file=file))
+        return requests
+
+    async def _put_client(self, dc_channel, msg):
+        if msg.deleted:
+            # TODO
+            return []
+        requests = []
+        for attach in msg.attachments:
+            if isinstance(attach, immp.Message):
+                # Generate requests for attached messages first.
+                requests += await self._requests(dc_channel, attach)
+        own_requests = await self._requests(dc_channel, msg)
+        if requests and not own_requests:
+            # Forwarding a message but no content to show who forwarded it.
+            info = immp.Message(user=msg.user, action=True, text="forwarded a message")
+            own_requests = await self._requests(dc_channel, info)
+        requests += own_requests
         sent = []
         for request in requests:
             sent.append(await request)

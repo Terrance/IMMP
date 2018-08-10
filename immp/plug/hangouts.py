@@ -505,11 +505,7 @@ class HangoutsPlug(immp.Plug):
             existing_media=media,
             location=hangouts_pb2.Location(place=place) if place else None)
 
-    async def put(self, channel, msg):
-        if msg.deleted:
-            # We can't delete messages on this side.
-            return []
-        conv = self._convs.get(channel.source)
+    async def _requests(self, conv, msg):
         uploads = []
         images = []
         locations = []
@@ -545,6 +541,24 @@ class HangoutsPlug(immp.Plug):
                 label = immp.Message(user=msg.user, text="sent a location", action=True)
                 segments = self._serialise(label.render())
                 requests.append(self._request(conv, segments))
+        return requests
+
+    async def put(self, channel, msg):
+        if msg.deleted:
+            # We can't delete messages on this side.
+            return []
+        conv = self._convs.get(channel.source)
+        requests = []
+        for attach in msg.attachments:
+            if isinstance(attach, immp.Message):
+                # Generate requests for attached messages first.
+                requests += await self._requests(conv, attach)
+        own_requests = await self._requests(conv, msg)
+        if requests and not own_requests:
+            # Forwarding a message but no content to show who forwarded it.
+            info = immp.Message(user=msg.user, action=True, text="forwarded a message")
+            own_requests = await self._requests(conv, info)
+        requests += own_requests
         sent = []
         for request in requests:
             sent.append(await self._client.send_chat_message(request))
