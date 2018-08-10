@@ -64,13 +64,18 @@ class _Schema:
                    "url_private": str},
                   extra=ALLOW_EXTRA, required=True)
 
+    attachment = Schema({Optional("title", default=None): Any(str, None),
+                         Optional("image_url", default=None): Any(str, None)},
+                        extra=ALLOW_EXTRA, required=True)
+
     _base_msg = Schema({"ts": str,
                         "type": "message",
                         Optional("channel", default=None): Any(str, None),
                         Optional("edited", default={"user": None}):
                             {Optional("user", default=None): Any(str, None)},
                         Optional("thread_ts", default=None): Any(str, None),
-                        Optional("files", default=list): [file]},
+                        Optional("files", default=list): [file],
+                        Optional("attachments", default=list): [attachment]},
                        extra=ALLOW_EXTRA, required=True)
 
     _plain_msg = _base_msg.extend({"user": str, "text": str})
@@ -445,6 +450,16 @@ class SlackMessage(immp.Message):
                 reply_to = (await cls.from_event(slack, history["messages"][0]))[1]
         for file in event["files"]:
             attachments.append(SlackFile.from_file(slack, file))
+        for attach in event["attachments"]:
+            if attach["image_url"]:
+                attachments.append(immp.File(title=attach["title"],
+                                             type=immp.File.Type.image,
+                                             source=attach["image_url"]))
+            elif attach["fallback"]:
+                if text:
+                    text = "{}\n---\n{}".format(text, attach["fallback"])
+                else:
+                    text = attach["fallback"]
         return (immp.Channel(slack, event["channel"]),
                 cls(id=id,
                     at=datetime.fromtimestamp(int(float(event["ts"]))),
