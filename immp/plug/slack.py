@@ -65,7 +65,8 @@ class _Schema:
                   extra=ALLOW_EXTRA, required=True)
 
     attachment = Schema({Optional("title", default=None): Any(str, None),
-                         Optional("image_url", default=None): Any(str, None)},
+                         Optional("image_url", default=None): Any(str, None),
+                         Optional("is_msg_unfurl", default=False): bool},
                         extra=ALLOW_EXTRA, required=True)
 
     msg_unfurl = attachment.extend({"channel_id": str,
@@ -776,11 +777,13 @@ class SlackPlug(immp.Plug):
             rich = immp.RichText([immp.Segment("shared {}".format(what), italic=True)])
         if msg.edited:
             rich.append(immp.Segment(" (edited)", italic=True))
-        if rich:
-            data["text"] = SlackRichText.to_mrkdwn(self, rich)
         attachments = []
-        if msg.reply_to:
+        if isinstance(msg.reply_to, immp.Message):
             attachments.append(SlackMessage.to_attachment(self, msg.reply_to, True))
+        elif isinstance(msg.reply_to, immp.MessageRef):
+            # Reply directly to the corresponding thread.  Note that thread_ts can be any message
+            # in the thread, it need not be resolved to the parent.
+            data["thread_ts"] = msg.reply_to.id
         for attach in msg.attachments:
             if isinstance(attach, immp.Location):
                 coords = "{}, {}".format(attach.latitude, attach.longitude)
@@ -792,6 +795,16 @@ class SlackPlug(immp.Plug):
                                     "footer": "{}, {}".format(attach.latitude, attach.longitude)})
             elif isinstance(attach, immp.Message):
                 attachments.append(SlackMessage.to_attachment(self, attach))
+            elif isinstance(attach, immp.MessageRef):
+                # No public API to share a message, rely on archive link unfurling instead.
+                link = ("https://{}.slack.com/archives/{}/p{}"
+                        .format(self._team["domain"], channel.source, attach.id.replace(".", "")))
+                if rich:
+                    rich.append(immp.Segment("\n{}".format(link)))
+                else:
+                    rich = immp.RichText([immp.Segment(link)])
+        if rich:
+            data["text"] = SlackRichText.to_mrkdwn(self, rich)
         data["attachments"] = json_dumps(attachments)
         post = await self._api("chat.postMessage", _Schema.post, data=data)
         sent.append(post["ts"])

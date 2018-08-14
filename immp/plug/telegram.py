@@ -596,12 +596,20 @@ class TelegramPlug(immp.Plug):
     def _requests(self, chat, msg):
         requests = []
         if msg.text or msg.reply_to:
-            rich = msg.render(quote_reply=True)
+            quote = False
+            reply_to = ""
+            if isinstance(msg.reply_to, immp.Message):
+                quote = True
+            elif isinstance(msg.reply_to, immp.MessageRef):
+                # Reply natively to the given parent message.
+                reply_to = msg.reply_to.id[1]
+            rich = msg.render(quote_reply=quote)
             text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
             requests.append(self._api("sendMessage", _Schema.send,
                                       params={"chat_id": chat,
                                               "text": text,
-                                              "parse_mode": "HTML"}))
+                                              "parse_mode": "HTML",
+                                              "reply_to_message_id": reply_to}))
         for attach in msg.attachments:
             if isinstance(attach, immp.File):
                 requests.append(self._upload_attachment(chat, msg, attach))
@@ -630,9 +638,15 @@ class TelegramPlug(immp.Plug):
             chat = self._migrations[chat]
         requests = []
         for attach in msg.attachments:
+            # Generate requests for attached messages first.
             if isinstance(attach, immp.Message):
-                # Generate requests for attached messages first.
                 requests += self._requests(chat, attach)
+            elif isinstance(attach, immp.MessageRef):
+                # Forward the messages natively using the given chat/ID.
+                requests.append(self._api("forwardMessage", _Schema.send,
+                                          params={"chat_id": chat,
+                                                  "from_chat_id": attach.id[0],
+                                                  "message_id": attach.id[1]}))
         own_requests = self._requests(chat, msg)
         if requests and not own_requests:
             # Forwarding a message but no content to show who forwarded it.
@@ -646,7 +660,7 @@ class TelegramPlug(immp.Plug):
                 continue
             ext_channel, ext_msg = await TelegramMessage.from_message(self, result)
             self.queue(ext_channel, ext_msg)
-            sent.append((chat, result["message_id"]))
+            sent.append(ext_msg.id)
         return sent
 
     async def _poll(self):

@@ -566,3 +566,36 @@ class Message(Attachment):
         return "<{}: {}/{} ({} @ {}): {}>".format(self.__class__.__name__, repr(self.id),
                                                   repr(self.revision), repr(self.user), self.at,
                                                   repr(str(self.text)) if self.text else None)
+
+
+class MessageRef:
+    """
+    Container for a reference to a message, including a fallback message object that may be
+    incomplete or an external render.
+
+    Attributes:
+        id (str):
+            Source message identifier, that the plug can use to retrieve or reference the original
+            copy of the message.
+        fallback (.Message):
+            Alternative copy of the message.
+    """
+
+    def __init__(self, id, fallback):
+        self.id = id
+        self.fallback = fallback
+
+    def render(self, *args, **kwargs):
+        """
+        Equivalent to :meth:`.Message.render` for the fallback message.
+        """
+        return self.fallback.render(*args, **kwargs)
+
+    def __eq__(self, other):
+        return isinstance(other, MessageRef) and self.id and self.id == other.id
+
+    def __hash__(self):
+        return hash((self.id, self.fallback))
+
+    def __repr__(self):
+        return "<{}: {} {}>".format(self.__class__.__name__, repr(self.id), repr(self.fallback))

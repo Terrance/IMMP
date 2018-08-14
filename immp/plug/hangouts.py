@@ -550,9 +550,11 @@ class HangoutsPlug(immp.Plug):
         conv = self._convs.get(channel.source)
         requests = []
         for attach in msg.attachments:
+            # Generate requests for attached messages first.
             if isinstance(attach, immp.Message):
-                # Generate requests for attached messages first.
                 requests += await self._requests(conv, attach)
+            elif isinstance(attach, immp.MessageRef) and attach.fallback:
+                requests += await self._requests(conv, attach.fallback)
         own_requests = await self._requests(conv, msg)
         if requests and not own_requests:
             # Forwarding a message but no content to show who forwarded it.

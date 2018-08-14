@@ -268,7 +268,7 @@ class DiscordMessage(immp.Message):
                     raw=message))
 
     @classmethod
-    def to_webhook_embed(cls, discord, msg, reply=False):
+    async def to_webhook_embed(cls, discord, msg, reply=False):
         """
         Convert a :class:`.Message` to a message embed structure, suitable for embedding within an
         outgoing message.
@@ -428,7 +428,16 @@ class DiscordPlug(immp.Plug):
         else:
             return []
 
-    async def _put_webhook(self, webhook, msg):
+    async def _resolve_message(self, dc_channel, msg):
+        if isinstance(msg, immp.Message):
+            return msg
+        elif isinstance(msg, immp.MessageRef):
+            # Discord offers no reply mechanism, so instead we just fetch the referenced message
+            # and render it manually.
+            message = await discord.get_message(dc_channel, msg.id)
+            return DiscordMessage.from_message(discord, message)
+
+    async def _put_webhook(self, dc_channel, webhook, msg):
         if msg.deleted:
             # TODO
             return []
@@ -457,10 +466,12 @@ class DiscordPlug(immp.Plug):
                                    "thumbnail": {"url": attach.google_image_url(80)},
                                    "footer": {"text": "{}, {}".format(attach.latitude,
                                                                       attach.longitude)}})
-                elif isinstance(attach, immp.Message):
-                    embeds.append(DiscordMessage.to_webhook_embed(self, attach))
+                elif isinstance(attach, (immp.Message, immp.MessageRef)):
+                    resolved = await self._resolve_message(dc_channel, attach)
+                    embeds.append(await DiscordMessage.to_webhook_embed(self, resolved))
         if msg.reply_to:
-            embeds.append(DiscordMessage.to_webhook_embed(self, msg.reply_to, True))
+            resolved = await self._resolve_message(dc_channel, msg.reply_to)
+            embeds.append(await DiscordMessage.to_webhook_embed(self, resolved, True))
         # Null values aren't accepted, only add name/image to data if they're set.
         if name:
             payload["username"] = name
@@ -498,7 +509,7 @@ class DiscordPlug(immp.Plug):
                     embeds.append((embed, None, "a location"))
         requests = []
         if msg.text or msg.reply_to:
-            rich = msg.render()
+            rich = msg.render(quote_reply=True)
             embed = file = None
             if len(embeds) == 1:
                 # Attach the only embed to the message text.
@@ -520,9 +531,10 @@ class DiscordPlug(immp.Plug):
             return []
         requests = []
         for attach in msg.attachments:
-            if isinstance(attach, immp.Message):
-                # Generate requests for attached messages first.
-                requests += await self._requests(dc_channel, attach)
+            # Generate requests for attached messages first.
+            if isinstance(attach, (immp.Message, immp.MessageRef)):
+                resolved = await self._resolve_message(dc_channel, attach)
+                requests += await self._requests(dc_channel, resolved)
         own_requests = await self._requests(dc_channel, msg)
         if requests and not own_requests:
             # Forwarding a message but no content to show who forwarded it.
@@ -543,7 +555,7 @@ class DiscordPlug(immp.Plug):
         dc_channel = self._client.get_channel(channel.source)
         if webhook:
             log.debug("Sending to {} via webhook".format(repr(channel)))
-            return await self._put_webhook(webhook, msg)
+            return await self._put_webhook(dc_channel, webhook, msg)
         elif dc_channel:
             log.debug("Sending to {} via client".format(repr(channel)))
             return await self._put_client(dc_channel, msg)
