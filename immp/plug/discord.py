@@ -321,6 +321,11 @@ class DiscordClient(discord.Client):
     async def on_ready(self):
         with await self._plug._starting:
             self._plug._starting.notify_all()
+        await self.on_resume()
+
+    async def on_resume(self):
+        if self._plug.config["playing"]:
+            await self.change_presence(activity=discord.Game(self._plug.config["playing"]))
 
     async def on_message(self, message):
         log.debug("Received a new message")
@@ -368,8 +373,6 @@ class DiscordPlug(immp.Plug):
         with await self._starting:
             # Block until the client is ready.
             await self._starting.wait()
-        if self.config["playing"]:
-            await self._client.change_presence(activity=discord.Game(self.config["playing"]))
 
     async def stop(self):
         await super().stop()
