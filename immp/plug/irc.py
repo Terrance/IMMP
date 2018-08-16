@@ -2,18 +2,20 @@
 Connect to an IRC server.
 
 Config:
-    server.host (str):
-        Hostname of the server.
-    server.port (int):
-        Non-SSL port of the server.
-    server.ssl (bool):
-        Whether to connect using SSL.
-    server.password (str):
-        Optional password required for the server.
-    user.nick (str):
-        Primary nick for the bot user.
-    user.real-name (str):
-        Real name, as displayed in WHO queries.
+    server:
+        host (str):
+            Hostname of the server.
+        port (int):
+            Non-SSL port of the server.
+        ssl (bool):
+            Whether to connect using SSL.
+        password (str):
+            Optional password required for the server.
+    user:
+        nick (str):
+            Primary nick for the bot user.
+        real-name (str):
+            Real name, as displayed in WHO queries.
 """
 
 from asyncio import Condition, ensure_future, open_connection, sleep
