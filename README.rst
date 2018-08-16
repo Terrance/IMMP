@@ -21,6 +21,7 @@ Further modules may also be needed for certain features:
 - `discord.py <https://discordpy.readthedocs.io/en/rewrite/>`_ **1.0+** (Discord)
 - emoji (Discord, Slack)
 - `hangups <https://hangups.readthedocs.io>`_ (Hangouts)
+- `Jinja2 <http://jinja.pocoo.org>`_ (optional: sync)
 - `peewee <https://peewee.readthedocs.io/en/latest/>`_ (databases)
 - `ptpython <https://github.com/jonathanslenders/ptpython>`_ (optional: blocking shell)
 - `telethon <https://telethon.readthedocs.io/en/latest>`_ (optional: Telegram)

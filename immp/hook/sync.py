@@ -30,6 +30,9 @@ If ``plug`` is specified, a virtual plug is registered under that name, with a c
 defined bridge.  Other hooks may reference these channels, to work with all channels in that sync
 as one.  This allows them to listen to a unified stream of messages, or push new messages to all
 synced channels.
+
+.. note::
+    Use of ``name-format`` requires the `Jinja2 <http://jinja.pocoo.org>`_ Python module.
 """
 
 from asyncio import BoundedSemaphore, gather
@@ -37,12 +40,17 @@ from collections import defaultdict
 from copy import copy
 import logging
 
-from jinja2 import Template
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
 from immp.hook.command import Command, Commandable, CommandScope
 from immp.hook.identity import IdentityHook
+
+
+try:
+    from jinja2 import Template
+except ImportError:
+    Template = None
 
 
 log = logging.getLogger(__name__)
@@ -207,14 +215,17 @@ class SyncHook(immp.Hook, Commandable):
                     raise immp.ConfigError("Hook reference '{}' is not an IdentityHook"
                                            .format(self.config["identities"])) from None
                 identity = identities.find(clone.user)
-            template = None
+            name = None
             if self.config["name-format"]:
-                template = Template(self.config["name-format"])
+                if not Template:
+                    raise immp.PlugError("'jinja2' module not installed")
+                tmpl = Template(self.config["name-format"])
+                name = tmpl.render(user=clone.user, identity=identity)
             elif identity:
-                template = Template("{{ user.real_name or user.username }} ({{ identity.name }})")
-            if template:
+                name = "{} ({})".format(clone.user.real_name or clone.user.username, identity.name)
+            if name:
                 clone.user = copy(clone.user)
-                clone.user.real_name = template.render(user=clone.user, identity=identity) or None
+                clone.user.real_name = name or None
                 if identity:
                     clone.user.username = clone.user.username or identity.name
         queue = []
