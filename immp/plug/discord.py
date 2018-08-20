@@ -239,10 +239,10 @@ class DiscordMessage(immp.Message):
                 Parsed message object.
         """
         text = None
+        user = DiscordUser.from_user(discord, message.author)
         attachments = []
         if message.content:
-            # TODO: Rich text.
-            text = message.content
+            text = DiscordRichText.from_markdown(discord, message.content)
         for attach in message.attachments:
             type = immp.File.Type.unknown
             if attach.filename.endswith((".jpg", ".png", ".gif")):
@@ -254,18 +254,18 @@ class DiscordMessage(immp.Message):
             if embed.image.url and embed.image.url.rsplit(".", 1)[1] in ("jpg", "png", "gif"):
                 attachments.append(immp.File(type=immp.File.Type.image,
                                              source=embed.image.url))
-        return (immp.Channel(discord, message.channel.id),
-                cls(id=message.id,
-                    at=message.created_at,
-                    # Edited timestamp is blank for new messages, but updated in existing objects
-                    # when the message is later edited.  Here we just take the current value.
-                    revision=(message.edited_at or message.created_at).timestamp(),
-                    edited=edited,
-                    deleted=deleted,
-                    text=DiscordRichText.from_markdown(discord, text) if text else None,
-                    user=DiscordUser.from_user(discord, message.author),
-                    attachments=attachments,
-                    raw=message))
+        return immp.SentMessage(id=message.id,
+                                # Edited timestamp is blank for new messages, but updated in
+                                # existing objects when the message is later edited.
+                                revision=(message.edited_at or message.created_at).timestamp(),
+                                at=message.created_at,
+                                channel=immp.Channel(discord, message.channel.id),
+                                edited=edited,
+                                deleted=deleted,
+                                text=text,
+                                user=user,
+                                attachments=attachments,
+                                raw=message)
 
     @classmethod
     async def to_webhook_embed(cls, discord, msg, reply=False):
@@ -287,7 +287,9 @@ class DiscordMessage(immp.Message):
                 object.
         """
         icon = "\N{RIGHTWARDS ARROW WITH HOOK}" if reply else "\N{SPEECH BALLOON}"
-        quote = {"footer": {"text": icon}, "timestamp": msg.at.isoformat()}
+        quote = {"footer": {"text": icon}}
+        if isinstance(msg, immp.SentMessage):
+            quote["timestamp"] = msg.at.isoformat()
         if msg.user:
             quote["author"] = {"name": msg.user.real_name or msg.user.username,
                                "icon_url": msg.user.avatar}
@@ -329,21 +331,18 @@ class DiscordClient(discord.Client):
 
     async def on_message(self, message):
         log.debug("Received a new message")
-        channel, msg = DiscordMessage.from_message(self._plug, message)
-        self._plug.queue(channel, msg)
+        self._plug.queue(DiscordMessage.from_message(self._plug, message))
 
     async def on_message_edit(self, before, after):
         log.debug("Received an updated message")
         if before.content == after.content:
             # Text content hasn't changed -- maybe just a link unfurl embed added.
             return
-        channel, msg = DiscordMessage.from_message(self._plug, after, edited=True)
-        self._plug.queue(channel, msg)
+        self._plug.queue(DiscordMessage.from_message(self._plug, after, edited=True))
 
     async def on_message_delete(self, message):
         log.debug("Received a deleted message")
-        channel, msg = DiscordMessage.from_message(self._plug, message, deleted=True)
-        self._plug.queue(channel, msg)
+        self._plug.queue(DiscordMessage.from_message(self._plug, message, deleted=True))
 
 
 class DiscordPlug(immp.Plug):
@@ -432,16 +431,16 @@ class DiscordPlug(immp.Plug):
             return []
 
     async def _resolve_message(self, dc_channel, msg):
-        if isinstance(msg, immp.Message):
-            return msg
-        elif isinstance(msg, immp.MessageRef):
+        if isinstance(msg, immp.SentMessage):
             # Discord offers no reply mechanism, so instead we just fetch the referenced message
             # and render it manually.
-            message = await discord.get_message(dc_channel, msg.id)
+            message = await dc_channel.get_message(msg.id)
             return DiscordMessage.from_message(discord, message)
+        elif isinstance(msg, immp.Message):
+            return msg
 
     async def _put_webhook(self, dc_channel, webhook, msg):
-        if msg.deleted:
+        if isinstance(msg, immp.SentMessage) and msg.deleted:
             # TODO
             return []
         name = image = rich = None
@@ -469,7 +468,7 @@ class DiscordPlug(immp.Plug):
                                    "thumbnail": {"url": attach.google_image_url(80)},
                                    "footer": {"text": "{}, {}".format(attach.latitude,
                                                                       attach.longitude)}})
-                elif isinstance(attach, (immp.Message, immp.MessageRef)):
+                elif isinstance(attach, immp.Message):
                     resolved = await self._resolve_message(dc_channel, attach)
                     embeds.append(await DiscordMessage.to_webhook_embed(self, resolved))
         if msg.reply_to:
@@ -481,7 +480,7 @@ class DiscordPlug(immp.Plug):
         if image:
             payload["avatar_url"] = image
         if rich:
-            if msg.edited:
+            if isinstance(msg, immp.SentMessage) and msg.edited:
                 rich.append(immp.Segment(" (edited)", italic=True))
             payload["content"] = DiscordRichText.to_markdown(self, rich.normalise())
         if embeds:
@@ -529,13 +528,13 @@ class DiscordPlug(immp.Plug):
         return requests
 
     async def _put_client(self, dc_channel, msg):
-        if msg.deleted:
+        if isinstance(msg, immp.SentMessage) and msg.deleted:
             # TODO
             return []
         requests = []
         for attach in msg.attachments:
             # Generate requests for attached messages first.
-            if isinstance(attach, (immp.Message, immp.MessageRef)):
+            if isinstance(attach, immp.Message):
                 resolved = await self._resolve_message(dc_channel, attach)
                 requests += await self._requests(dc_channel, resolved)
         own_requests = await self._requests(dc_channel, msg)

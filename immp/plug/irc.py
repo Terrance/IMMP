@@ -228,14 +228,14 @@ class IRCMessage(immp.Message):
             if match:
                 text = match.group(1)
                 action = True
-        return (immp.Channel(irc, channel),
-                immp.Message(id=Line.now(),
-                             user=user,
-                             text=text,
-                             action=action,
-                             joined=joined,
-                             left=left,
-                             raw=line))
+        return immp.SentMessage(id=Line.now(),
+                                channel=immp.Channel(irc, channel),
+                                user=user,
+                                text=text,
+                                action=action,
+                                joined=joined,
+                                left=left,
+                                raw=line)
 
 
 class IRCPlug(immp.Plug):
@@ -347,12 +347,12 @@ class IRCPlug(immp.Plug):
         if line.command == "PING":
             self.write(Line("PONG", *line.args))
         elif line.command in ("JOIN", "PART", "PRIVMSG"):
-            channel, msg = IRCMessage.from_line(self, line)
-            if msg.joined and msg.joined[0].username == self._source.split("!", 1)[0]:
-                if channel.source in self._joins:
-                    self._joins.remove(channel.source)
+            sent = IRCMessage.from_line(self, line)
+            if sent.joined and sent.joined[0].username == self._source.split("!", 1)[0]:
+                if sent.channel.source in self._joins:
+                    self._joins.remove(sent.channel.source)
                     return
-            self.queue(channel, msg)
+            self.queue(sent)
         elif line.command == "433":
             # Nickname in use, try another.
             self.config["user"]["nick"] += "_"
@@ -386,7 +386,7 @@ class IRCPlug(immp.Plug):
             self._writer.write("{}\r\n".format(line).encode())
 
     async def put(self, channel, msg):
-        if msg.deleted or not msg.text:
+        if (isinstance(msg, immp.SentMessage) and msg.deleted) or not msg.text:
             return []
         formatted = IRCRichText.to_formatted(msg.text)
         lines = []
@@ -394,17 +394,17 @@ class IRCPlug(immp.Plug):
             if msg.user:
                 template = "* {} {}" if msg.action else "<{}> {}"
                 text = template.format(msg.user.username or msg.user.real_name, text)
-            if msg.edited:
+            if isinstance(msg, immp.SentMessage) and msg.edited:
                 text = "[edit] {}".format(text)
             if not msg.user and msg.action:
                 text = "\x01ACTION {}\x01".format(text)
             line = Line("PRIVMSG", channel.source, text)
             self.write(line)
             lines.append(line)
-        sent = []
+        ids = []
         for line in lines:
             line.source = self._source
-            channel, msg = IRCMessage.from_line(self, line)
-            self.queue(channel, msg)
-            sent.append(msg.id)
-        return sent
+            sent = IRCMessage.from_line(self, line)
+            self.queue(sent)
+            ids.append(sent.id)
+        return ids

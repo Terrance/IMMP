@@ -122,11 +122,16 @@ class Segment:
     def __len__(self):
         return len(self.text)
 
+    @property
+    def _tuple(self):
+        return (self.text, self.bold, self.italic, self.underline, self.strike, self.code,
+                self.pre, self.link, self.mention)
+
     def __eq__(self, other):
-        return isinstance(other, self.__class__) and self.text == other.text
+        return isinstance(other, self.__class__) and self._tuple == other._tuple
 
     def __hash__(self):
-        return hash(self.text)
+        return hash(self._tuple)
 
     def __str__(self):
         text = self.text
@@ -288,7 +293,7 @@ class RichText:
                 all(x == y for x, y in zip(self, other)))
 
     def __hash__(self):
-        return hash(self._segments)
+        return hash(tuple(self._segments))
 
     def __str__(self):
         # Fallback implementation: just return the message text without formatting.
@@ -422,20 +427,9 @@ class Location(Attachment):
 @pretty_str
 class Message(Attachment):
     """
-    Base message object, understood by all plugs.
+    Base message content container, understood by all plugs.
 
     Attributes:
-        id (str):
-            Unique (to the plug) message identifier, which should persist across edits and deletes.
-        at (datetime.datetime):
-            Timestamp of the message according to the external server.
-        revision (str):
-            Key to uniquely identify updates to a previous message, defaults to :attr:`id`.  Need
-            not be in the same format as the main identifier.
-        edited (bool):
-            Whether the message content has been changed.
-        deleted (bool):
-            Whether the message was deleted from its source.
         text (.RichText):
             Representation of the message text content.
         user (.User):
@@ -456,14 +450,8 @@ class Message(Attachment):
             Optional plug-specific underlying message or event object.
     """
 
-    def __init__(self, id=None, at=None, revision=None, edited=False, deleted=False, text=None,
-                 user=None, action=False, reply_to=None, joined=None, left=None, title=None,
-                 attachments=None, raw=None):
-        self.id = id
-        self.at = at or datetime.now()
-        self.revision = revision or id
-        self.edited = edited
-        self.deleted = deleted
+    def __init__(self, *, text=None, user=None, action=False, reply_to=None, joined=None,
+                 left=None, title=None, attachments=None, raw=None):
         self.text = text
         self.user = user
         self.action = action
@@ -487,7 +475,7 @@ class Message(Attachment):
         else:
             raise ValueError("Message text must be RichText or plain str")
 
-    def render(self, *, real_name=True, delimiter="\n", quote_reply=False, trim=None):
+    def render(self, *, real_name=True, edit=False, delimiter="\n", quote_reply=False, trim=None):
         """
         Add the sender's name (if present) to the start of the message text, suitable for sending
         as-is on plugs that need all the textual message content in the body.
@@ -496,12 +484,14 @@ class Message(Attachment):
             real_name (bool):
                 ``True`` (default) to display real names, or ``False`` to prefer usernames.  If
                 only one kind of name is available, it will be used regardless of this setting.
+            edit (bool):
+                Whether this render should show an ``[edit]`` tag next to the author.
             delimiter (str):
                 Characters added between the sender's name and the message text (a new line by
                 default).
             quote_reply (bool):
-                ``True`` to quote the parent message before the current one, prefixed with ``>``
-                (not quoted by default).
+                ``True`` to quote the parent message before the current one, prefixed with a
+                box-drawing vertical line (not quoted by default).
             trim (int):
                 Show an ellipsed snippet if the text exceeds this length, or ``None`` (default) for
                 no trimming.
@@ -537,65 +527,91 @@ class Message(Attachment):
             else:
                 output.prepend(Segment(delimiter))
                 output.prepend(Segment(":", bold=True))
-            if self.edited:
+            if edit:
                 output.prepend(Segment(" [edit]"))
             output.prepend(Segment(name, bold=True))
-        elif self.edited:
+        elif edit:
             output.prepend(Segment("[edit] "))
         if action:
             for segment in output:
                 segment.italic = True
         if quote_reply and self.reply_to:
-            quoted = self.reply_to.render(real_name=real_name, delimiter=delimiter, trim=32)
-            output.prepend(*(quoted.indent("\N{BOX DRAWINGS LIGHT VERTICAL} ")), Segment("\n"))
+            if not (isinstance(self.reply_to, SentMessage) and self.empty):
+                quoted = self.reply_to.render(real_name=real_name, delimiter=delimiter, trim=32)
+                output.prepend(*(quoted.indent("\N{BOX DRAWINGS LIGHT VERTICAL} ")), Segment("\n"))
         return output
 
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
             return False
-        if self.id:
-            return (self.id, self.revision) == (other.id, other.revision)
-        else:
-            return ((self.id, self.at, self.user, self.text, self.action, self.reply_to) ==
-                    (other.id, other.at, other.user, other.text, other.action, other.reply_to))
+        return ((self.user, self.text, self.action, self.reply_to) ==
+                (other.user, other.text, other.action, other.reply_to))
+
+    def __hash__(self):
+        return hash((self.user, self.text, self.action, self.reply_to))
+
+    def __repr__(self):
+        parts = list(filter(None, (repr(self.user) if self.user else None,
+                                   repr(str(self.text)) if self.text else None,
+                                   "join" if self.joined else None,
+                                   "leave" if self.left else None,
+                                   ("+{}".format(len(self.attachments))
+                                    if self.attachments else None))))
+        return "<{}{}>".format(self.__class__.__name__,
+                               ": {}".format(" ".join(parts)) if len(parts) else "")
+
+
+class SentMessage(Message):
+    """
+    Reference to a physical message received from a plug.  This provides metadata for identifying
+    a source message, in addition to the actual content attributes.
+
+    As a subclass of :class:`.Message`, it may be used interchangeably, however there may be no
+    content if acting solely as a reference.  In this case, :attr:`.SentMessage.empty` will be set.
+
+    Attributes:
+        id (str):
+            Unique (to the plug) message identifier, which should persist across edits and deletes.
+        revision (str):
+            Key to uniquely identify updates to a previous message, defaults to :attr:`id`.  Need
+            not be in the same format as the main identifier.
+        at (datetime.datetime):
+            Timestamp of the message according to the external server.
+        channel (.Channel):
+            Source channel of this message.
+        edited (bool):
+            Whether the message content has been changed.
+        deleted (bool):
+            Whether the message was deleted from its source.
+        empty (bool):
+            If true, the actual message content isn't included, only the identifiers.  It's then up
+            to the receiving plug to resolve those identifiers and retrieve the message if needed.
+    """
+
+    def __init__(self, id=None, revision=None, at=None, channel=None, edited=False, deleted=False,
+                 empty=None, **kwargs):
+        super().__init__(**kwargs)
+        self.id = id
+        self.revision = revision or id
+        self.at = at or datetime.now()
+        self.channel = channel
+        self.edited = edited
+        self.deleted = deleted
+        self.empty = bool(kwargs) if empty is None else empty
+
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            return False
+        return (self.id, self.revision) == (other.id, other.revision)
 
     def __hash__(self):
         return hash((self.id, self.revision))
 
     def __repr__(self):
-        return "<{}: {}/{} ({} @ {}): {}>".format(self.__class__.__name__, repr(self.id),
-                                                  repr(self.revision), repr(self.user), self.at,
-                                                  repr(str(self.text)) if self.text else None)
-
-
-class MessageRef:
-    """
-    Container for a reference to a message, including a fallback message object that may be
-    incomplete or an external render.
-
-    Attributes:
-        id (str):
-            Source message identifier, that the plug can use to retrieve or reference the original
-            copy of the message.
-        fallback (.Message):
-            Alternative copy of the message.
-    """
-
-    def __init__(self, id, fallback):
-        self.id = id
-        self.fallback = fallback
-
-    def render(self, *args, **kwargs):
-        """
-        Equivalent to :meth:`.Message.render` for the fallback message.
-        """
-        return self.fallback.render(*args, **kwargs)
-
-    def __eq__(self, other):
-        return isinstance(other, MessageRef) and self.id and self.id == other.id
-
-    def __hash__(self):
-        return hash((self.id, self.fallback))
-
-    def __repr__(self):
-        return "<{}: {} {}>".format(self.__class__.__name__, repr(self.id), repr(self.fallback))
+        try:
+            content = super().__repr__()[1:-1].split(": ", 1)[1]
+        except IndexError:
+            content = None
+        return ("<{}: {} @ {} {}{}>"
+                .format(self.__class__.__name__, repr(self.id), self.at, repr(self.channel),
+                        ": {}".format(content) if content else ""))

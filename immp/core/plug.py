@@ -169,7 +169,7 @@ class PlugStream:
         for task in done:
             plug = self._plugs[task]
             try:
-                channel, msg, source, primary = task.result()
+                sent, source, primary = task.result()
             except StopAsyncIteration:
                 log.debug("Plug '{}' finished yielding during process".format(plug.name))
                 del self._coros[plug]
@@ -177,8 +177,8 @@ class PlugStream:
                 log.exception("Plug '{}' raised error during process".format(plug.name))
                 del self._coros[plug]
             else:
-                log.debug("Received: {} {}".format(repr(channel), repr(msg)))
-                await self.callback(channel, msg, source, primary)
+                log.debug("Received: {}".format(repr(sent)))
+                await self.callback(sent, source, primary)
                 self._queue(plug)
             finally:
                 del self._plugs[task]
@@ -392,17 +392,15 @@ class Plug(Openable):
                 Existing user to kick.
         """
 
-    def queue(self, channel, msg):
+    def queue(self, sent):
         """
         Add a new message to the queue, picked up from :meth:`get` by default.
 
         Args:
-            channel (.Channel):
-                Source channel for the incoming message.
-            msg (.Message):
+            sent (.SentMessage):
                 Message received and processed by the plug.
         """
-        self._queue.put_nowait((channel, msg))
+        self._queue.put_nowait(sent)
 
     async def receive(self):
         """
@@ -412,7 +410,7 @@ class Plug(Openable):
         submit new messages, which will be handled by default.
 
         Yields:
-            (.Channel, .Message, .Message) tuple:
+            (.SentMessage, .Message, bool) tuple:
                 Messages received and processed by the plug, paired with a source message if one
                 exists (from a call to :meth:`send`).
         """
@@ -422,27 +420,27 @@ class Plug(Openable):
             raise PlugError("Plug is already receiving messages")
         self._getter = self.get()
         try:
-            async for channel, msg in self._getter:
+            async for sent in self._getter:
                 with (await self._lock):
                     # No critical section here, just wait for any pending messages to be sent.
                     pass
                 try:
                     # If this message was sent by us, retrieve the canonical version.  For source
                     # messages split into multiple parts, only make the first raw message primary.
-                    source, ids = self._sent[(channel, msg.id)]
-                    primary = ids.index(msg.id) == 0
+                    source, ids = self._sent[(sent.channel, sent.id)]
+                    primary = ids.index(sent.id) == 0
                 except KeyError:
                     # The message came from elsewhere, consider it the canonical copy.
-                    source = msg
+                    source = sent
                     primary = True
-                yield (channel, msg, source, primary)
+                yield (sent, source, primary)
         finally:
             await self._getter.aclose()
             self._getter = None
 
     async def get(self):
         """
-        Generator of :class:`.Message` objects from the underlying network.
+        Generator of :class:`.SentMessage` objects from the underlying network.
 
         By default, it reads from the built-in message queue (see :meth:`queue`), which works well
         for event-based libraries.  If the receive logic is a singular logic path (e.g. repeated
@@ -452,7 +450,7 @@ class Plug(Openable):
         requests for further messages, return any remaining or queued messages, and then terminate.
 
         Yields:
-            (.Channel, .Message) tuple:
+            .SentMessage:
                 Messages received and processed by the plug.
         """
         try:

@@ -19,6 +19,7 @@ This will generate a cookie file called *refresh_token.txt* in the current direc
 
 from asyncio import Condition, ensure_future, gather
 from copy import copy
+from datetime import datetime
 from io import BytesIO
 import logging
 import re
@@ -250,6 +251,7 @@ class HangoutsMessage(immp.Message):
             .HangoutsMessage:
                 Parsed message object.
         """
+        version = event._event.event_version
         user = HangoutsUser.from_user(hangouts, hangouts._users.get_user(event.user_id))
         action = False
         joined = None
@@ -338,16 +340,18 @@ class HangoutsMessage(immp.Message):
             raise NotImplementedError
         if not isinstance(event, hangups.ChatMessageEvent):
             text = immp.RichText(segments)
-        return (immp.Channel(hangouts, event.conversation_id),
-                cls(id=event.id_,
-                    text=text,
-                    user=user,
-                    action=action,
-                    joined=joined,
-                    left=left,
-                    title=title,
-                    attachments=attachments,
-                    raw=event))
+        return immp.SentMessage(id=event.id_,
+                                revision=version,
+                                at=datetime.fromtimestamp(version / 1000000),
+                                channel=immp.Channel(hangouts, event.conversation_id),
+                                text=text,
+                                user=user,
+                                action=action,
+                                joined=joined,
+                                left=left,
+                                title=title,
+                                attachments=attachments,
+                                raw=event)
 
 
 class HangoutsPlug(immp.Plug):
@@ -390,12 +394,12 @@ class HangoutsPlug(immp.Plug):
 
     async def _event(self, event):
         try:
-            channel, msg = HangoutsMessage.from_event(self, event)
+            sent = HangoutsMessage.from_event(self, event)
         except NotImplementedError:
             log.warn("Skipping unimplemented '{}' event type".format(event.__class__.__name__))
         else:
             log.debug("Queueing new message event")
-            self.queue(channel, msg)
+            self.queue(sent)
         await self._convs.get(event.conversation_id).update_read_timestamp()
 
     async def stop(self):
@@ -481,6 +485,29 @@ class HangoutsPlug(immp.Plug):
             participant_id=hangouts_pb2.ParticipantId(gaia_id=user.id))
         await self._client.remove_user(request)
 
+    async def _get_event(self, conv, event_id):
+        # Check first if we've already got the event cached.
+        for event in conv.events:
+            if event.id_ == event_id:
+                return event
+        # Hangouts has no way to query for an event by ID, only by timestamp.  Instead, we'll fetch
+        # the last X (in this case 500) events and hope to find it.
+        for event in await conv.get_events(conv.events[0].id_, 500):
+            if event.id_ == event_id:
+                return event
+        return None
+
+    async def _resolve_msg(self, conv, msg):
+        if isinstance(msg, immp.SentMessage):
+            event = await self._get_event(conv, msg.id)
+            if event:
+                return HangoutsMessage.from_event(self, event)
+            elif not msg.empty:
+                return msg
+        elif isinstance(msg, immp.Message):
+            return msg
+        return None
+
     async def _upload(self, attach):
         async with (await attach.get_content()) as img_content:
             # Hangups expects a file-like object with a synchronous read() method.
@@ -518,7 +545,8 @@ class HangoutsPlug(immp.Plug):
             images = await gather(*uploads)
         requests = []
         if msg.text or msg.reply_to:
-            segments = self._serialise(msg.render(quote_reply=True))
+            edited = msg.edited if isinstance(msg, immp.SentMessage) else False
+            segments = self._serialise(msg.render(edit=edited, quote_reply=True))
             media = None
             if len(images) == 1:
                 # Attach the only image to the message text.
@@ -544,24 +572,34 @@ class HangoutsPlug(immp.Plug):
         return requests
 
     async def put(self, channel, msg):
-        if msg.deleted:
+        if isinstance(msg, immp.SentMessage) and msg.deleted:
             # We can't delete messages on this side.
             return []
         conv = self._convs.get(channel.source)
-        requests = []
-        for attach in msg.attachments:
-            # Generate requests for attached messages first.
+        # Attempt to find sources for referenced messages.
+        clone = copy(msg)
+        clone.reply_to = await self._resolve_msg(conv, clone.reply_to)
+        for i, attach in enumerate(clone.attachments):
             if isinstance(attach, immp.Message):
+                clone.attachments[i] = await self._resolve_msg(conv, attach.reply_to)
+        requests = []
+        for i, attach in enumerate(clone.attachments):
+            # Generate requests for attached messages first.
+            if isinstance(attach, immp.SentMessage):
+                event = await self._get_event(conv, attach.id)
+                if event:
+                    requests += await self._requests(conv, HangoutsMessage.from_event(self, event))
+                elif not attach.empty:
+                    requests += await self._requests(conv, attach)
+            elif isinstance(attach, immp.Message):
                 requests += await self._requests(conv, attach)
-            elif isinstance(attach, immp.MessageRef) and attach.fallback:
-                requests += await self._requests(conv, attach.fallback)
-        own_requests = await self._requests(conv, msg)
+        own_requests = await self._requests(conv, clone)
         if requests and not own_requests:
             # Forwarding a message but no content to show who forwarded it.
-            info = immp.Message(user=msg.user, action=True, text="forwarded a message")
+            info = immp.Message(user=clone.user, action=True, text="forwarded a message")
             own_requests = await self._requests(conv, info)
         requests += own_requests
-        sent = []
+        events = []
         for request in requests:
-            sent.append(await self._client.send_chat_message(request))
-        return [resp.created_event.event_id for resp in sent]
+            events.append(await self._client.send_chat_message(request))
+        return [event.created_event.event_id for event in events]

@@ -198,29 +198,29 @@ class Host:
         if self.plugs:
             await wait([plug.close() for plug in self.plugs.values()])
 
-    async def _safe_receive(self, hook, channel, msg, source, primary):
+    async def _safe_receive(self, hook, sent, source, primary):
         try:
-            await hook.on_receive(channel, msg, source, primary)
+            await hook.on_receive(sent, source, primary)
         except Exception:
             log.exception("Hook '{}' failed on-receive event".format(hook.name))
 
-    async def _callback(self, channel, msg, source, primary):
+    async def _callback(self, sent, source, primary):
         for hook in chain(self.resources.values(), self.hooks.values()):
             if not hook.state == OpenState.active:
                 continue
             try:
-                result = await hook.before_receive(channel, msg, source, primary)
+                result = await hook.before_receive(sent, source, primary)
             except Exception:
                 log.exception("Hook '{}' failed before-receive event".format(hook.name))
                 continue
             if result:
-                channel, msg = result
+                sent = result
             else:
                 # Message has been suppressed by a hook.
                 break
         else:
             hooks = list(self.resources.values()) + list(self.hooks.values())
-            await gather(*(self._safe_receive(hook, channel, msg, source, primary)
+            await gather(*(self._safe_receive(hook, sent, source, primary)
                            for hook in hooks if hook.state == OpenState.active))
 
     async def process(self):

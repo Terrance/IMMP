@@ -177,11 +177,11 @@ class CommandHook(immp.Hook, Commandable):
                 text.append(immp.Segment("\n- {}".format(command.name)))
         await channel.send(immp.Message(text=text))
 
-    async def on_receive(self, channel, msg, source, primary):
-        await super().on_receive(channel, msg, source, primary)
-        if not primary or not msg == source:
+    async def on_receive(self, sent, source, primary):
+        await super().on_receive(sent, source, primary)
+        if not primary or sent is not source:
             return
-        scopes = await self.scopes(channel, msg.user)
+        scopes = await self.scopes(sent.channel, sent.user)
         if not scopes:
             return
         if not (source.text and str(source.text).startswith(self.config["prefix"])):
@@ -195,7 +195,7 @@ class CommandHook(immp.Hook, Commandable):
         if not command:
             return
         try:
-            log.debug("Executing command in channel: {} {}".format(repr(channel), source.text))
-            await command(channel, source, *args)
+            log.debug("Executing command: {} {}".format(repr(sent.channel), source.text))
+            await command(sent.channel, source, *args)
         except Exception:
             log.exception("Exception whilst running command: {}".format(source.text))

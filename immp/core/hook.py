@@ -59,20 +59,18 @@ class Hook(Openable):
         """
         return (channel, msg)
 
-    async def before_receive(self, channel, msg, source, primary):
+    async def before_receive(self, sent, source, primary):
         """
-        Modify an incoming message before it's pushed to other hooks.  The ``(channel, msg)`` pair
-        must be returned, so hooks may modify in-place or return a different pair.  This method is
-        called for each hook, one after another, so any time-consuming tasks should be deferred to
+        Modify an incoming message before it's pushed to other hooks.  The ``sent`` object must be
+        returned, so hooks may modify in-place or return a different object.  This method is called
+        for each hook, one after another, so any time-consuming tasks should be deferred to
         :meth:`process` (which is run for all hooks in parallel).
 
         Hooks may also suppress a message (e.g. if their actions caused it, but it bears no value
         to the rest of the system) by returning ``None``.
 
         Args:
-            channel (.Channel):
-                Original source of this message.
-            msg (.Message):
+            sent (.SentMessage):
                 Raw message received from another plug.
             source (.Message):
                 Original message data used to generate the raw message, if sent via the plug (e.g.
@@ -83,19 +81,17 @@ class Hook(Openable):
                 the underlying network doesn't support it), otherwise ``True``.
 
         Returns:
-            (.Channel, .Message) tuple:
-                The augmented or replacement pair, or ``None`` to suppress this message.
+            .SentMessage:
+                The augmented or replacement message, or ``None`` to suppress this message.
         """
-        return (channel, msg)
+        return sent
 
-    async def on_receive(self, channel, msg, source, primary):
+    async def on_receive(self, sent, source, primary):
         """
         Handle an incoming message received by any plug.
 
         Args:
-            channel (.Channel):
-                Original source of this message.
-            msg (.Message):
+            sent (.SentMessage):
                 Raw message received from another plug.
             source (.Message):
                 Original message data used to generate the raw message, if sent via the plug (e.g.

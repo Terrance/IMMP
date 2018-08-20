@@ -173,13 +173,13 @@ class MentionsHook(_AlertHookBase):
         else:
             return set()
 
-    async def on_receive(self, channel, msg, source, primary):
-        await super().on_receive(channel, msg, source, primary)
+    async def on_receive(self, sent, source, primary):
+        await super().on_receive(sent, source, primary)
         if not primary or not source.text:
             return
-        if channel.plug not in self.plugs or await channel.is_private():
+        if sent.channel.plug not in self.plugs or await sent.channel.is_private():
             return
-        members = await channel.plug.channel_members(channel)
+        members = await sent.channel.plug.channel_members(sent.channel)
         if not members:
             return
         mentioned = set()
@@ -198,8 +198,8 @@ class MentionsHook(_AlertHookBase):
                         immp.Segment(" mentioned you"))
         else:
             text.append(immp.Segment("You were mentioned"))
-        title = await channel.title()
-        link = await channel.link()
+        title = await sent.channel.title()
+        link = await sent.channel.link()
         if title:
             text.append(immp.Segment(" in "),
                         immp.Segment(title, italic=True))
@@ -215,7 +215,7 @@ class MentionsHook(_AlertHookBase):
         for member in mentioned:
             if member == source.user:
                 continue
-            private = await channel.plug.channel_for_user(member)
+            private = await sent.channel.plug.channel_for_user(member)
             if private:
                 tasks.append(private.send(immp.Message(text=text)))
         if tasks:
@@ -314,24 +314,24 @@ class SubscriptionsHook(_AlertHookBase, Commandable):
             triggered[present[(trigger.network, trigger.user)]].add(trigger.text)
         return triggered
 
-    async def on_receive(self, channel, msg, source, primary):
-        await super().on_receive(channel, msg, source, primary)
+    async def on_receive(self, sent, source, primary):
+        await super().on_receive(sent, source, primary)
         if not primary or not source.text:
             return
-        if channel.plug not in self.plugs or await channel.is_private():
+        if sent.channel.plug not in self.plugs or await sent.channel.is_private():
             return
-        members = await channel.plug.channel_members(channel)
+        members = await sent.channel.plug.channel_members(sent.channel)
         if not members:
             return
         present = {(member.plug.network_id, str(member.id)): member for member in members}
-        triggered = self.match(self.clean(str(source.text)), channel, present)
+        triggered = self.match(self.clean(str(source.text)), sent.channel, present)
         if not triggered:
             return
         tasks = []
         for member, triggers in triggered.items():
             if member == source.user:
                 continue
-            private = await channel.plug.channel_for_user(member)
+            private = await sent.channel.plug.channel_for_user(member)
             if not private:
                 continue
             text = immp.RichText()
@@ -341,8 +341,8 @@ class SubscriptionsHook(_AlertHookBase, Commandable):
                             immp.Segment(" mentioned "), mentioned)
             else:
                 text.append(mentioned, immp.Segment(" mentioned"))
-            title = await channel.title()
-            link = await channel.link()
+            title = await sent.channel.title()
+            link = await sent.channel.link()
             if title:
                 text.append(immp.Segment(" in "),
                             immp.Segment(title, italic=True))

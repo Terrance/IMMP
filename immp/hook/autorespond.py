@@ -73,16 +73,16 @@ class AutoRespondHook(immp.Hook, Commandable):
             text = "{} No such response".format(CROSS)
         await channel.send(immp.Message(text=text))
 
-    async def on_receive(self, channel, msg, source, primary):
-        await super().on_receive(channel, msg, source, primary)
-        if not primary or channel not in self.channels:
+    async def on_receive(self, sent, source, primary):
+        await super().on_receive(sent, source, primary)
+        if not primary or sent.channel not in self.channels:
             return
         # Skip our own response messages.
-        if (channel, msg.id) in self._sent:
+        if (sent.channel, sent.id) in self._sent:
             return
         text = str(source.text)
         for match, response in self.responses.items():
             if re.search(match, text, re.I):
-                log.debug("Matched regex '{}' in channel: {}".format(match, repr(channel)))
-                for id in await channel.send(immp.Message(text=response)):
-                    self._sent.append((channel, id))
+                log.debug("Matched regex '{}' in channel: {}".format(match, repr(sent.channel)))
+                for id in await sent.channel.send(immp.Message(text=response)):
+                    self._sent.append((sent.channel, id))

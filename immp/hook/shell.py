@@ -109,10 +109,10 @@ class ShellHook(immp.ResourceHook):
     def _code(self, loc, glob):
         code.interact(local=dict(glob, **loc))
 
-    async def on_receive(self, channel, msg, source, primary):
-        await super().on_receive(channel, msg, source, primary)
-        if channel in self.host.channels or self.config["all"]:
-            log.debug("Entering console: {}".format(repr(msg)))
+    async def on_receive(self, sent, source, primary):
+        await super().on_receive(sent, source, primary)
+        if sent.channel in self.host.channels or self.config["all"]:
+            log.debug("Entering console: {}".format(repr(sent)))
             self.console(locals(), globals())
 
 
@@ -123,7 +123,7 @@ class AsyncShellHook(immp.ResourceHook):
     Attributes:
         buffer (collections.deque):
             Queue of recent messages, the length defined by the ``buffer`` config entry.
-        last ((.Channel, .Message) tuple):
+        last ((.SentMessage, .Message) tuple):
             Most recent message received from a connected plug.
     """
 
@@ -162,6 +162,6 @@ class AsyncShellHook(immp.ResourceHook):
         context["pprint"] = partial(self._pprint, console)
         return console
 
-    async def on_receive(self, channel, msg, source, primary):
-        await super().on_receive(channel, msg, source, primary)
-        self.buffer.append((channel, msg, source))
+    async def on_receive(self, sent, source, primary):
+        await super().on_receive(sent, source, primary)
+        self.buffer.append((sent, source))

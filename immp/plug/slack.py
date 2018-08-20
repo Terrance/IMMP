@@ -145,11 +145,6 @@ class SlackAPIError(immp.PlugError):
     """
 
 
-class SuppressMessage(Exception):
-    # Don't yield a message for this event.
-    pass
-
-
 class MessageNotFound(Exception):
     # No match for a given channel and ts pair.
     pass
@@ -416,7 +411,7 @@ class SlackMessage(immp.Message):
             if event["message"]["text"] == event["previous_message"]["text"]:
                 # Message remains unchanged.  Can be caused by link unfurling (adds an attachment)
                 # or deleting replies (reply is removed from event.replies in new *and old*).
-                raise SuppressMessage
+                raise NotImplementedError
             # Original message details are under a nested "message" key.
             id = event["message"]["ts"]
             edited = True
@@ -490,46 +485,22 @@ class SlackMessage(immp.Message):
                         attachments.append(await slack.get_message(channel_id, ts))
                     except MessageNotFound:
                         pass
-        return (immp.Channel(slack, event["channel"]),
-                cls(id=id,
-                    at=datetime.fromtimestamp(int(float(event["ts"]))),
-                    revision=revision,
-                    edited=edited,
-                    deleted=deleted,
-                    text=SlackRichText.from_mrkdwn(slack, text) if text else None,
-                    user=user,
-                    action=action,
-                    reply_to=reply_to,
-                    joined=joined,
-                    left=left,
-                    title=title,
-                    attachments=attachments,
-                    raw=json))
-
-    @classmethod
-    def from_attachment(cls, slack, json):
-        """
-        Convert a message attachment structure into a :class:`.Message`.
-
-        Args:
-            slack (.SlackPlug):
-                Target plug instance for this attachment.
-            json (dict):
-                Slack API `attachment <https://api.slack.com/docs/message-attachments>`_ object.
-
-        Returns:
-            .SlackMessage:
-                Parsed message object.
-        """
-        attach = _Schema.msg_unfurl(json)
-        id = revision = attach["ts"]
-        text = attach["text"]
-        return (immp.Channel(slack, attach["channel_id"]),
-                cls(id=id,
-                    at=datetime.fromtimestamp(int(float(attach["ts"]))),
-                    revision=revision,
-                    text=SlackRichText.from_mrkdwn(slack, text) if text else None,
-                    raw=json))
+            text = SlackRichText.from_mrkdwn(slack, text)
+        return immp.SentMessage(id=id,
+                                revision=revision,
+                                at=datetime.fromtimestamp(float(event["ts"])),
+                                channel=immp.Channel(slack, event["channel"]),
+                                edited=edited,
+                                deleted=deleted,
+                                text=text,
+                                user=user,
+                                action=action,
+                                reply_to=reply_to,
+                                joined=joined,
+                                left=left,
+                                title=title,
+                                attachments=attachments,
+                                raw=json)
 
     @classmethod
     def to_attachment(cls, slack, msg, reply=False):
@@ -550,7 +521,9 @@ class SlackMessage(immp.Message):
                 Slack API `attachment <https://api.slack.com/docs/message-attachments>`_ object.
         """
         icon = ":arrow_right_hook:" if reply else ":speech_balloon:"
-        quote = {"footer": icon, "ts": msg.at.timestamp()}
+        quote = {"footer": icon}
+        if isinstance(msg, immp.SentMessage):
+            quote["ts"] = msg.at.timestamp()
         if msg.user:
             quote["author_name"] = msg.user.real_name or msg.user.username
             quote["author_icon"] = msg.user.avatar
@@ -725,17 +698,17 @@ class SlackPlug(immp.Plug):
                   "limit": 1}
         history = await self._api("conversations.history", _Schema.history, params=params)
         if history["messages"] and history["messages"][0]["ts"] == ts:
-            return (await SlackMessage.from_event(self, history["messages"][0]))[1]
+            return await SlackMessage.from_event(self, history["messages"][0])
         else:
             log.debug("Failed to retrieve message '{}' in channel '{}'".format(ts, channel_id))
             raise MessageNotFound
 
     async def put(self, channel, msg):
-        if msg.deleted:
+        if isinstance(msg, immp.SentMessage) and msg.deleted:
             # TODO
             return []
         uploads = []
-        sent = []
+        ids = []
         for attach in msg.attachments:
             if isinstance(attach, immp.File):
                 # Upload each file to Slack.
@@ -752,8 +725,8 @@ class SlackPlug(immp.Plug):
             for message in history["messages"]:
                 for file in message["files"]:
                     if file["id"] in uploads:
-                        sent.append(message["ts"])
-            if len(sent) < len(uploads):
+                        ids.append(message["ts"])
+            if len(ids) < len(uploads):
                 # Of the 100 messages we just looked at, at least one file wasn't found.
                 log.debug("Missing some file upload messages")
         if msg.user:
@@ -775,15 +748,15 @@ class SlackPlug(immp.Plug):
         elif uploads:
             what = "{} files".format(len(uploads)) if len(uploads) > 1 else "this file"
             rich = immp.RichText([immp.Segment("shared {}".format(what), italic=True)])
-        if msg.edited:
+        if isinstance(msg, immp.SentMessage) and msg.edited:
             rich.append(immp.Segment(" (edited)", italic=True))
         attachments = []
-        if isinstance(msg.reply_to, immp.Message):
-            attachments.append(SlackMessage.to_attachment(self, msg.reply_to, True))
-        elif isinstance(msg.reply_to, immp.MessageRef):
+        if isinstance(msg.reply_to, immp.SentMessage):
             # Reply directly to the corresponding thread.  Note that thread_ts can be any message
             # in the thread, it need not be resolved to the parent.
             data["thread_ts"] = msg.reply_to.id
+        elif isinstance(msg.reply_to, immp.Message):
+            attachments.append(SlackMessage.to_attachment(self, msg.reply_to, True))
         for attach in msg.attachments:
             if isinstance(attach, immp.Location):
                 coords = "{}, {}".format(attach.latitude, attach.longitude)
@@ -793,9 +766,7 @@ class SlackPlug(immp.Plug):
                                     "title_link": attach.google_map_url,
                                     "text": attach.address,
                                     "footer": "{}, {}".format(attach.latitude, attach.longitude)})
-            elif isinstance(attach, immp.Message):
-                attachments.append(SlackMessage.to_attachment(self, attach))
-            elif isinstance(attach, immp.MessageRef):
+            elif isinstance(attach, immp.SentMessage):
                 # No public API to share a message, rely on archive link unfurling instead.
                 link = ("https://{}.slack.com/archives/{}/p{}"
                         .format(self._team["domain"], channel.source, attach.id.replace(".", "")))
@@ -803,12 +774,14 @@ class SlackPlug(immp.Plug):
                     rich.append(immp.Segment("\n{}".format(link)))
                 else:
                     rich = immp.RichText([immp.Segment(link)])
+            elif isinstance(attach, immp.Message):
+                attachments.append(SlackMessage.to_attachment(self, attach))
         if rich:
             data["text"] = SlackRichText.to_mrkdwn(self, rich)
         data["attachments"] = json_dumps(attachments)
         post = await self._api("chat.postMessage", _Schema.post, data=data)
-        sent.append(post["ts"])
-        return sent
+        ids.append(post["ts"])
+        return ids
 
     async def _poll(self):
         while self.state == immp.OpenState.active and not self._closing:
@@ -845,8 +818,8 @@ class SlackPlug(immp.Plug):
             elif event["type"] == "message" and not event["subtype"] == "message_replied":
                 # A new message arrived, push it back to the host.
                 try:
-                    channel, msg = await SlackMessage.from_event(self, event)
-                except SuppressMessage:
+                    sent = await SlackMessage.from_event(self, event)
+                except NotImplementedError:
                     pass
                 else:
-                    self.queue(channel, msg)
+                    self.queue(sent)

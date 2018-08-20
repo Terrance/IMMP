@@ -183,7 +183,7 @@ class SyncHook(immp.Hook, Commandable):
     async def _send(self, channel, msg):
         try:
             ids = await channel.send(msg)
-            log.debug("Synced IDs for {} in {}: {}".format(repr(msg.id), repr(channel), ids))
+            log.debug("Synced IDs in {}: {}".format(repr(channel), ids))
             return (channel, ids)
         except Exception:
             log.exception("Failed to relay message to channel: {}".format(repr(channel)))
@@ -245,7 +245,7 @@ class SyncHook(immp.Hook, Commandable):
             self._synced[msg] = (ids, revisions)
 
     def _replace_msg(self, channel, msg, native):
-        if not msg or not msg.id:
+        if not (isinstance(msg, immp.SentMessage) and msg.id):
             return msg
         for source, (ids, revisions) in self._synced.items():
             if source == msg or msg.id in ids[channel]:
@@ -259,38 +259,38 @@ class SyncHook(immp.Hook, Commandable):
             return source
         elif ids[channel]:
             # Return a reference to the transport-native copy of the message.
-            return immp.MessageRef(ids[channel][0], source)
+            return immp.SentMessage(id=ids[channel][0], channel=channel)
         else:
             return msg
 
-    async def before_receive(self, channel, msg, source, primary):
-        await super().before_receive(channel, msg, source, primary)
+    async def before_receive(self, sent, source, primary):
+        await super().before_receive(sent, source, primary)
         # Attempt to find synced sources for referenced messages.
-        msg.reply_to = self._replace_msg(channel, msg.reply_to, False)
-        for i, attach in enumerate(msg.attachments):
+        sent.reply_to = self._replace_msg(sent.channel, sent.reply_to, False)
+        for i, attach in enumerate(sent.attachments):
             if isinstance(attach, immp.Message):
-                msg.attachments[i] = self._replace_msg(channel, attach, False)
-        return (channel, msg)
+                sent.attachments[i] = self._replace_msg(sent.channel, attach, False)
+        return sent
 
-    async def on_receive(self, channel, msg, source, primary):
-        await super().on_receive(channel, msg, source, primary)
+    async def on_receive(self, sent, source, primary):
+        await super().on_receive(sent, source, primary)
         try:
-            label = self.label_for_channel(channel)
+            label = self.label_for_channel(sent.channel)
         except immp.ConfigError:
             return
         with (await self._lock):
             # No critical section here, just wait for any pending messages to be sent.
             pass
-        pair = (msg.id, msg.revision)
+        pair = (sent.id, sent.revision)
         if source in self._synced:
             ids, revisions = self._synced[source]
-            if msg.id in ids[channel]:
-                if pair in revisions[channel]:
+            if sent.id in ids[sent.channel]:
+                if pair in revisions[sent.channel]:
                     # This is a synced message being echoed back from another channel.
                     log.debug("Ignoring synced revision: {}/{}".format(*pair))
                     return
-                revisions[channel].append(pair)
-                if len(revisions[channel]) <= len(ids[channel]):
+                revisions[sent.channel].append(pair)
+                if len(revisions[sent.channel]) <= len(ids[sent.channel]):
                     log.debug("Ignoring initial revision: {}/{}".format(*pair))
                     return
         if not self.config["joins"] and (source.joined or source.left):
@@ -300,10 +300,12 @@ class SyncHook(immp.Hook, Commandable):
             log.debug("Not syncing rename message: {}".format(source.id))
             return
         log.debug("Sending message to synced channel {}: {}/{}".format(repr(label), *pair))
-        await self.send(label, source, channel)
+        await self.send(label, source, sent.channel)
         # Push a copy of the message to the sync channel, if running.
         if self.plug:
-            self.plug.queue(immp.Channel(self.plug, label), source)
+            clone = copy(source)
+            clone.channel = immp.Channel(self.plug, label)
+            self.plug.queue(clone)
 
     async def before_send(self, channel, msg):
         await super().before_send(channel, msg)

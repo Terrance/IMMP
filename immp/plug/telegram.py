@@ -293,6 +293,13 @@ class TelegramMessage(immp.Message):
                 Parsed message object.
         """
         message = _Schema.message(json)
+        # Message IDs are just a sequence, only unique to their channel and not the whole network.
+        # Pair with the chat ID for a network-unique value.
+        id = (message["chat"]["id"], message["message_id"])
+        revision = message["edit_date"] or message["date"]
+        at = datetime.fromtimestamp(message["date"])
+        channel = immp.Channel(telegram, message["chat"]["id"])
+        edited = bool(message["edit_date"])
         text = None
         user = None
         action = False
@@ -304,7 +311,7 @@ class TelegramMessage(immp.Message):
         if message["from"]:
             user = TelegramUser.from_bot_user(telegram, message["from"])
         if message["reply_to_message"]:
-            reply_to = (await cls.from_message(telegram, message["reply_to_message"]))[1]
+            reply_to = await cls.from_message(telegram, message["reply_to_message"])
         # At most one of these fields will be set.
         if message["text"]:
             text = TelegramRichText.from_entities(message["text"], message["entities"])
@@ -364,42 +371,45 @@ class TelegramMessage(immp.Message):
         else:
             # No support for this message type.
             raise NotImplementedError
-        # Message IDs are just a sequence, only unique to their channel and not the whole network.
-        # Pair with the chat ID for a network-unique value.
-        msg = cls(id=(message["chat"]["id"], message["message_id"]),
-                  at=datetime.fromtimestamp(message["date"]),
-                  revision=message["edit_date"] or message["date"],
-                  edited=bool(message["edit_date"]),
-                  text=text,
-                  user=user,
-                  action=action,
-                  reply_to=reply_to,
-                  joined=joined,
-                  left=left,
-                  title=title,
-                  attachments=attachments,
-                  raw=message)
         if message["forward_date"]:
-            # Event is a message containing another message.  Inner message has no ID.
-            outer_id = msg.id
-            outer_at = msg.at
-            outer_user = msg.user
-            msg.id = None
-            msg.at = datetime.fromtimestamp(message["forward_date"])
-            msg.revision = message["forward_date"]
+            # Event is a message containing another message.  Forwarded messages have no ID, so we
+            # use a Message instead of a SentMessage here.
+            forward_user = None
             if message["forward_from"]:
-                msg.user = TelegramUser.from_bot_user(telegram, message["forward_from"])
-            else:
-                msg.user = None
-            msg = cls(id=outer_id,
-                      at=outer_at,
-                      revision=message["date"],
-                      user=outer_user,
-                      action=True,
-                      # Embed the inner message as an attachment.
-                      attachments=[msg],
-                      raw=message)
-        return (immp.Channel(telegram, message["chat"]["id"]), msg)
+                forward_user = TelegramUser.from_bot_user(telegram, message["forward_from"])
+            forward = immp.Message(text=text,
+                                   user=forward_user,
+                                   action=action,
+                                   reply_to=reply_to,
+                                   joined=joined,
+                                   left=left,
+                                   title=title,
+                                   attachments=attachments,
+                                   raw=message)
+            return immp.SentMessage(id=id,
+                                    revision=revision,
+                                    at=at,
+                                    channel=channel,
+                                    edited=edited,
+                                    user=user,
+                                    # Embed the inner message as an attachment.
+                                    attachments=[forward],
+                                    raw=message)
+        else:
+            return immp.SentMessage(id=id,
+                                    revision=revision,
+                                    at=at,
+                                    channel=channel,
+                                    edited=edited,
+                                    text=text,
+                                    user=user,
+                                    action=action,
+                                    reply_to=reply_to,
+                                    joined=joined,
+                                    left=left,
+                                    title=title,
+                                    attachments=attachments,
+                                    raw=message)
 
     @classmethod
     async def from_update(cls, telegram, update):
@@ -598,11 +608,11 @@ class TelegramPlug(immp.Plug):
         if msg.text or msg.reply_to:
             quote = False
             reply_to = ""
-            if isinstance(msg.reply_to, immp.Message):
-                quote = True
-            elif isinstance(msg.reply_to, immp.MessageRef):
+            if isinstance(msg.reply_to, immp.SentMessage):
                 # Reply natively to the given parent message.
                 reply_to = msg.reply_to.id[1]
+            elif isinstance(msg.reply_to, immp.Message):
+                quote = True
             rich = msg.render(quote_reply=quote)
             text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
             requests.append(self._api("sendMessage", _Schema.send,
@@ -629,7 +639,7 @@ class TelegramPlug(immp.Plug):
         return requests
 
     async def put(self, channel, msg):
-        if msg.deleted:
+        if isinstance(msg, immp.SentMessage) and msg.deleted:
             # TODO
             return []
         chat = channel.source
@@ -639,29 +649,29 @@ class TelegramPlug(immp.Plug):
         requests = []
         for attach in msg.attachments:
             # Generate requests for attached messages first.
-            if isinstance(attach, immp.Message):
-                requests += self._requests(chat, attach)
-            elif isinstance(attach, immp.MessageRef):
+            if isinstance(attach, immp.SentMessage):
                 # Forward the messages natively using the given chat/ID.
                 requests.append(self._api("forwardMessage", _Schema.send,
                                           params={"chat_id": chat,
                                                   "from_chat_id": attach.id[0],
                                                   "message_id": attach.id[1]}))
+            elif isinstance(attach, immp.Message):
+                requests += self._requests(chat, attach)
         own_requests = self._requests(chat, msg)
         if requests and not own_requests:
             # Forwarding a message but no content to show who forwarded it.
             info = immp.Message(user=msg.user, action=True, text="forwarded a message")
             own_requests = self._requests(chat, info)
         requests += own_requests
-        sent = []
+        ids = []
         for request in requests:
             result = await request
             if not result:
                 continue
-            ext_channel, ext_msg = await TelegramMessage.from_message(self, result)
-            self.queue(ext_channel, ext_msg)
-            sent.append(ext_msg.id)
-        return sent
+            sent = await TelegramMessage.from_message(self, result)
+            self.queue(sent)
+            ids.append(sent.id)
+        return ids
 
     async def _poll(self):
         while not self._closing:
@@ -696,12 +706,12 @@ class TelegramPlug(immp.Plug):
                 if any(key in update or "edited_{}".format(key) in update
                        for key in ("message", "channel_post")):
                     try:
-                        channel, msg = await TelegramMessage.from_update(self, update)
+                        sent = await TelegramMessage.from_update(self, update)
                     except NotImplementedError:
                         log.debug("Skipping message with no usable parts")
                     except CancelledError:
                         log.debug("Cancel request for plug '{}' getter".format(self.name))
                         return
                     else:
-                        self.queue(channel, msg)
+                        self.queue(sent)
                 self._offset = max(update["update_id"] + 1, self._offset)
