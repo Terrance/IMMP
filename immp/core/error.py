@@ -8,3 +8,9 @@ class PlugError(Exception):
     """
     Error for plug-specific problems.
     """
+
+
+class HookError(Exception):
+    """
+    Error for hook-specific problems.
+    """

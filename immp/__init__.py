@@ -1,4 +1,4 @@
-from .core.error import ConfigError, PlugError
+from .core.error import ConfigError, HookError, PlugError
 from .core.host import Host
 from .core.message import User, Segment, RichText, Attachment, File, Location, Message, SentMessage
 from .core.hook import Hook, ResourceHook
