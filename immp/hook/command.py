@@ -24,6 +24,7 @@ elsewhere.  Multiple command hooks can be loaded for fine-grained control.
 
 from collections import defaultdict
 from enum import Enum
+import inspect
 import logging
 from shlex import split
 
@@ -43,6 +44,10 @@ class _Schema:
                      Optional("hooks", default=list): [str],
                      Optional("admins", default=dict): Any({}, {str: [int]})},
                     extra=ALLOW_EXTRA, required=True)
+
+
+class _BadCommandCall(Exception):
+    pass
 
 
 class CommandScope(Enum):
@@ -90,8 +95,14 @@ class Command:
         self.args = args
         self.help = help
 
-    async def __call__(self, *args, **kwargs):
-        return await self.fn(*args, **kwargs)
+    async def __call__(self, channel, msg, *args):
+        sig = inspect.signature(self.fn)
+        params = tuple(sig.parameters.values())[2:]
+        required = len([arg for arg in params if arg.default is inspect.Parameter.empty])
+        if not required <= len(args) <= len(params):
+            # Invalid number of arguments passed, show the command usage.
+            raise _BadCommandCall
+        return await self.fn(channel, msg, *args)
 
     def __repr__(self):
         return "<{}: {} @ {}>".format(self.__class__.__name__, self.name, self.scope)
@@ -197,5 +208,8 @@ class CommandHook(immp.Hook, Commandable):
         try:
             log.debug("Executing command: {} {}".format(repr(sent.channel), source.text))
             await command(sent.channel, source, *args)
+        except _BadCommandCall:
+            # Invalid number of arguments passed, return the command usage.
+            await self.help(sent.channel, source, name)
         except Exception:
             log.exception("Exception whilst running command: {}".format(source.text))
