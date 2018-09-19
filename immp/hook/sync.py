@@ -198,10 +198,12 @@ class SyncHook(immp.Hook, Commandable):
                 Bridge that defines the underlying synced channels to send to.
             msg (.Message):
                 External message to push.
-            origin (.Channel):
-                Source channel of the message; if set and part of the sync, it will be skipped
-                (used to avoid retransmitting a message we just received).
+            origin (.SentMessage):
+                Raw message that triggered this sync; if set and part of the sync, it will be
+                skipped (used to avoid retransmitting a message we just received).
         """
+        # Note that `origin` corresponds to the enriched message (i.e. `sent` in on_receive()),
+        # and `msg` refers to the canonical copy (i.e. `source`).
         clone = copy(msg)
         identity = None
         if clone.user:
@@ -233,15 +235,15 @@ class SyncHook(immp.Hook, Commandable):
         # need to wait for all plugs to complete before processing further messages.
         with (await self._lock):
             for synced in self.channels[label]:
-                if not synced == origin:
+                if not (origin and synced == origin.channel):
                     queue.append(self._send(synced, clone))
             # Send all the messages in parallel, and match the resulting IDs up by channel.
             ids = defaultdict(list, await gather(*queue))
             revisions = defaultdict(list)
             if origin:
                 # For the channel we got the message from, just return the ID without resending.
-                ids[origin].append(msg.id)
-                revisions[origin].append((msg.id, msg.revision))
+                ids[origin.channel].append(origin.id)
+                revisions[origin.channel].append((origin.id, origin.revision))
             self._synced[msg] = (ids, revisions)
 
     def _replace_msg(self, channel, msg, native):
@@ -300,7 +302,7 @@ class SyncHook(immp.Hook, Commandable):
             log.debug("Not syncing rename message: {}".format(source.id))
             return
         log.debug("Sending message to synced channel {}: {}/{}".format(repr(label), *pair))
-        await self.send(label, source, sent.channel)
+        await self.send(label, source, sent)
         # Push a copy of the message to the sync channel, if running.
         if self.plug:
             clone = copy(source)
