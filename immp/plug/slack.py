@@ -79,7 +79,8 @@ class _Schema:
                             {Optional("user", default=None): Any(str, None)},
                         Optional("thread_ts", default=None): Any(str, None),
                         Optional("files", default=list): [file],
-                        Optional("attachments", default=list): [attachment]},
+                        Optional("attachments", default=list): [attachment],
+                        Optional("is_ephemeral", default=False): bool},
                        extra=ALLOW_EXTRA, required=True)
 
     _plain_msg = _base_msg.extend({"user": str, "text": str})
@@ -394,6 +395,10 @@ class SlackMessage(immp.Message):
                 Parsed message object.
         """
         event = _Schema.message(json)
+        if event["is_ephemeral"]:
+            # Ignore user-private messages from Slack (e.g. over quota warnings, link unfurling
+            # opt-in prompts etc.) which shouldn't be served to message processors.
+            raise NotImplementedError
         id = revision = event["ts"]
         edited = False
         deleted = False
@@ -820,6 +825,6 @@ class SlackPlug(immp.Plug):
                 try:
                     sent = await SlackMessage.from_event(self, event)
                 except NotImplementedError:
-                    pass
+                    log.debug("Ignoring message with ts: {}".format(event.get("ts")))
                 else:
                     self.queue(sent)
