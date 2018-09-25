@@ -99,7 +99,8 @@ class Command:
         sig = inspect.signature(self.fn)
         params = tuple(sig.parameters.values())[2:]
         required = len([arg for arg in params if arg.default is inspect.Parameter.empty])
-        if not required <= len(args) <= len(params):
+        varargs = any(arg.kind is inspect.Parameter.VAR_POSITIONAL for arg in params)
+        if len(args) < required or (not varargs and len(args) > len(params)):
             # Invalid number of arguments passed, show the command usage.
             raise _BadCommandCall
         return await self.fn(channel, msg, *args)
