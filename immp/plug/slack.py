@@ -13,9 +13,11 @@ You'll need to create either a full `Slack App <https://api.slack.com/apps>`_ an
 a `Bot Integration <https://my.slack.com/apps/A0F7YS25R-bots>`_.  In either case, you should end up
 with a token prefixed ``xoxb-``.
 
+You may alternatively use a full user account, with a token obtained from the `Legacy tokens
+<https://api.slack.com/custom-integrations/legacy-tokens>`_ page.  This is required to make use of
+adding or removing users in channels.
+
 If multiple Slack workspaces are involved, you will need a separate bot and plug setup per team.
-Enterprise Grid support has not been tested, and will likely have issues if plugs are configured
-for two workspaces in the same grid.
 """
 
 from asyncio import CancelledError, ensure_future, sleep
@@ -138,6 +140,8 @@ class _Schema:
     upload = _api({"file": file})
 
     history = _api({"messages": [message]})
+
+    api = _api()
 
 
 class SlackAPIError(immp.PlugError):
@@ -586,7 +590,7 @@ class SlackPlug(immp.Plug):
         """
         return isinstance(other, self.__class__) and self._team["id"] == other._team["id"]
 
-    async def _api(self, endpoint, schema, params=None, **kwargs):
+    async def _api(self, endpoint, schema=_Schema.api, params=None, **kwargs):
         params = params or {}
         params["token"] = self.config["token"]
         log.debug("Making API request to '{}'".format(endpoint))
@@ -695,6 +699,20 @@ class SlackPlug(immp.Plug):
         members = await self._paged("conversations.members", _Schema.members, "members",
                                     data={"channel": channel.source})
         return [self._users[member] for member in members]
+
+    async def channel_invite(self, channel, user):
+        if user.id == self._bot_user["id"]:
+            await self._api("conversations.join", params={"channel": channel.source})
+        else:
+            await self._api("conversations.invite", params={"channel": channel.source,
+                                                            "user": user.id})
+
+    async def channel_remove(self, channel, user):
+        if user.id == self._bot_user["id"]:
+            await self._api("conversations.leave", params={"channel": channel.source})
+        else:
+            await self._api("conversations.kick", params={"channel": channel.source,
+                                                          "user": user.id})
 
     async def get_message(self, channel_id, ts):
         params = {"channel": channel_id,
