@@ -462,6 +462,16 @@ class Message(Attachment):
         self.attachments = attachments or []
         self.raw = raw
 
+    @classmethod
+    def from_sent(cls, msg):
+        return cls(**msg._data)
+
+    @property
+    def _data(self):
+        return {"text": self.text, "user": self.user, "action": self.action,
+                "reply_to": self.reply_to, "joined": self.joined, "left": self.left,
+                "title": self.title, "attachments": self.attachments, "raw": self.raw}
+
     @property
     def text(self):
         return self._text
@@ -599,13 +609,17 @@ class SentMessage(Message):
         self.deleted = deleted
         self.empty = (not bool(kwargs)) if empty is None else empty
 
+    @classmethod
+    def from_abstract(cls, msg, **kwargs):
+        return cls(**kwargs, **msg._data)
+
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
             return False
         return (self.id, self.revision) == (other.id, other.revision)
 
     def __hash__(self):
-        return hash((self.id, self.revision))
+        return hash((self.id, self.revision, self.channel))
 
     def __repr__(self):
         try:
