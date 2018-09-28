@@ -406,6 +406,7 @@ class SlackMessage(immp.Message):
         id = revision = event["ts"]
         edited = False
         deleted = False
+        user = None
         action = False
         reply_to = None
         joined = None
@@ -414,7 +415,13 @@ class SlackMessage(immp.Message):
         attachments = []
         if event["subtype"] == "bot_message":
             # Event has the bot's app ID, not user ID.
-            author = slack._bot_to_user.get(event["bot_id"])
+            try:
+                author = slack._bot_to_user[event["bot_id"]]
+            except KeyError:
+                # Bot has no associated user, create a dummy user with the username.
+                author = None
+                if event["username"]:
+                    user = immp.User(real_name=event["username"])
             text = event["text"]
         elif event["subtype"] == "message_changed":
             if event["message"]["text"] == event["previous_message"]["text"]:
@@ -437,7 +444,6 @@ class SlackMessage(immp.Message):
         else:
             author = event["user"]
             text = event["text"]
-        user = None
         if author:
             user = slack._users.get(author, SlackUser(id=author, plug=slack))
             if text and re.match(r"<@{}(\|.*?)?> ".format(author), text):
