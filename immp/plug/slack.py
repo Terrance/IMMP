@@ -719,7 +719,10 @@ class SlackPlug(immp.Plug):
                   "latest": ts,
                   "inclusive": "true",
                   "limit": 1}
-        history = await self._api("conversations.history", _Schema.history, params=params)
+        try:
+            history = await self._api("conversations.history", _Schema.history, params=params)
+        except SlackAPIError:
+            raise MessageNotFound from None
         if history["messages"] and history["messages"][0]["ts"] == ts:
             return await SlackMessage.from_event(self, history["messages"][0])
         else:
