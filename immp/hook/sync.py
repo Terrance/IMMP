@@ -254,7 +254,8 @@ class SyncHook(immp.Hook, Commandable):
                 # Given message was a resync of the source message from a synced channel.
                 break
         else:
-            return msg
+            # No match for this source, replace with an unqualified message.
+            return immp.Message.from_sent(msg)
         log.debug("Found reference to previously synced message: {}".format(repr(source)))
         if not native:
             # Return the canonical copy of the message.
@@ -263,7 +264,7 @@ class SyncHook(immp.Hook, Commandable):
             # Return a reference to the transport-native copy of the message.
             return immp.SentMessage(id=ids[channel][0], channel=channel)
         else:
-            return msg
+            return immp.Message.from_sent(msg)
 
     async def before_receive(self, sent, source, primary):
         await super().before_receive(sent, source, primary)
