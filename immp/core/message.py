@@ -536,7 +536,7 @@ class Message(Attachment):
             for segment in output:
                 segment.italic = True
         if quote_reply and self.reply_to:
-            if not (isinstance(self.reply_to, SentMessage) and self.empty):
+            if not (isinstance(self.reply_to, SentMessage) and self.reply_to.empty):
                 quoted = self.reply_to.render(real_name=real_name, delimiter=delimiter, trim=32)
                 output.prepend(*(quoted.indent("\N{BOX DRAWINGS LIGHT VERTICAL} ")), Segment("\n"))
         return output
@@ -597,7 +597,7 @@ class SentMessage(Message):
         self.channel = channel
         self.edited = edited
         self.deleted = deleted
-        self.empty = bool(kwargs) if empty is None else empty
+        self.empty = (not bool(kwargs)) if empty is None else empty
 
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
