@@ -829,15 +829,16 @@ class SlackPlug(immp.Plug):
             if event["type"] in ("team_join", "user_change"):
                 # A user appeared or changed, update our cache.
                 self._users[event["user"]["id"]] = SlackUser.from_member(self, event["user"])
-            elif event["type"] in ("channel_joined", "group_joined"):
-                # A group or channel appeared, add to our cache.
-                self._channels[event["channel"]["id"]] = event["channel"]
+            elif event["type"] in ("channel_created", "channel_joined", "channel_rename",
+                                   "group_created", "group_joined", "group_rename"):
+                # A group or channel appeared or updated, add to our cache.
+                if event["channel"]["id"] in self._channels:
+                    self._channels[event["channel"]["id"]].update(event["channel"])
+                else:
+                    self._channels[event["channel"]["id"]] = event["channel"]
             elif event["type"] == "im_created":
                 # A DM appeared, add to our cache.
                 self._directs[event["channel"]["id"]] = event["channel"]
-            elif event["type"] in ("channel_rename", "group_rename"):
-                # A group or channel was renamed, update our cache.
-                self._channels[event["channel"]["id"]]["name"] = event["channel"]["name"]
             elif event["type"] == "message" and not event["subtype"] == "message_replied":
                 # A new message arrived, push it back to the host.
                 try:
