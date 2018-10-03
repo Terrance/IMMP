@@ -741,11 +741,25 @@ class SlackPlug(immp.Plug):
             return []
         uploads = []
         ids = []
+        if msg.user:
+            name = msg.user.real_name or msg.user.username
+            image = msg.user.avatar
+        else:
+            name = self.config["fallback-name"]
+            image = self.config["fallback-image"]
         for attach in msg.attachments:
             if isinstance(attach, immp.File):
                 # Upload each file to Slack.
                 data = FormData({"channels": channel.source,
                                  "filename": attach.title or ""})
+                if isinstance(msg.reply_to, immp.SentMessage):
+                    # Reply directly to the corresponding thread.  Note that thread_ts can be any
+                    # message in the thread, it need not be resolved to the parent.
+                    data.add_field("thread_ts", msg.reply_to.id)
+                if msg.user:
+                    comment = immp.RichText([immp.Segment(name, bold=True, italic=True),
+                                             immp.Segment(" uploaded this file", italic=True)])
+                    data.add_field("initial_comment", SlackRichText.to_mrkdwn(self, comment))
                 img_resp = await attach.get_content(self._session)
                 data.add_field("file", img_resp.content, filename="file")
                 upload = await self._api("files.upload", _Schema.upload, data=data)
@@ -761,12 +775,6 @@ class SlackPlug(immp.Plug):
             if len(ids) < len(uploads):
                 # Of the 100 messages we just looked at, at least one file wasn't found.
                 log.debug("Missing some file upload messages")
-        if msg.user:
-            name = msg.user.real_name or msg.user.username
-            image = msg.user.avatar
-        else:
-            name = self.config["fallback-name"]
-            image = self.config["fallback-image"]
         data = {"channel": channel.source,
                 "as_user": msg.user is None,
                 "username": name,
@@ -777,15 +785,10 @@ class SlackPlug(immp.Plug):
             if msg.action:
                 for segment in rich:
                     segment.italic = True
-        elif uploads:
-            what = "{} files".format(len(uploads)) if len(uploads) > 1 else "this file"
-            rich = immp.RichText([immp.Segment("shared {}".format(what), italic=True)])
         if isinstance(msg, immp.SentMessage) and msg.edited:
             rich.append(immp.Segment(" (edited)", italic=True))
         attachments = []
         if isinstance(msg.reply_to, immp.SentMessage):
-            # Reply directly to the corresponding thread.  Note that thread_ts can be any message
-            # in the thread, it need not be resolved to the parent.
             data["thread_ts"] = msg.reply_to.id
         elif isinstance(msg.reply_to, immp.Message):
             attachments.append(SlackMessage.to_attachment(self, msg.reply_to, True))
@@ -808,11 +811,13 @@ class SlackPlug(immp.Plug):
                     rich = immp.RichText([immp.Segment(link)])
             elif isinstance(attach, immp.Message):
                 attachments.append(SlackMessage.to_attachment(self, attach))
-        if rich:
-            data["text"] = SlackRichText.to_mrkdwn(self, rich)
-        data["attachments"] = json_dumps(attachments)
-        post = await self._api("chat.postMessage", _Schema.post, data=data)
-        ids.append(post["ts"])
+        if rich or attachments:
+            if rich:
+                data["text"] = SlackRichText.to_mrkdwn(self, rich)
+            if attachments:
+                data["attachments"] = json_dumps(attachments)
+            post = await self._api("chat.postMessage", _Schema.post, data=data)
+            ids.append(post["ts"])
         return ids
 
     async def _poll(self):
