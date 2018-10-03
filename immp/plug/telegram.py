@@ -629,8 +629,8 @@ class TelegramPlug(immp.Plug):
             elif isinstance(attach, immp.Location):
                 requests.append(self._api("sendLocation", _Schema.send,
                                           params={"chat_id": chat,
-                                                  "latitude": attach.latitude,
-                                                  "longitude": attach.longitude}))
+                                                  "latitude": str(attach.latitude),
+                                                  "longitude": str(attach.longitude)}))
                 if msg.user:
                     caption = immp.Message(user=msg.user, text="sent a location", action=True)
                     text = "".join(TelegramSegment.to_html(self, segment)
