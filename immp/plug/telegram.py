@@ -74,7 +74,8 @@ class _Schema:
                           Any(lambda v: _Schema.message(v), None),
                       Optional("photo", default=[]): [{"file_id": str}],
                       Optional("sticker", default=None):
-                          Any({"emoji": str, "file_id": str}, None),
+                          Any({Optional("emoji", default=None): Any(str, None),
+                               "file_id": str}, None),
                       Optional("location", default=None):
                           Any({"latitude": float, "longitude": float}, None),
                       Optional("group_chat_created", default=False): bool,
@@ -362,7 +363,9 @@ class TelegramMessage(immp.Message):
             url = ("https://api.telegram.org/file/bot{}/{}"
                    .format(telegram.config["token"], file["file_path"]))
             attachments.append(immp.File(type=immp.File.Type.image, source=url))
-            if not text:
+            # All real stickers should have an emoji, but webp images uploaded as photos are
+            # incorrectly categorised as stickers in the API response.
+            if not text and message["sticker"]["emoji"]:
                 action = True
                 text = "sent {} sticker".format(message["sticker"]["emoji"])
         elif message["location"]:
