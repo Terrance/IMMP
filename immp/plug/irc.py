@@ -385,24 +385,44 @@ class IRCPlug(immp.Plug):
             log.debug("Sending line: {}".format(repr(line)))
             self._writer.write("{}\r\n".format(line).encode())
 
-    async def put(self, channel, msg):
-        if (isinstance(msg, immp.SentMessage) and msg.deleted) or not msg.text:
+    def _lines(self, rich, user, action, edited):
+        if not rich:
             return []
-        formatted = IRCRichText.to_formatted(msg.text)
+        elif not isinstance(rich, immp.RichText):
+            rich = immp.RichText([immp.Segment(rich)])
         lines = []
-        for text in formatted.split("\n"):
-            if msg.user:
-                template = "* {} {}" if msg.action else "<{}> {}"
-                text = template.format(msg.user.username or msg.user.real_name, text)
-            if isinstance(msg, immp.SentMessage) and msg.edited:
+        for text in IRCRichText.to_formatted(rich).split("\n"):
+            if user:
+                template = "* {} {}" if action else "<{}> {}"
+                text = template.format(user.username or user.real_name, text)
+            if edited:
                 text = "[edit] {}".format(text)
-            if not msg.user and msg.action:
+            if not user and action:
                 text = "\x01ACTION {}\x01".format(text)
+            lines.append(text)
+        return lines
+
+    async def put(self, channel, msg):
+        lines = []
+        edited = isinstance(msg, immp.SentMessage) and msg.edited
+        if msg.text:
+            lines += self._lines(msg.text, msg.user, msg.action, edited)
+        for attach in msg.attachments:
+            if isinstance(attach, immp.File):
+                text = "uploaded a file{}".format(": {}".format(attach) if str(attach) else "")
+                lines += self._lines(text, msg.user, True, edited)
+            elif isinstance(attach, immp.Location):
+                text = "shared a location: {}".format(attach)
+                lines += self._lines(text, msg.user, True, edited)
+            elif isinstance(attach, immp.SentMessage) and attach.empty:
+                pass
+            elif isinstance(attach, immp.Message) and attach.text:
+                lines += self._lines(attach.text, attach.user, attach.action,
+                                     isinstance(attach, immp.SentMessage) and attach.edited)
+        ids = []
+        for text in lines:
             line = Line("PRIVMSG", channel.source, text)
             self.write(line)
-            lines.append(line)
-        ids = []
-        for line in lines:
             line.source = self._source
             sent = IRCMessage.from_line(self, line)
             self.queue(sent)

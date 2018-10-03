@@ -360,6 +360,12 @@ class File(Attachment):
         sess = sess or aiohttp.ClientSession()
         return await sess.get(self.source)
 
+    def __str__(self):
+        if self.title and self.source:
+            return "{} ({})".format(self.title, self.source)
+        else:
+            return self.title or self.source
+
     def __repr__(self):
         return "<{}: {} {}>".format(self.__class__.__name__, repr(self.title), self.type.name)
 
@@ -418,6 +424,12 @@ class Location(Attachment):
 
     def __hash__(self):
         return hash(self.coordinates)
+
+    def __str__(self):
+        out = self.address or "{}, {}".format(*self.coordinates)
+        if self.name:
+            out = "{} ({})".format(self.name, out)
+        return out
 
     def __repr__(self):
         return "<{}: {}, {}{}>".format(self.__class__.__name__, self.latitude, self.longitude,
