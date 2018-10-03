@@ -88,8 +88,8 @@ class _Schema:
     _plain_msg = _base_msg.extend({"user": str, "text": str})
 
     message = Schema(Any(_base_msg.extend({"subtype": "bot_message",
-                                           "bot_id": str,
                                            "text": str,
+                                           Optional("bot_id", default=None): Any(str, None),
                                            Optional("username", default=None): Any(str, None),
                                            Optional("icons", default=dict): Any(dict, None)}),
                          _base_msg.extend({"subtype": "message_changed",
