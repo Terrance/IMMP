@@ -99,10 +99,13 @@ class Command:
         sig = inspect.signature(self.fn)
         params = tuple(sig.parameters.values())[2:]
         required = len([arg for arg in params if arg.default is inspect.Parameter.empty])
-        varargs = any(arg.kind is inspect.Parameter.VAR_POSITIONAL for arg in params)
+        varargs = len([arg for arg in params if arg.kind is inspect.Parameter.VAR_POSITIONAL])
+        required -= varargs
         if len(args) < required or (not varargs and len(args) > len(params)):
             # Invalid number of arguments passed, show the command usage.
-            raise _BadCommandCall
+            raise _BadCommandCall("Got {} args, need {}-{}{}"
+                                  .format(len(args), required, len(params),
+                                          " (has varargs)" if varargs else ""))
         return await self.fn(channel, msg, *args)
 
     def __repr__(self):
@@ -209,7 +212,8 @@ class CommandHook(immp.Hook, Commandable):
         try:
             log.debug("Executing command: {} {}".format(repr(sent.channel), source.text))
             await command(sent.channel, source, *args)
-        except _BadCommandCall:
+        except _BadCommandCall as e:
+            log.debug(e.args[0])
             # Invalid number of arguments passed, return the command usage.
             await self.help(sent.channel, source, name)
         except Exception:
