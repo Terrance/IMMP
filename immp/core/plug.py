@@ -421,7 +421,7 @@ class Plug(Openable):
         self._getter = self.get()
         try:
             async for sent in self._getter:
-                with (await self._lock):
+                async with self._lock:
                     # No critical section here, just wait for any pending messages to be sent.
                     pass
                 try:
@@ -507,7 +507,7 @@ class Plug(Openable):
         # When sending messages asynchronously, the network will likely return the new message
         # before the send request returns with confirmation.  Use the lock when sending in order
         # return the new message ID(s) in advance of them appearing in the receive queue.
-        with (await self._lock):
+        async with self._lock:
             ids = await self.put(channel, msg)
         for id in ids:
             self._sent[(channel, id)] = (msg, ids)

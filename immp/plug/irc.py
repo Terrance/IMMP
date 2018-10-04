@@ -340,10 +340,10 @@ class IRCPlug(immp.Plug):
     async def handle(self, line):
         if line.command in self._data:
             self._data[line.command].append(line)
-        for commands, condition in self._waits:
+        for commands, cond in self._waits:
             if line.command in commands:
-                with await condition:
-                    condition.notify_all()
+                async with cond:
+                    cond.notify_all()
         if line.command == "PING":
             self.write(Line("PONG", *line.args))
         elif line.command in ("JOIN", "PART", "PRIVMSG"):
@@ -369,7 +369,7 @@ class IRCPlug(immp.Plug):
         cond = Condition()
         pair = (((success,) + tuple(fail)), cond)
         self._waits.append(pair)
-        with await cond:
+        async with cond:
             await cond.wait()
         self._waits.remove(pair)
         # Retrieve captured data for this wait.

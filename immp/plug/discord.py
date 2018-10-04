@@ -321,7 +321,7 @@ class DiscordClient(discord.Client):
         self._plug = plug
 
     async def on_ready(self):
-        with await self._plug._starting:
+        async with self._plug._starting:
             self._plug._starting.notify_all()
         await self.on_resume()
 
@@ -369,7 +369,7 @@ class DiscordPlug(immp.Plug):
         log.debug("Starting client")
         self._client = DiscordClient(self)
         self._task = ensure_future(self._client.start(self.config["token"], bot=self.config["bot"]))
-        with await self._starting:
+        async with self._starting:
             # Block until the client is ready.
             await self._starting.wait()
 

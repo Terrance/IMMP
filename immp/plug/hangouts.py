@@ -377,7 +377,7 @@ class HangoutsPlug(immp.Plug):
         self._client.on_connect.add_observer(self._connect)
         log.debug("Connecting client")
         ensure_future(self._client.connect())
-        with await self._starting:
+        async with self._starting:
             # Block until users and conversations are loaded.
             await self._starting.wait()
         log.debug("Listening for events")
@@ -389,7 +389,7 @@ class HangoutsPlug(immp.Plug):
         resp = await self._client.get_self_info(hangouts_pb2.GetSelfInfoRequest(
             request_header=self._client.get_request_header()))
         self._bot_user = resp.self_entity.id.chat_id
-        with await self._starting:
+        async with self._starting:
             self._starting.notify_all()
 
     async def _event(self, event):

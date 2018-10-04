@@ -233,7 +233,7 @@ class SyncHook(immp.Hook, Commandable):
         queue = []
         # Just like with plugs, when sending a new (external) message to all channels in a sync, we
         # need to wait for all plugs to complete before processing further messages.
-        with (await self._lock):
+        async with self._lock:
             for synced in self.channels[label]:
                 if not (origin and synced == origin.channel):
                     queue.append(self._send(synced, clone))
@@ -281,7 +281,7 @@ class SyncHook(immp.Hook, Commandable):
             label = self.label_for_channel(sent.channel)
         except immp.ConfigError:
             return
-        with (await self._lock):
+        async with self._lock:
             # No critical section here, just wait for any pending messages to be sent.
             pass
         pair = (sent.id, sent.revision)
