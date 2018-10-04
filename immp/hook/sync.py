@@ -39,6 +39,7 @@ from asyncio import BoundedSemaphore, gather
 from collections import defaultdict
 from copy import copy
 import logging
+import time
 
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
@@ -65,6 +66,59 @@ class _Schema:
                      Optional("identities", default=None): Any(str, None),
                      Optional("name-format", default=None): Any(str, None)},
                     extra=ALLOW_EXTRA, required=True)
+
+
+class SyncRef:
+
+    _last_key = 0
+
+    @classmethod
+    def now(cls):
+        """
+        Generate a timestamp-like identifier for each synced message.  If called twice in quick
+        succession, the value is guaranteed to be unique each time.
+
+        Returns:
+            str:
+                Unique message identifier.
+        """
+        key = max(cls._last_key + 1, int(time.time()))
+        cls._last_key = key
+        return str(key)
+
+    def __init__(self, ids, source=None, origin=None):
+        self.key = self.now()
+        self.ids = defaultdict(list, ids)
+        self.revisions = defaultdict(lambda: defaultdict(set))
+        self.source = source
+        if origin:
+            self.ids[origin.channel].append(origin.id)
+            self.revision(origin)
+
+    def revision(self, sent):
+        self.revisions[sent.channel][sent.id].add(sent.revision)
+        return len(self.revisions[sent.channel][sent.id]) > 1
+
+
+class SyncCache:
+
+    def __init__(self):
+        self._cache = {}
+        self._lookup = defaultdict(dict)
+
+    def add(self, ref):
+        self._cache[ref.key] = ref
+        for channel, ids in ref.ids.items():
+            for id in ids:
+                self._lookup[channel][id] = ref.key
+
+    def __getitem__(self, key):
+        if isinstance(key, immp.SentMessage):
+            key = self._lookup[key.channel][key.id]
+        if isinstance(key, str):
+            return self._cache[key]
+        else:
+            raise KeyError(key)
 
 
 class SyncPlug(immp.Plug):
@@ -112,9 +166,8 @@ class SyncHook(immp.Hook, Commandable):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
-        # Message cache, stores IDs of all synced messages by channel.  Mapping from source
-        # messages to [{channel: [ID, ...], ...}] (source IDs may not be unique across networks).
-        self._synced = {}
+        # Message cache, stores IDs of all synced messages by channel.
+        self._cache = SyncCache()
         # Hook lock, to put a hold on retrieving messages whilst a send is in progress.
         self._lock = BoundedSemaphore()
         # Add a virtual plug to the host, for external subscribers.
@@ -238,31 +291,26 @@ class SyncHook(immp.Hook, Commandable):
                 if not (origin and synced == origin.channel):
                     queue.append(self._send(synced, clone))
             # Send all the messages in parallel, and match the resulting IDs up by channel.
-            ids = defaultdict(list, await gather(*queue))
-            revisions = defaultdict(list)
-            if origin:
-                # For the channel we got the message from, just return the ID without resending.
-                ids[origin.channel].append(origin.id)
-                revisions[origin.channel].append((origin.id, origin.revision))
-            self._synced[msg] = (ids, revisions)
+            ref = SyncRef(dict(await gather(*queue)), msg, origin)
+            self._cache.add(ref)
+            return ref
 
     def _replace_msg(self, channel, msg, native):
-        if not (isinstance(msg, immp.SentMessage) and msg.id):
+        if not isinstance(msg, immp.SentMessage):
             return msg
-        for source, (ids, revisions) in self._synced.items():
-            if source == msg or msg.id in ids[channel]:
-                # Given message was a resync of the source message from a synced channel.
-                break
-        else:
+        try:
+            # Given message was a resync of the source message from a synced channel.
+            ref = self._cache[msg]
+        except KeyError:
             # No match for this source, replace with an unqualified message.
             return immp.Message.from_sent(msg)
-        log.debug("Found reference to previously synced message: {}".format(repr(source)))
-        if not native:
+        log.debug("Found reference to previously synced message: {}".format(repr(ref.key)))
+        if ref.source and not native:
             # Return the canonical copy of the message.
-            return source
-        elif ids[channel]:
+            return ref.source
+        elif ref.ids[channel]:
             # Return a reference to the transport-native copy of the message.
-            return immp.SentMessage(id=ids[channel][0], channel=channel)
+            return immp.SentMessage(id=ref.ids[channel][0], channel=channel)
         else:
             return immp.Message.from_sent(msg)
 
@@ -284,29 +332,28 @@ class SyncHook(immp.Hook, Commandable):
         async with self._lock:
             # No critical section here, just wait for any pending messages to be sent.
             pass
-        pair = (sent.id, sent.revision)
-        if source in self._synced:
-            ids, revisions = self._synced[source]
-            if sent.id in ids[sent.channel]:
-                if pair in revisions[sent.channel]:
-                    # This is a synced message being echoed back from another channel.
-                    log.debug("Ignoring synced revision: {}/{}".format(*pair))
-                    return
-                revisions[sent.channel].append(pair)
-                if len(revisions[sent.channel]) <= len(ids[sent.channel]):
-                    log.debug("Ignoring initial revision: {}/{}".format(*pair))
-                    return
+        try:
+            ref = self._cache[sent]
+        except KeyError:
+            log.debug("Incoming message not in sync cache: {}".format(repr(sent)))
+        else:
+            if ref.revision(sent):
+                log.debug("Incoming message is an update, needs sync: {}".format(repr(sent)))
+            else:
+                log.debug("Incoming message already synced: {}".format(repr(sent)))
+                return
         if not self.config["joins"] and (source.joined or source.left):
             log.debug("Not syncing join/part message: {}".format(source.id))
             return
         if not self.config["renames"] and source.title:
             log.debug("Not syncing rename message: {}".format(source.id))
             return
-        log.debug("Sending message to synced channel {}: {}/{}".format(repr(label), *pair))
-        await self.send(label, source, sent)
+        log.debug("Sending message to synced channel {}: {}".format(repr(label), sent.id))
+        ref = await self.send(label, source, sent)
         # Push a copy of the message to the sync channel, if running.
         if self.plug:
             clone = copy(source)
+            clone.id = ref.key
             clone.channel = immp.Channel(self.plug, label)
             self.plug.queue(clone)
 
