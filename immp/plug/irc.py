@@ -21,7 +21,6 @@ Config:
 from asyncio import Condition, ensure_future, open_connection, sleep
 import logging
 import re
-import time
 
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
@@ -62,27 +61,14 @@ class Line:
                          "(?::(?P<source>[^ ]+) +)?(?P<command>[a-z]+|[0-9]{3})"
                          "(?P<args>(?: +[^: ][^ ]*)*)(?: +:(?P<trailing>.*))?", re.I)
 
-    _last_ts = 0
-
     def __init__(self, command, *args, source=None, tags=None):
         self.command = command
         self.args = args
         self.source = source
         self.tags = tags
 
-    @classmethod
-    def now(cls):
-        """
-        Generate a timestamp suitable for use as a TS value.  If called twice in quick succession,
-        the value is guaranteed to be unique each time.
-
-        Returns:
-            str:
-                Current timestamp in seconds.
-        """
-        ts = max(cls._last_ts + 1, int(time.time()))
-        cls._last_ts = ts
-        return str(ts)
+    # Conveniently, this generates timestamp identifiers of the desired format.
+    next_ts = immp.IDGen()
 
     @classmethod
     def parse(cls, line):
@@ -228,7 +214,7 @@ class IRCMessage(immp.Message):
             if match:
                 text = match.group(1)
                 action = True
-        return immp.SentMessage(id=Line.now(),
+        return immp.SentMessage(id=Line.next_ts(),
                                 channel=immp.Channel(irc, channel),
                                 user=user,
                                 text=text,

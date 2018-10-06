@@ -39,7 +39,6 @@ from asyncio import BoundedSemaphore, gather
 from collections import defaultdict
 from copy import copy
 import logging
-import time
 
 from peewee import CharField
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
@@ -156,21 +155,7 @@ class SyncRef:
             Original copy of the source message, if we have it.
     """
 
-    _last_key = 0
-
-    @classmethod
-    def now(cls):
-        """
-        Generate a timestamp-like identifier for each synced message.  If called twice in quick
-        succession, the value is guaranteed to be unique each time.
-
-        Returns:
-            str:
-                Unique message identifier.
-        """
-        key = max(cls._last_key + 1, int(time.time()))
-        cls._last_key = key
-        return str(key)
+    next_key = immp.IDGen()
 
     @classmethod
     def from_backref_map(cls, key, mapped, host):
@@ -198,7 +183,7 @@ class SyncRef:
         return cls(ids, key=key)
 
     def __init__(self, ids, *, key=None, source=None, origin=None):
-        self.key = key or self.now()
+        self.key = key or self.next_key()
         self.ids = defaultdict(list, ids)
         self.revisions = defaultdict(lambda: defaultdict(set))
         self.source = source

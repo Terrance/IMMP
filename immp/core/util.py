@@ -1,8 +1,36 @@
 from asyncio import Condition
 from enum import Enum
 from importlib import import_module
+import time
 
 from .error import ConfigError
+
+
+class IDGen:
+    """
+    Generator of generic timestamp-based identifiers.
+
+    IDs are guaranteed unique for the lifetime of the application -- two successive calls will
+    yield two different identifiers.
+    """
+
+    def __init__(self):
+        self.last = 0
+
+    def __call__(self):
+        """
+        Make a new identifier.
+
+        Returns:
+            str:
+                Newly generated identifier.
+        """
+        new = max(self.last + 1, int(time.time()))
+        self.last = new
+        return str(new)
+
+    def __repr__(self):
+        return "<{}: {} -> {}>".format(self.__class__.__name__, self.last, self())
 
 
 def resolve_import(path):
