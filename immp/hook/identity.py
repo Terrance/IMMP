@@ -2,6 +2,8 @@
 Basic identity management for users in different networks.
 
 Config:
+    instance (int):
+        Unique instance code.
     plugs (str list):
         List of plug names to accept identities for.
 
@@ -19,14 +21,20 @@ Commands:
     id-role <name> [role]:
         List roles assigned to an identity, or add/remove a given role.
 
+In order to support multiple copies of this hook with overlapping plugs (e.g. including a private
+network in some groups), each hook has an instance code.  If a code isn't defined in the config, a
+new one will be assigned at startup.  If multiple hooks are in use, it's important to define these
+yourself, so that identities remained assigned to the correct instance.
+
 .. note::
     This hook requires an active :class:`.DatabaseHook` to store data.
 """
 
 from hashlib import sha256
+import logging
 
-from peewee import CharField, ForeignKeyField
-from voluptuous import ALLOW_EXTRA, Schema
+from peewee import CharField, ForeignKeyField, IntegerField
+from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
 from immp.hook.command import Command, Commandable, CommandScope
@@ -37,9 +45,14 @@ CROSS = "\N{CROSS MARK}"
 TICK = "\N{WHITE HEAVY CHECK MARK}"
 
 
+log = logging.getLogger(__name__)
+
+
 class _Schema:
 
-    config = Schema({"plugs": [str]}, extra=ALLOW_EXTRA, required=True)
+    config = Schema({Optional("instance", default=None): Any(int, None),
+                     "plugs": [str]},
+                    extra=ALLOW_EXTRA, required=True)
 
 
 class IdentityGroup(BaseModel):
@@ -47,6 +60,8 @@ class IdentityGroup(BaseModel):
     Representation of a single identity.
 
     Attributes:
+        instance (int):
+            :class:`IdentityHook` instance code.
         name (str):
             Unique display name.
         pwd (str):
@@ -55,8 +70,13 @@ class IdentityGroup(BaseModel):
             All links contained by this group.
     """
 
-    name = CharField(unique=True)
+    instance = IntegerField()
+    name = CharField()
     pwd = CharField()
+
+    class Meta:
+        # Uniqueness constraint for each name in each identity instance.
+        indexes = ((("instance", "name"), True),)
 
     @classmethod
     def hash(cls, pwd):
@@ -135,6 +155,15 @@ class IdentityHook(immp.Hook, Commandable):
                         "List roles assigned to an identity, or add/remove a given role.")]
 
     async def start(self):
+        if not self.config["instance"]:
+            # Find a non-conflicting number and assign it.
+            codes = {hook.config["instance"] for hook in self.host.hooks.values()
+                     if isinstance(hook, self.__class__)}
+            code = 1
+            while code in codes:
+                code += 1
+            log.debug("Assigning instance code {} to hook '{}'".format(code, self.name))
+            self.config["instance"] = code
         self.db = self.host.resources[DatabaseHook].db
         self.db.create_tables([IdentityGroup, IdentityLink, IdentityRole], safe=True)
 
@@ -154,7 +183,8 @@ class IdentityHook(immp.Hook, Commandable):
             return None
         try:
             return (IdentityGroup.select_links()
-                                 .where(IdentityLink.network == user.plug.network_id,
+                                 .where(IdentityGroup.instance == self.config["instance"],
+                                        IdentityLink.network == user.plug.network_id,
                                         IdentityLink.user == user.id).get())
         except IdentityGroup.DoesNotExist:
             return None
@@ -162,7 +192,8 @@ class IdentityHook(immp.Hook, Commandable):
     async def show(self, channel, msg, name):
         try:
             group = (IdentityGroup.select_links()
-                                  .where(IdentityGroup.name == name).get())
+                                  .where(IdentityGroup.instance == self.config["instance"],
+                                         IdentityGroup.name == name).get())
         except IdentityGroup.DoesNotExist:
             text = "{} Name not in use".format(CROSS)
         else:
@@ -199,7 +230,7 @@ class IdentityHook(immp.Hook, Commandable):
             pwd = IdentityGroup.hash(pwd)
             exists = False
             try:
-                group = IdentityGroup.get(name=name)
+                group = IdentityGroup.get(instance=self.config["instance"], name=name)
                 exists = True
             except IdentityGroup.DoesNotExist:
                 group = IdentityGroup.create(name=name, pwd=pwd)
@@ -219,7 +250,8 @@ class IdentityHook(immp.Hook, Commandable):
             text = "{} Not identified".format(CROSS)
         elif group.name == name:
             text = "{} No change".format(TICK)
-        elif IdentityGroup.select().where(IdentityGroup.name == name).exists():
+        elif IdentityGroup.select().where(IdentityGroup.instance == self.config["instance"],
+                                          IdentityGroup.name == name).exists():
             text = "{} Name already in use".format(CROSS)
         else:
             group.name = name
@@ -252,7 +284,7 @@ class IdentityHook(immp.Hook, Commandable):
 
     async def role(self, channel, msg, name, role=None):
         try:
-            group = IdentityGroup.get(name=name)
+            group = IdentityGroup.get(instance=self.config["instance"], name=name)
         except IdentityGroup.DoesNotExist:
             text = "{} Name not registered".format(CROSS)
         else:
