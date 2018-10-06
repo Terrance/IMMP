@@ -395,36 +395,39 @@ class DiscordPlug(immp.Plug):
                 return DiscordUser.from_user(self, member)
         return None
 
+    def _get_channel(self, channel):
+        return self._client.get_channel(int(channel.source))
+
     async def channel_for_user(self, user):
         if not isinstance(user, DiscordUser):
             return None
         if not isinstance(user.raw, (discord.Member, discord.User)):
             return None
         dm = user.raw.dm_channel or (await user.raw.create_dm())
-        return immp.Channel(None, self, dm.id)
+        return immp.Channel(self, dm.id)
 
     async def channel_title(self, channel):
-        dc_channel = self._client.get_channel(channel.source)
+        dc_channel = self._get_channel(channel)
         return dc_channel.name if dc_channel else None
 
     async def channel_link(self, channel):
-        dc_channel = self._client.get_channel(channel.source)
+        dc_channel = self._get_channel(channel)
         return ("https://discordapp.com/channels/{}/{}".format(dc_channel.guild.id, dc_channel.id)
                 if dc_channel else None)
 
     async def channel_rename(self, channel, title):
-        dc_channel = self._client.get_channel(channel.source)
+        dc_channel = self._get_channel(channel)
         if dc_channel:
             await dc_channel.edit(name=title)
 
     async def channel_is_private(self, channel):
-        dc_channel = self._client.get_channel(channel.source)
+        dc_channel = self._get_channel(channel)
         return isinstance(dc_channel, discord.DMChannel)
 
     async def channel_members(self, channel):
         if channel.plug is not self:
             return None
-        dc_channel = self._client.get_channel(channel.source)
+        dc_channel = self._get_channel(channel)
         if dc_channel:
             return [DiscordUser.from_user(self, member) for member in dc_channel.members]
         else:
@@ -491,7 +494,7 @@ class DiscordPlug(immp.Plug):
         message = _Schema.webhook(json)
         if "code" in message:
             raise DiscordAPIError("{}: {}".format(message["code"], message["message"]))
-        return [int(message["id"])]
+        return [message["id"]]
 
     async def _requests(self, dc_channel, msg):
         embeds = []
@@ -546,7 +549,7 @@ class DiscordPlug(immp.Plug):
         sent = []
         for request in requests:
             sent.append(await request)
-        return [resp.id for resp in sent]
+        return [str(resp.id) for resp in sent]
 
     async def put(self, channel, msg):
         webhook = None
@@ -554,7 +557,7 @@ class DiscordPlug(immp.Plug):
             if channel == host_channel:
                 webhook = self.config["webhooks"].get(label)
                 break
-        dc_channel = self._client.get_channel(channel.source)
+        dc_channel = self._get_channel(channel)
         if webhook:
             log.debug("Sending to {} via webhook".format(repr(channel)))
             return await self._put_webhook(dc_channel, webhook, msg)

@@ -296,7 +296,7 @@ class TelegramMessage(immp.Message):
         message = _Schema.message(json)
         # Message IDs are just a sequence, only unique to their channel and not the whole network.
         # Pair with the chat ID for a network-unique value.
-        id = (message["chat"]["id"], message["message_id"])
+        id = "{}:{}".format(message["chat"]["id"], message["message_id"])
         revision = message["edit_date"] or message["date"]
         at = datetime.fromtimestamp(message["date"])
         channel = immp.Channel(telegram, message["chat"]["id"])
@@ -568,7 +568,8 @@ class TelegramPlug(immp.Plug):
             return None
         try:
             # Chat IDs can be negative in the bot API dependent on type, not over MTProto.
-            data = await self._client(tl.functions.messages.GetFullChatRequest(abs(channel.source)))
+            chat = abs(int(channel.source))
+            data = await self._client(tl.functions.messages.GetFullChatRequest(chat))
         except BadRequestError:
             return None
         else:
@@ -613,7 +614,7 @@ class TelegramPlug(immp.Plug):
             reply_to = ""
             if isinstance(msg.reply_to, immp.SentMessage):
                 # Reply natively to the given parent message.
-                reply_to = msg.reply_to.id[1]
+                reply_to = int(msg.reply_to.id.split(":")[1])
             elif isinstance(msg.reply_to, immp.Message):
                 quote = True
             rich = msg.render(quote_reply=quote)
@@ -654,10 +655,11 @@ class TelegramPlug(immp.Plug):
             # Generate requests for attached messages first.
             if isinstance(attach, immp.SentMessage):
                 # Forward the messages natively using the given chat/ID.
+                forward_chat, forward_id = map(int, attach.id.split(":"))
                 requests.append(self._api("forwardMessage", _Schema.send,
                                           params={"chat_id": chat,
-                                                  "from_chat_id": attach.id[0],
-                                                  "message_id": attach.id[1]}))
+                                                  "from_chat_id": forward_chat,
+                                                  "message_id": forward_id}))
             elif isinstance(attach, immp.Message):
                 requests += self._requests(chat, attach)
         own_requests = self._requests(chat, msg)

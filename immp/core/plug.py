@@ -24,7 +24,7 @@ class Channel:
 
     def __init__(self, plug, source):
         self.plug = plug
-        self.source = source
+        self.source = str(source)
 
     async def is_private(self):
         """
@@ -112,7 +112,7 @@ class Channel:
                 self.plug == other.plug and self.source == other.source)
 
     def __hash__(self):
-        return hash((self.plug.name, self.source))
+        return hash((self.plug.network_id, self.source))
 
     def __repr__(self):
         return "<{}: {} @ {}>".format(self.__class__.__name__, self.plug.name, self.source)
