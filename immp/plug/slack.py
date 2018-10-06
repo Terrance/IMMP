@@ -727,13 +727,17 @@ class SlackPlug(immp.Plug):
                   "limit": 1}
         try:
             history = await self._api("conversations.history", _Schema.history, params=params)
-        except SlackAPIError:
+        except SlackAPIError as e:
+            log.debug("Slack API error retrieving message '{}' in channel '{}': {}"
+                      .format(ts, channel_id, repr(e.args[0])))
             raise MessageNotFound from None
-        if history["messages"] and history["messages"][0]["ts"] == ts:
-            return await SlackMessage.from_event(self, history["messages"][0])
-        else:
-            log.debug("Failed to retrieve message '{}' in channel '{}'".format(ts, channel_id))
-            raise MessageNotFound
+        if history["messages"]:
+            msg = history["messages"][0]
+            if msg["ts"] == ts:
+                msg["channel"] = channel_id
+                return await SlackMessage.from_event(self, msg)
+        log.debug("Failed to retrieve message '{}' in channel '{}'".format(ts, channel_id))
+        raise MessageNotFound
 
     async def put(self, channel, msg):
         if isinstance(msg, immp.SentMessage) and msg.deleted:
