@@ -36,7 +36,7 @@ class User:
 
     def __init__(self, *, id=None, plug=None, username=None, real_name=None, avatar=None,
                  link=None, suggested=False, raw=None):
-        self.id = str(id)
+        self.id = str(id) if id else None
         self.plug = plug
         self.username = username
         self.real_name = real_name
@@ -613,7 +613,7 @@ class SentMessage(Message):
     def __init__(self, id=None, revision=None, at=None, channel=None, edited=False, deleted=False,
                  empty=None, **kwargs):
         super().__init__(**kwargs)
-        self.id = str(id)
+        self.id = str(id) if id else None
         self.revision = revision or id
         self.at = at or datetime.now()
         self.channel = channel
