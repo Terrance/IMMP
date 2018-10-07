@@ -22,6 +22,8 @@ Config:
 Commands:
     sync-members:
         List all members of the current conversation, across all channels.
+    sync-list:
+        List all channels connected to this conversation.
 
 When a message is received from any of the listed channels, a copy is pushed to all other channels
 participating in the bridge.
@@ -364,7 +366,9 @@ class SyncHook(immp.Hook, Commandable):
 
     def commands(self):
         return [Command("sync-members", self.members, CommandScope.any, None,
-                        "List all members of the current conversation, across all channels.")]
+                        "List all members of the current conversation, across all channels."),
+                Command("sync-list", self.list, CommandScope.any, None,
+                        "List all channels connected to this conversation.")]
 
     async def start(self):
         try:
@@ -401,6 +405,15 @@ class SyncHook(immp.Hook, Commandable):
         if missing:
             text.append(immp.Segment("\n"),
                         immp.Segment("(list may be incomplete)"))
+        await channel.send(immp.Message(user=immp.User(real_name="Sync"), text=text))
+
+    async def list(self, channel, msg):
+        text = immp.RichText([immp.Segment("Channels in this sync:")])
+        for synced in self.channels[channel.source]:
+            text.append(immp.Segment("\n{}".format(synced.plug.network_name)))
+            title = await synced.title()
+            if title:
+                text.append(immp.Segment(": {}".format(title)))
         await channel.send(immp.Message(user=immp.User(real_name="Sync"), text=text))
 
     async def _send(self, channel, msg):
