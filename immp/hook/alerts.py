@@ -179,7 +179,7 @@ class MentionsHook(_AlertHookBase):
             return
         if sent.channel.plug not in self.plugs or await sent.channel.is_private():
             return
-        members = await sent.channel.plug.channel_members(sent.channel)
+        members = await sent.channel.members()
         if not members:
             return
         mentioned = set()
@@ -320,7 +320,7 @@ class SubscriptionsHook(_AlertHookBase, Commandable):
             return
         if sent.channel.plug not in self.plugs or await sent.channel.is_private():
             return
-        members = await sent.channel.plug.channel_members(sent.channel)
+        members = await sent.channel.members()
         if not members:
             return
         present = {(member.plug.network_id, str(member.id)): member for member in members}

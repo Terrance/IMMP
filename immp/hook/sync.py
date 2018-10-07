@@ -378,7 +378,7 @@ class SyncHook(immp.Hook, Commandable):
         members = defaultdict(list)
         missing = False
         for synced in self.channels[channel.source]:
-            local = (await synced.plug.channel_members(synced))
+            local = (await synced.members())
             if local:
                 members[synced.plug.network_name] += local
             else:
