@@ -320,6 +320,9 @@ class IRCPlug(immp.Plug):
     async def channel_is_private(self, channel):
         return bool(await self.user_from_username(channel.source))
 
+    async def channel_title(self, channel):
+        return channel.source
+
     async def channel_members(self, channel):
         return await self._who(channel.source)
 
