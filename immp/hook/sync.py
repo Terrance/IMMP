@@ -46,7 +46,7 @@ from peewee import CharField
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
-from immp.hook.command import Command, Commandable, CommandScope
+from immp.hook.command import command
 from immp.hook.database import BaseModel, DatabaseHook
 from immp.hook.identity import IdentityHook
 
@@ -319,7 +319,7 @@ class SyncPlug(immp.Plug):
             raise immp.PlugError("Send to unknown sync channel: {}".format(repr(channel)))
 
 
-class SyncHook(immp.Hook, Commandable):
+class SyncHook(immp.Hook):
     """
     Hook to propagate messages between two or more channels.
 
@@ -364,12 +364,6 @@ class SyncHook(immp.Hook, Commandable):
         else:
             return labels[0]
 
-    def commands(self):
-        return [Command("sync-members", self.members, CommandScope.any, None,
-                        "List all members of the current conversation, across all channels."),
-                Command("sync-list", self.list, CommandScope.any, None,
-                        "List all channels connected to this conversation.")]
-
     async def start(self):
         try:
             self.db = self.host.resources[DatabaseHook].db
@@ -378,10 +372,14 @@ class SyncHook(immp.Hook, Commandable):
         else:
             self.db.create_tables([SyncBackRef], safe=True)
 
-    async def members(self, channel, msg):
+    @command("sync-members")
+    async def members(self, msg):
+        """
+        List all members of the current conversation, across all channels.
+        """
         members = defaultdict(list)
         missing = False
-        for synced in self.channels[channel.source]:
+        for synced in self.channels[msg.channel.source]:
             local = (await synced.members())
             if local:
                 members[synced.plug.network_name] += local
@@ -405,16 +403,20 @@ class SyncHook(immp.Hook, Commandable):
         if missing:
             text.append(immp.Segment("\n"),
                         immp.Segment("(list may be incomplete)"))
-        await channel.send(immp.Message(user=immp.User(real_name="Sync"), text=text))
+        await msg.channel.send(immp.Message(user=immp.User(real_name="Sync"), text=text))
 
-    async def list(self, channel, msg):
+    @command("sync-list")
+    async def list(self, msg):
+        """
+        List all channels connected to this conversation.
+        """
         text = immp.RichText([immp.Segment("Channels in this sync:")])
-        for synced in self.channels[channel.source]:
+        for synced in self.channels[msg.channel.source]:
             text.append(immp.Segment("\n{}".format(synced.plug.network_name)))
             title = await synced.title()
             if title:
                 text.append(immp.Segment(": {}".format(title)))
-        await channel.send(immp.Message(user=immp.User(real_name="Sync"), text=text))
+        await msg.channel.send(immp.Message(user=immp.User(real_name="Sync"), text=text))
 
     async def _send(self, channel, msg):
         try:

@@ -37,7 +37,7 @@ from peewee import CharField, ForeignKeyField, IntegerField
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
-from immp.hook.command import Command, Commandable, CommandScope
+from immp.hook.command import command, CommandScope, CommandRole
 from immp.hook.database import BaseModel, DatabaseHook
 
 
@@ -132,27 +132,13 @@ class IdentityRole(BaseModel):
 
 
 @immp.config_props("plugs")
-class IdentityHook(immp.Hook, Commandable):
+class IdentityHook(immp.Hook):
     """
     Hook for managing physical users with multiple logical links across different plugs.
     """
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
-
-    def commands(self):
-        return [Command("id-show", self.show, CommandScope.any, "<name>",
-                        "Recall a known identity and all of its links."),
-                Command("id-add", self.add, CommandScope.private, "<name> <pwd>",
-                        "Create a new identity, or link to an existing one from a second user."),
-                Command("id-rename", self.rename, CommandScope.private, "<name>",
-                        "Rename the current identity."),
-                Command("id-password", self.password, CommandScope.private, "<pwd>",
-                        "Update the password for the current identity."),
-                Command("id-reset", self.reset, CommandScope.private, None,
-                        "Delete the current identity and all linked users."),
-                Command("id-role", self.role, CommandScope.admin, "<name> <role>",
-                        "List roles assigned to an identity, or add/remove a given role.")]
 
     async def start(self):
         if not self.config["instance"]:
@@ -189,7 +175,11 @@ class IdentityHook(immp.Hook, Commandable):
         except IdentityGroup.DoesNotExist:
             return None
 
-    async def show(self, channel, msg, name):
+    @command("id-show")
+    async def show(self, msg, name):
+        """
+        Recall a known identity and all of its links.
+        """
         try:
             group = (IdentityGroup.select_links()
                                   .where(IdentityGroup.instance == self.config["instance"],
@@ -217,15 +207,17 @@ class IdentityHook(immp.Hook, Commandable):
                         text.append(immp.Segment(user.real_name or user.username))
                 else:
                     text.append(immp.Segment(link.user, code=True))
-        await channel.send(immp.Message(text=text))
+        await msg.channel.send(immp.Message(text=text))
 
-    async def add(self, channel, msg, name, pwd=None):
+    @command("id-add", scope=CommandScope.private)
+    async def add(self, msg, name, pwd):
+        """
+        Create a new identity, or link to an existing one from a second user.
+        """
         if not msg.user or msg.user.plug not in self.plugs:
             return
         if self.find(msg.user):
             text = "{} Already identified".format(CROSS)
-        elif not pwd:
-            text = "{} Password required".format(CROSS)
         else:
             pwd = IdentityGroup.hash(pwd)
             exists = False
@@ -240,9 +232,13 @@ class IdentityHook(immp.Hook, Commandable):
                 IdentityLink.create(group=group, network=msg.user.plug.network_id,
                                     user=msg.user.id)
                 text = "{} {}".format(TICK, "Added" if exists else "Claimed")
-        await channel.send(immp.Message(text=text))
+        await msg.channel.send(immp.Message(text=text))
 
-    async def rename(self, channel, msg, name):
+    @command("id-rename", scope=CommandScope.private)
+    async def rename(self, msg, name):
+        """
+        Rename the current identity.
+        """
         if not msg.user:
             return
         group = self.find(msg.user)
@@ -257,9 +253,13 @@ class IdentityHook(immp.Hook, Commandable):
             group.name = name
             group.save()
             text = "{} Claimed".format(TICK)
-        await channel.send(immp.Message(text=text))
+        await msg.channel.send(immp.Message(text=text))
 
-    async def password(self, channel, msg, pwd):
+    @command("id-password", scope=CommandScope.private)
+    async def password(self, msg, pwd):
+        """
+        Update the password for the current identity.
+        """
         if not msg.user:
             return
         group = self.find(msg.user)
@@ -269,9 +269,13 @@ class IdentityHook(immp.Hook, Commandable):
             group.pwd = IdentityGroup.hash(pwd)
             group.save()
             text = "{} Changed".format(TICK)
-        await channel.send(immp.Message(text=text))
+        await msg.channel.send(immp.Message(text=text))
 
-    async def reset(self, channel, msg):
+    @command("id-reset", scope=CommandScope.private)
+    async def reset(self, msg):
+        """
+        Delete the current identity and all linked users.
+        """
         if not msg.user:
             return
         group = self.find(msg.user)
@@ -280,9 +284,13 @@ class IdentityHook(immp.Hook, Commandable):
         else:
             group.delete()
             text = "{} Reset".format(TICK)
-        await channel.send(immp.Message(text=text))
+        await msg.channel.send(immp.Message(text=text))
 
-    async def role(self, channel, msg, name, role=None):
+    @command("id-role", scope=CommandScope.private, role=CommandRole.admin)
+    async def role(self, msg, name, role=None):
+        """
+        List roles assigned to an identity, or add/remove a given role.
+        """
         try:
             group = IdentityGroup.get(instance=self.config["instance"], name=name)
         except IdentityGroup.DoesNotExist:
@@ -303,4 +311,4 @@ class IdentityHook(immp.Hook, Commandable):
                     text = "Roles for {}: {}".format(name, ", ".join(labels))
                 else:
                     text = "No roles for {}.".format(name)
-        await channel.send(immp.Message(text=text))
+        await msg.channel.send(immp.Message(text=text))

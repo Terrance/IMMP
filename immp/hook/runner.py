@@ -3,13 +3,13 @@ import logging
 import anyconfig
 
 import immp
-from immp.hook.command import Command, Commandable, CommandScope
+from immp.hook.command import command, CommandRole
 
 
 log = logging.getLogger(__name__)
 
 
-class RunnerHook(immp.ResourceHook, Commandable):
+class RunnerHook(immp.ResourceHook):
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
@@ -17,21 +17,18 @@ class RunnerHook(immp.ResourceHook, Commandable):
         self._path = None
         self._write = None
 
-    def commands(self):
-        commands = []
-        if self._write:
-            commands.append(Command("run-write", self.write, CommandScope.admin, None,
-                                    "Write the live config out to the configured file."))
-        return commands
-
     def load(self, config, path, write):
         self._config = config
         self._path = path
         self._write = write
 
-    async def write(self, channel, msg):
+    @command("run-write", role=CommandRole.admin, test=lambda self: self._write)
+    async def write(self, msg):
+        """
+        Write the live config out to the configured file.
+        """
         self.write_config()
-        await channel.send(immp.Message(text="\N{WHITE HEAVY CHECK MARK} Written"))
+        await msg.channel.send(immp.Message(text="\N{WHITE HEAVY CHECK MARK} Written"))
 
     @staticmethod
     def _config_feature(section, name, obj):

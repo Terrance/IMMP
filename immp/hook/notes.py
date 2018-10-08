@@ -20,7 +20,7 @@ import time
 from peewee import CharField, IntegerField
 
 import immp
-from immp.hook.command import Command, Commandable, CommandScope
+from immp.hook.command import command
 from immp.hook.database import BaseModel, DatabaseHook
 
 
@@ -79,63 +79,69 @@ class Note(BaseModel):
                                               repr(self.channel), repr(self.text))
 
 
-class NotesHook(immp.Hook, Commandable):
+class NotesHook(immp.Hook):
     """
     Hook for managing and recalling notes in channels.
     """
-
-    def commands(self):
-        return [Command("note-add", self.add, CommandScope.any, "<text>",
-                        "Add a new note for this channel."),
-                Command("note-remove", self.remove, CommandScope.any, "<#>",
-                        "Delete an existing note from this channel by its position."),
-                Command("note-show", self.show, CommandScope.any, "<#>",
-                        "Recall a single note in this channel."),
-                Command("note-list", self.list, CommandScope.any, None,
-                        "Recall all notes for this channel.")]
 
     async def start(self):
         self.db = self.host.resources[DatabaseHook].db
         self.db.create_tables([Note], safe=True)
 
-    async def add(self, channel, msg, *text):
-        Note.create(network=channel.plug.network_id,
-                    channel=channel.source,
+    @command("note-add")
+    async def add(self, msg, *text):
+        """
+        Add a new note for this channel.
+        """
+        Note.create(network=msg.channel.plug.network_id,
+                    channel=msg.channel.source,
                     user=(msg.user.id or msg.user.username) if msg.user else None,
                     text=" ".join(text))
-        await channel.send(immp.Message(text="{} Added".format(TICK)))
+        await msg.channel.send(immp.Message(text="{} Added".format(TICK)))
 
-    async def remove(self, channel, msg, pos):
+    @command("note-remove")
+    async def remove(self, msg, pos):
+        """
+        Delete an existing note from this channel by its position.
+        """
         try:
             pos = int(pos)
         except ValueError:
             return
         try:
-            note = Note.select_position(channel, pos)
+            note = Note.select_position(msg.channel, pos)
         except Note.DoesNotExist:
             text = "{} Does not exist".format(CROSS)
         else:
             note.delete_instance()
             text = "{} Removed".format(TICK)
-        await channel.send(immp.Message(text=text))
+        await msg.channel.send(immp.Message(text=text))
 
-    async def show(self, channel, msg, pos):
+    @command("note-show")
+    async def show(self, msg, pos):
+        """
+        Recall a single note in this channel.
+        """
         try:
             pos = int(pos)
         except ValueError:
             return
         try:
-            note = Note.select_position(channel, pos)
+            note = Note.select_position(msg.channel, pos)
         except Note.DoesNotExist:
             text = "{} Does not exist".format(CROSS)
         else:
             text = immp.RichText([immp.Segment("{}.".format(pos), bold=True),
                                   immp.Segment("\t{}\t".format(note.text)),
                                   immp.Segment(note.ago, italic=True)])
-        await channel.send(immp.Message(text=text))
+        await msg.channel.send(immp.Message(text=text))
 
-    async def list(self, channel, msg):
-        notes = list(Note.select_channel(channel))
+    @command("note-list")
+    async def list(self, msg):
+        """
+        Recall all notes for this channel.
+        """
+        notes = list(Note.select_channel(msg.channel))
         text = immp.RichText([immp.Segment("{} note{} in this channel{}"
                                            .format(len(notes), "" if len(notes) == 1 else "s",
                                                    ":" if notes else "."), bold=bool(notes))])
@@ -144,4 +150,4 @@ class NotesHook(immp.Hook, Commandable):
                         immp.Segment("{}.".format(pos), bold=True),
                         immp.Segment("\t{}\t".format(note.text)),
                         immp.Segment(note.ago, italic=True))
-        await channel.send(immp.Message(text=text))
+        await msg.channel.send(immp.Message(text=text))

@@ -26,7 +26,7 @@ import re
 from voluptuous import ALLOW_EXTRA, Optional, Schema
 
 import immp
-from immp.hook.command import Command, Commandable, CommandScope
+from immp.hook.command import command
 
 
 CROSS = "\N{CROSS MARK}"
@@ -44,7 +44,7 @@ class _Schema:
 
 
 @immp.config_props("channels")
-class AutoRespondHook(immp.Hook, Commandable):
+class AutoRespondHook(immp.Hook):
     """
     Basic text responses for given trigger words and phrases.
     """
@@ -54,24 +54,26 @@ class AutoRespondHook(immp.Hook, Commandable):
         self.responses = self.config["responses"]
         self._sent = []
 
-    def commands(self):
-        return [Command("ar-add", self.add, CommandScope.any, "<match> <response>",
-                        "Add a new trigger / response pair."),
-                Command("ar-remove", self.remove, CommandScope.any, "<match>",
-                        "Remove an existing trigger.")]
-
-    async def add(self, channel, msg, match, response):
+    @command("ar-add")
+    async def add(self, msg, match, response):
+        """
+        Add a new trigger / response pair.
+        """
         text = "Updated" if match in self.responses else "Added"
         self.responses[match] = response
-        await channel.send(immp.Message(text="{} {}".format(TICK, text)))
+        await msg.channel.send(immp.Message(text="{} {}".format(TICK, text)))
 
-    async def remove(self, channel, msg, match):
+    @command("ar-remove")
+    async def remove(self, msg, match):
+        """
+        Remove an existing trigger.
+        """
         if match in self.responses:
             del self.responses[match]
             text = "{} Removed".format(TICK)
         else:
             text = "{} No such response".format(CROSS)
-        await channel.send(immp.Message(text=text))
+        await msg.channel.send(immp.Message(text=text))
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)

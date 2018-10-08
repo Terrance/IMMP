@@ -56,7 +56,7 @@ from peewee import CharField, ForeignKeyField
 from voluptuous import ALLOW_EXTRA, Optional, Schema
 
 import immp
-from immp.hook.command import Command, Commandable, CommandScope
+from immp.hook.command import command, CommandScope
 from immp.hook.database import BaseModel, DatabaseHook
 
 log = logging.getLogger(__name__)
@@ -222,7 +222,7 @@ class MentionsHook(_AlertHookBase):
             await wait(tasks)
 
 
-class SubscriptionsHook(_AlertHookBase, Commandable):
+class SubscriptionsHook(_AlertHookBase):
     """
     Hook to send trigger word alerts via private channels.
     """
@@ -235,55 +235,61 @@ class SubscriptionsHook(_AlertHookBase, Commandable):
         self.db = self.host.resources[DatabaseHook].db
         self.db.create_tables([SubTrigger, SubExclude], safe=True)
 
-    def commands(self):
-        return [Command("sub-add", self.add, CommandScope.private, "<text>",
-                        "Add a subscription to your trigger list."),
-                Command("sub-remove", self.remove, CommandScope.private, "<text>",
-                        "Remove a subscription from your trigger list."),
-                Command("sub-list", self.list, CommandScope.private, None,
-                        "Show all active subscriptions."),
-                Command("sub-exclude", self.exclude, CommandScope.public, "<text>",
-                        "Don't trigger a specific subscription in the current public channel.")]
-
-    async def add(self, channel, msg, *words):
+    @command("sub-add", scope=CommandScope.private)
+    async def add(self, msg, *words):
+        """
+        Add a subscription to your trigger list.
+        """
         text = re.sub(r"[^\w ]", "", " ".join(words)).lower()
-        sub, created = SubTrigger.get_or_create(network=channel.plug.network_id,
+        sub, created = SubTrigger.get_or_create(network=msg.channel.plug.network_id,
                                                 user=msg.user.id, text=text)
         resp = "{} {}".format(TICK, "Subscribed" if created else "Already subscribed")
-        await channel.send(immp.Message(text=resp))
+        await msg.channel.send(immp.Message(text=resp))
 
-    async def remove(self, channel, msg, *words):
+    @command("sub-remove", scope=CommandScope.private)
+    async def remove(self, msg, *words):
+        """
+        Remove a subscription from your trigger list.
+        """
         text = re.sub(r"[^\w ]", "", " ".join(words)).lower()
-        count = SubTrigger.delete().where(SubTrigger.network == channel.plug.network_id,
+        count = SubTrigger.delete().where(SubTrigger.network == msg.channel.plug.network_id,
                                           SubTrigger.user == msg.user.id,
                                           SubTrigger.text == text).execute()
         resp = "{} {}".format(TICK, "Unsubscribed" if count else "Not subscribed")
-        await channel.send(immp.Message(text=resp))
+        await msg.channel.send(immp.Message(text=resp))
 
-    async def exclude(self, channel, msg, *words):
-        text = re.sub(r"[^\w ]", "", " ".join(words)).lower()
-        try:
-            trigger = SubTrigger.get(network=channel.plug.network_id,
-                                     user=msg.user.id, text=text)
-        except SubTrigger.DoesNotExist:
-            resp = "{} Not subscribed".format(CROSS)
-        else:
-            exclude, created = SubExclude.get_or_create(trigger=trigger,
-                                                        network=channel.plug.network_id,
-                                                        channel=channel.source)
-            if not created:
-                exclude.delete_instance()
-            resp = "{} {}".format(TICK, "Excluded" if created else "No longer excluded")
-        await channel.send(immp.Message(text=resp))
-
-    async def list(self, channel, msg):
-        subs = sorted(SubTrigger.select().where(SubTrigger.network == channel.plug.network_id,
+    @command("sub-list", scope=CommandScope.private)
+    async def list(self, msg):
+        """
+        Show all active subscriptions.
+        """
+        subs = sorted(SubTrigger.select().where(SubTrigger.network == msg.channel.plug.network_id,
                                                 SubTrigger.user == msg.user.id))
         if subs:
             resp = "Current subscriptions:{}".format("\n- {}".format(sub.text) for sub in subs)
         else:
             resp = "No active subscriptions."
-        await channel.send(immp.Message(text=resp))
+        await msg.channel.send(immp.Message(text=resp))
+
+    @command("sub-exclude", scope=CommandScope.shared)
+    async def exclude(self, msg, *words):
+        """
+        Don't trigger a specific subscription in the current channel.
+        """
+        text = re.sub(r"[^\w ]", "", " ".join(words)).lower()
+        try:
+            trigger = SubTrigger.get(network=msg.channel.plug.network_id,
+                                     user=msg.user.id, text=text)
+        except SubTrigger.DoesNotExist:
+            resp = "{} Not subscribed".format(CROSS)
+        else:
+            exclude, created = SubExclude.get_or_create(trigger=trigger,
+                                                        network=msg.channel.plug.network_id,
+                                                        channel=msg.channel.source)
+            if not created:
+                exclude.delete_instance()
+            resp = "{} {}".format(TICK, "Excluded" if created else "No longer excluded")
+        await msg.channel.send(immp.Message(text=resp))
 
     def match(self, text, channel, present):
         """
