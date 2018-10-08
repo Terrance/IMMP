@@ -491,9 +491,9 @@ class SyncHook(immp.Hook):
         log.debug("Found reference to previously synced message: {}".format(repr(ref.key)))
         if ref.ids.get(channel):
             # Return a reference to the transport-native copy of the message.
+            at = ref.source.at if isinstance(ref.source, immp.SentMessage) else None
             return immp.SentMessage.from_abstract(ref.source or msg, id=ref.ids[channel][0],
-                                                  at=ref.source.at if ref.source else None,
-                                                  channel=channel)
+                                                  at=at, channel=channel)
         else:
             return immp.Message.from_sent(msg)
 
