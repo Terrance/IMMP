@@ -311,7 +311,7 @@ class SyncPlug(immp.Plug):
             members.extend(await synced.members() or [])
         return members
 
-    async def send(self, channel, msg):
+    async def put(self, channel, msg):
         if channel.source in self.config["channels"]:
             await self._hook.send(channel.source, msg)
             return []
