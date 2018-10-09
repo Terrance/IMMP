@@ -115,8 +115,8 @@ class SubExclude(BaseModel):
     channel = CharField()
 
     def __repr__(self):
-        return "<{}: #{} {} @ {} {}>".format(self.__class__.__name__, self.id, repr(self.user),
-                                             repr(self.network), repr(self.trigger))
+        return "<{}: #{} {} @ {} {}>".format(self.__class__.__name__, self.id, repr(self.network),
+                                             repr(self.channel), repr(self.trigger))
 
 
 @immp.config_props("plugs")
@@ -263,13 +263,15 @@ class SubscriptionsHook(_AlertHookBase):
         """
         Show all active subscriptions.
         """
-        subs = sorted(SubTrigger.select().where(SubTrigger.network == msg.channel.plug.network_id,
-                                                SubTrigger.user == msg.user.id))
+        subs = SubTrigger.select().where(SubTrigger.network == msg.channel.plug.network_id,
+                                         SubTrigger.user == msg.user.id).order_by(SubTrigger.text)
         if subs:
-            resp = "Current subscriptions:{}".format("\n- {}".format(sub.text) for sub in subs)
+            text = immp.RichText([immp.Segment("Your subscriptions:", bold=True)])
+            for sub in subs:
+                text.append(immp.Segment("\n- {}".format(sub.text)))
         else:
-            resp = "No active subscriptions."
-        await msg.channel.send(immp.Message(text=resp))
+            text = "No active subscriptions."
+        await msg.channel.send(immp.Message(text=text))
 
     @command("sub-exclude", scope=CommandScope.shared)
     async def exclude(self, msg, *words):
