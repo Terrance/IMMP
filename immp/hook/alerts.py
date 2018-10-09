@@ -58,6 +58,7 @@ from voluptuous import ALLOW_EXTRA, Optional, Schema
 import immp
 from immp.hook.command import CommandScope, command
 from immp.hook.database import BaseModel, DatabaseHook
+from immp.hook.sync import SyncPlug
 
 
 log = logging.getLogger(__name__)
@@ -74,6 +75,11 @@ class _Schema:
                      Optional("real-names", default=False): bool,
                      Optional("ambiguous", default=False): bool},
                     extra=ALLOW_EXTRA, required=True)
+
+
+class _Skip(Exception):
+    # Message isn't applicable to the hook.
+    pass
 
 
 class SubTrigger(BaseModel):
@@ -126,6 +132,25 @@ class _AlertHookBase(immp.Hook):
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
 
+    async def _get_members(self, msg):
+        # Sync integration: avoid duplicate notifications inside and outside a synced channel.
+        # Commands and excludes should apply to the sync, but notifications are based on the
+        # network-native channel.
+        if isinstance(msg.channel.plug, SyncPlug):
+            # We're in the sync channel, so we've already handled this event in native channels.
+            log.debug("Ignoring sync channel: {}".format(repr(msg.channel)))
+            raise _Skip
+        channel = msg.channel
+        synced = SyncPlug.any_sync(self.host, msg.channel)
+        if synced:
+            # We're in the native channel of a sync, use this channel for reading config.
+            log.debug("Translating sync channel: {} -> {}".format(repr(msg.channel), repr(synced)))
+            channel = synced
+        members = [user for user in await msg.channel.members() if user.plug in self.plugs]
+        if not members:
+            raise _Skip
+        return channel, members
+
 
 class MentionsHook(_AlertHookBase):
     """
@@ -176,12 +201,11 @@ class MentionsHook(_AlertHookBase):
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
-        if not primary or not source.text:
+        if not primary or not source.text or await sent.channel.is_private():
             return
-        if sent.channel.plug not in self.plugs or await sent.channel.is_private():
-            return
-        members = await sent.channel.members()
-        if not members:
+        try:
+            lookup, members = await self._get_members(sent)
+        except _Skip:
             return
         mentioned = set()
         for mention in re.findall(r"@\S+", str(source.text)):
@@ -264,7 +288,7 @@ class SubscriptionsHook(_AlertHookBase):
         """
         Show all active subscriptions.
         """
-        subs = SubTrigger.select().where(SubTrigger.network == msg.channel.plug.network_id,
+        subs = SubTrigger.select().where(SubTrigger.network == msg.user.plug.network_id,
                                          SubTrigger.user == msg.user.id).order_by(SubTrigger.text)
         if subs:
             text = immp.RichText([immp.Segment("Your subscriptions:", bold=True)])
@@ -281,7 +305,7 @@ class SubscriptionsHook(_AlertHookBase):
         """
         text = re.sub(r"[^\w ]", "", " ".join(words)).lower()
         try:
-            trigger = SubTrigger.get(network=msg.channel.plug.network_id,
+            trigger = SubTrigger.get(network=msg.user.plug.network_id,
                                      user=msg.user.id, text=text)
         except SubTrigger.DoesNotExist:
             resp = "{} Not subscribed".format(CROSS)
@@ -325,22 +349,21 @@ class SubscriptionsHook(_AlertHookBase):
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
-        if not primary or not source.text:
+        if not primary or not source.text or await sent.channel.is_private():
             return
-        if sent.channel.plug not in self.plugs or await sent.channel.is_private():
-            return
-        members = await sent.channel.members()
-        if not members:
+        try:
+            lookup, members = await self._get_members(sent)
+        except _Skip:
             return
         present = {(member.plug.network_id, str(member.id)): member for member in members}
-        triggered = self.match(self.clean(str(source.text)), sent.channel, present)
+        triggered = self.match(self.clean(str(source.text)), lookup, present)
         if not triggered:
             return
         tasks = []
         for member, triggers in triggered.items():
             if member == source.user:
                 continue
-            private = await sent.channel.plug.channel_for_user(member)
+            private = await member.private_channel()
             if not private:
                 continue
             text = immp.RichText()

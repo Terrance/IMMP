@@ -300,6 +300,45 @@ class SyncPlug(immp.Plug):
         super().__init__(name, hook.config, host, virtual=True)
         self._hook = hook
 
+    @classmethod
+    def any_sync(cls, host, channel):
+        """
+        Produce a synced channel for the given source, searching across all :class:`.SyncPlug`
+        instances running on the host.
+
+        Args:
+            host (.Host):
+                Controlling host instance.
+            channel (.Channel):
+                Original channel to lookup.
+
+        Returns:
+            .Channel:
+                Sync channel containing the given channel as a source, or ``None`` if not synced.
+        """
+        synced = [plug.sync_for(channel) for plug in host.plugs.values() if isinstance(plug, cls)]
+        try:
+            return next(filter(None, synced))
+        except StopIteration:
+            return None
+
+    def sync_for(self, channel):
+        """
+        Produce a synced channel for the given source.
+
+        Args:
+            channel (.Channel):
+                Original channel to lookup.
+
+        Returns:
+            .Channel:
+                Sync channel containing the given channel as a source, or ``None`` if not synced.
+        """
+        for label, synced in self._hook.channels.items():
+            if channel in synced:
+                return immp.Channel(self, label)
+        return None
+
     async def channel_is_private(self, channel):
         return False if channel.source in self.config["channels"] else None
 
