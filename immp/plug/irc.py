@@ -18,7 +18,7 @@ Config:
             Real name, as displayed in WHO queries.
 """
 
-from asyncio import Condition, ensure_future, open_connection, sleep
+from asyncio import BoundedSemaphore, Condition, ensure_future, open_connection, sleep
 import logging
 import re
 
@@ -235,6 +235,7 @@ class IRCPlug(immp.Plug):
         # Bot's own identifier as seen by the IRC server.
         self._source = None
         # Tracking fields for storing incoming data by type.
+        self._wait_lock = BoundedSemaphore()
         self._waits = []
         self._data = {}
         # Don't yield messages for initial self-joins.
@@ -349,25 +350,24 @@ class IRCPlug(immp.Plug):
                        Line("USER", "immp", "0", "*", self.config["user"]["real-name"]))
 
     async def wait(self, success, fail=(), collect=()):
-        # Add lists to capture data as it comes in.
-        if any(command in self._data for command in fail + collect):
-            raise RuntimeError("Already listening for collected commands")
-        for command in fail + collect:
-            self._data[command] = []
-        # Block until we receive the response code we're looking for.
-        cond = Condition()
-        pair = (((success,) + tuple(fail)), cond)
-        self._waits.append(pair)
-        async with cond:
-            await cond.wait()
-        self._waits.remove(pair)
-        # Retrieve captured data for this wait.
-        if any(self._data[command] for command in fail):
-            raise ValueError("Received error response")
-        data = {command: self._data[command] for command in collect}
-        for command in fail + collect:
-            del self._data[command]
-        return data
+        async with self._wait_lock:
+            # Add lists to capture data as it comes in.
+            for command in fail + collect:
+                self._data[command] = []
+            # Block until we receive the response code we're looking for.
+            cond = Condition()
+            pair = (((success,) + tuple(fail)), cond)
+            self._waits.append(pair)
+            async with cond:
+                await cond.wait()
+            self._waits.remove(pair)
+            # Retrieve captured data for this wait.
+            if any(self._data[command] for command in fail):
+                raise ValueError("Received error response")
+            data = {command: self._data[command] for command in collect}
+            for command in fail + collect:
+                del self._data[command]
+            return data
 
     def write(self, *lines):
         for line in lines:
