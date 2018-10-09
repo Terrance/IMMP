@@ -3,7 +3,7 @@ import logging
 import anyconfig
 
 import immp
-from immp.hook.command import command, CommandRole
+from immp.hook.command import CommandRole, command
 
 
 log = logging.getLogger(__name__)

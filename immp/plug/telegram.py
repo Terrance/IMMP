@@ -31,13 +31,14 @@ import logging
 from aiohttp import ClientError, ClientResponseError, ClientSession, FormData
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
+import immp
+
+
 try:
     from telethon import TelegramClient, tl
     from telethon.errors import BadRequestError
 except ImportError:
     TelegramClient = tl = BadRequestError = None
-
-import immp
 
 
 log = logging.getLogger(__name__)

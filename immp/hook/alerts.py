@@ -56,8 +56,9 @@ from peewee import CharField, ForeignKeyField
 from voluptuous import ALLOW_EXTRA, Optional, Schema
 
 import immp
-from immp.hook.command import command, CommandScope
+from immp.hook.command import CommandScope, command
 from immp.hook.database import BaseModel, DatabaseHook
+
 
 log = logging.getLogger(__name__)
 

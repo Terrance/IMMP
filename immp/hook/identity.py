@@ -37,7 +37,7 @@ from peewee import CharField, ForeignKeyField, IntegerField
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
-from immp.hook.command import command, CommandScope, CommandRole
+from immp.hook.command import CommandRole, CommandScope, command
 from immp.hook.database import BaseModel, DatabaseHook
 
 
