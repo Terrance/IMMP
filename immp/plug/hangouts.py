@@ -17,7 +17,7 @@ This will generate a cookie file called *refresh_token.txt* in the current direc
     This plug requires the `hangups <https://hangups.readthedocs.io>`_ Python module.
 """
 
-from asyncio import Condition, ensure_future, gather
+from asyncio import CancelledError, Condition, ensure_future, gather, sleep
 from copy import copy
 from datetime import datetime
 from io import BytesIO
@@ -368,19 +368,24 @@ class HangoutsPlug(immp.Plug):
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
         self._client = None
+        self._looped = None
         self._starting = Condition()
+        self._closing = False
         self._bot_user = None
 
-    async def start(self):
-        await super().start()
-        self._client = hangups.Client(hangups.get_auth_stdin(self.config["cookie"]))
-        self._client.on_connect.add_observer(self._connect)
-        log.debug("Connecting client")
-        ensure_future(self._client.connect())
-        async with self._starting:
-            # Block until users and conversations are loaded.
-            await self._starting.wait()
-        log.debug("Listening for events")
+    async def _loop(self):
+        while True:
+            try:
+                await self._client.connect()
+            except CancelledError:
+                log.debug("Cancel request for plug '{}' loop".format(self.name))
+                return
+            except Exception as e:
+                log.debug("Unexpected client disconnect: {}".format(e))
+            if self._closing:
+                return
+            log.debug("Reconnecting in 3 seconds")
+            await sleep(3)
 
     async def _connect(self):
         log.debug("Retrieving users and conversations")
@@ -402,12 +407,28 @@ class HangoutsPlug(immp.Plug):
             self.queue(sent)
         await self._convs.get(event.conversation_id).update_read_timestamp()
 
+    async def start(self):
+        await super().start()
+        self._closing = False
+        self._client = hangups.Client(hangups.get_auth_stdin(self.config["cookie"]))
+        self._client.on_connect.add_observer(self._connect)
+        log.debug("Connecting client")
+        self._looped = ensure_future(self._loop())
+        async with self._starting:
+            # Block until users and conversations are loaded.
+            await self._starting.wait()
+        log.debug("Listening for events")
+
     async def stop(self):
         await super().stop()
+        self._closing = True
         if self._client:
             log.debug("Requesting client disconnect")
             await self._client.disconnect()
             self._client = None
+        if self._looped:
+            self._looped.cancel()
+            self._looped = None
         self._bot_user = None
 
     async def user_from_id(self, id):
