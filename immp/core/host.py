@@ -180,10 +180,10 @@ class Host:
         """
         Connect all open plugs and start all hooks.
         """
-        if self.plugs:
-            await wait([plug.open() for plug in self.plugs.values()])
         if self.resources:
             await wait([hook.open() for hook in self.resources.values()])
+        if self.plugs:
+            await wait([plug.open() for plug in self.plugs.values()])
         if self.hooks:
             await wait([hook.open() for hook in self.hooks.values()])
 
@@ -193,10 +193,10 @@ class Host:
         """
         if self.hooks:
             await wait([hook.close() for hook in self.hooks.values()])
-        if self.resources:
-            await wait([hook.close() for hook in self.resources.values()])
         if self.plugs:
             await wait([plug.close() for plug in self.plugs.values()])
+        if self.resources:
+            await wait([hook.close() for hook in self.resources.values()])
 
     async def _safe_receive(self, hook, sent, source, primary):
         try:
