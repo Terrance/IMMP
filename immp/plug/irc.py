@@ -18,7 +18,7 @@ Config:
             Real name, as displayed in WHO queries.
 """
 
-from asyncio import BoundedSemaphore, Condition, ensure_future, open_connection, sleep
+from asyncio import CancelledError, Future, Queue, ensure_future, open_connection, sleep
 import logging
 import re
 
@@ -224,6 +224,48 @@ class IRCMessage(immp.Message):
                                 raw=line)
 
 
+class Wait:
+    """
+    Request-like object for sending a :class:`.Line` and waiting on a response.
+
+    After sending, await an instance of this class to retrieve all collected lines after a success
+    line is received.  On failure, a :class:`ValueError` is raised.
+    """
+
+    def __init__(self, success, fail, collect):
+        self._success = success
+        self._fail = fail
+        self._collect = collect
+        self._data = []
+        self._result = Future()
+
+    def add(self, line):
+        if line.command in self._collect:
+            self._data.append(line)
+        if line.command in self._success:
+            self._result.set_result(self._data)
+            return True
+        elif line.command in self._fail:
+            self._result.set_exception(ValueError("Received failure: {}".format(repr(line))))
+            return True
+        else:
+            return False
+
+    def cancel(self):
+        self._result.set_exception(CancelledError("Wait was cancelled"))
+
+    def __await__(self):
+        return self._result.__await__()
+
+    def __repr__(self):
+        parts = []
+        for key in ("success", "fail", "collect"):
+            value = getattr(self, "_{}".format(key))
+            if value:
+                parts.append("{} {}".format(key, "/".join(value)))
+        return "<{}: {}>".format(self.__class__.__name__, ", ".join(parts))
+
+
 class IRCPlug(immp.Plug):
     """
     Plug for an IRC server.
@@ -234,10 +276,9 @@ class IRCPlug(immp.Plug):
         self._reader = self._writer = None
         # Bot's own identifier as seen by the IRC server.
         self._source = None
-        # Tracking fields for storing incoming data by type.
-        self._wait_lock = BoundedSemaphore()
-        self._waits = []
-        self._data = {}
+        # Tracking fields for storing requested data by type.
+        self._waits = Queue()
+        self._current_wait = None
         # Don't yield messages for initial self-joins.
         self._joins = set()
 
@@ -260,7 +301,7 @@ class IRCPlug(immp.Plug):
         self.write(Line("NICK", self.config["user"]["nick"]),
                    Line("USER", "immp", "0", "*", self.config["user"]["real-name"]))
         # We won't receive this until a valid nick has been set.
-        await self.wait("001")
+        await self.wait(success=["001"])
         self._source = (await self.user_from_username(self.config["user"]["nick"])).id
         for channel in self.host.channels.values():
             if channel.plug == self and channel.source.startswith("#"):
@@ -277,8 +318,11 @@ class IRCPlug(immp.Plug):
             self._writer.close()
             self._writer = None
         self._source = None
-        self._waits.clear()
-        self._data.clear()
+        if self._current_wait:
+            self._current_wait.cancel()
+            self._current_wait = None
+        while not self._waits.empty():
+            self._waits.get_nowait().cancel()
         self._joins.clear()
 
     async def _read_loop(self, reader, host, port):
@@ -298,9 +342,8 @@ class IRCPlug(immp.Plug):
 
     async def _who(self, name):
         self.write(Line("WHO", name))
-        data = await self.wait("315", collect=("352",))
         users = []
-        for line in data["352"]:
+        for line in await self.wait(success=["315"], collect=["352"]):
             id = "{}!{}@{}".format(line.args[5], line.args[2], line.args[3])
             users.append(immp.User(id=id, plug=self, username=line.args[5], raw=line))
         return users
@@ -328,12 +371,15 @@ class IRCPlug(immp.Plug):
         return await self._who(channel.source)
 
     async def handle(self, line):
-        if line.command in self._data:
-            self._data[line.command].append(line)
-        for commands, cond in self._waits:
-            if line.command in commands:
-                async with cond:
-                    cond.notify_all()
+        wait = None
+        if self._current_wait:
+            wait = self._current_wait
+        elif not self._waits.empty():
+            wait = self._waits.get_nowait()
+            self._current_wait = wait
+        if wait and wait.add(line):
+            log.debug("Completing wait: {}".format(wait))
+            self._current_wait = None
         if line.command == "PING":
             self.write(Line("PONG", *line.args))
         elif line.command in ("JOIN", "PART", "PRIVMSG"):
@@ -349,25 +395,11 @@ class IRCPlug(immp.Plug):
             self.write(Line("NICK", self.config["user"]["nick"]),
                        Line("USER", "immp", "0", "*", self.config["user"]["real-name"]))
 
-    async def wait(self, success, fail=(), collect=()):
-        async with self._wait_lock:
-            # Add lists to capture data as it comes in.
-            for command in fail + collect:
-                self._data[command] = []
-            # Block until we receive the response code we're looking for.
-            cond = Condition()
-            pair = (((success,) + tuple(fail)), cond)
-            self._waits.append(pair)
-            async with cond:
-                await cond.wait()
-            self._waits.remove(pair)
-            # Retrieve captured data for this wait.
-            if any(self._data[command] for command in fail):
-                raise ValueError("Received error response")
-            data = {command: self._data[command] for command in collect}
-            for command in fail + collect:
-                del self._data[command]
-            return data
+    def wait(self, success=(), fail=(), collect=()):
+        wait = Wait(success, fail, collect)
+        self._waits.put_nowait(wait)
+        log.debug("Adding wait: {}".format(wait))
+        return wait
 
     def write(self, *lines):
         for line in lines:
