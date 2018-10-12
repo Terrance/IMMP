@@ -185,6 +185,8 @@ class TelegramUser(immp.User):
     def link(self):
         if self.username:
             return "https://t.me/{}".format(self.username)
+        else:
+            return "tg://user?id={}".format(self.id)
 
 
 class TelegramSegment(immp.Segment):
@@ -216,7 +218,7 @@ class TelegramSegment(immp.Segment):
                 text = "@{}".format(segment.mention.username)
             else:
                 # Make a link that looks like a mention.
-                text = ("<a href=\"tg://user?id={}\">@{}</a>"
+                text = ("<a href=\"tg://user?id={}\">{}</a>"
                         .format(segment.mention.id, segment.mention.real_name))
         elif segment.link:
             text = "<a href=\"{}\">{}</a>".format(segment.link, text)
