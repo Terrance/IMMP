@@ -641,3 +641,9 @@ class SentMessage(Message):
         return ("<{}: {} @ {} {}{}>"
                 .format(self.__class__.__name__, repr(self.id), self.at, repr(self.channel),
                         ": {}".format(content) if content else ""))
+
+    async def delete(self):
+        """
+        Equivalent to :meth:`.Plug.delete`.
+        """
+        return await self.channel.plug.delete(self)

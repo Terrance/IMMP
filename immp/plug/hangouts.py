@@ -593,9 +593,6 @@ class HangoutsPlug(immp.Plug):
         return requests
 
     async def put(self, channel, msg):
-        if isinstance(msg, immp.SentMessage) and msg.deleted:
-            # We can't delete messages on this side.
-            return []
         conv = self._convs.get(channel.source)
         # Attempt to find sources for referenced messages.
         clone = copy(msg)

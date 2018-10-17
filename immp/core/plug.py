@@ -532,6 +532,15 @@ class Plug(Openable):
         """
         return []
 
+    async def delete(self, sent):
+        """
+        Request deletion of this message, if supported by the network.
+
+        Args:
+            sent (.SentMessage):
+                Existing message to be removed.
+        """
+
     def on_load(self):
         """
         Perform any additional one-time setup that requires other plugs or hooks to be loaded.

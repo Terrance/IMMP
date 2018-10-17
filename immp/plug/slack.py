@@ -740,9 +740,6 @@ class SlackPlug(immp.Plug):
         raise MessageNotFound
 
     async def put(self, channel, msg):
-        if isinstance(msg, immp.SentMessage) and msg.deleted:
-            # TODO
-            return []
         uploads = []
         ids = []
         if msg.user:
@@ -823,6 +820,9 @@ class SlackPlug(immp.Plug):
             post = await self._api("chat.postMessage", _Schema.post, data=data)
             ids.append(post["ts"])
         return ids
+
+    async def delete(self, sent):
+        await self._api("chat.delete", params={"channel": sent.channel.source, "ts": sent.id})
 
     async def _poll(self):
         while self.state == immp.OpenState.active and not self._closing:

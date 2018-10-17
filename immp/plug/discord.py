@@ -433,6 +433,15 @@ class DiscordPlug(immp.Plug):
         else:
             return []
 
+    def _resolve_channel(self, channel):
+        dc_channel = self._get_channel(channel)
+        webhook = None
+        for label, host_channel in self.host.channels.items():
+            if channel == host_channel:
+                webhook = self.config["webhooks"].get(label)
+                break
+        return dc_channel, webhook
+
     async def _resolve_message(self, dc_channel, msg):
         if isinstance(msg, immp.SentMessage):
             # Discord offers no reply mechanism, so instead we just fetch the referenced message
@@ -443,9 +452,6 @@ class DiscordPlug(immp.Plug):
             return msg
 
     async def _put_webhook(self, dc_channel, webhook, msg):
-        if isinstance(msg, immp.SentMessage) and msg.deleted:
-            # TODO
-            return []
         name = image = rich = None
         if msg.user:
             name = msg.user.real_name or msg.user.username
@@ -531,9 +537,6 @@ class DiscordPlug(immp.Plug):
         return requests
 
     async def _put_client(self, dc_channel, msg):
-        if isinstance(msg, immp.SentMessage) and msg.deleted:
-            # TODO
-            return []
         requests = []
         for attach in msg.attachments:
             # Generate requests for attached messages first.
@@ -552,12 +555,12 @@ class DiscordPlug(immp.Plug):
         return [str(resp.id) for resp in sent]
 
     async def put(self, channel, msg):
+        dc_channel, webhook = self._resolve_channel(channel)
         webhook = None
         for label, host_channel in self.host.channels.items():
             if channel == host_channel:
                 webhook = self.config["webhooks"].get(label)
                 break
-        dc_channel = self._get_channel(channel)
         if webhook:
             log.debug("Sending to {} via webhook".format(repr(channel)))
             return await self._put_webhook(dc_channel, webhook, msg)
@@ -566,3 +569,11 @@ class DiscordPlug(immp.Plug):
             return await self._put_client(dc_channel, msg)
         else:
             raise DiscordAPIError("No access to channel {}".format(channel.source))
+
+    async def delete(self, sent):
+        dc_channel, webhook = self._resolve_channel(sent.channel)
+        if not dc_channel:
+            raise DiscordAPIError("No access to channel {}".format(sent.channel.source))
+        message = await dc_channel.get_message(sent.id)
+        # If not self-posted (including webhooks), the Manage Messages permission is required.
+        await message.delete()

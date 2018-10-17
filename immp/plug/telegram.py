@@ -646,9 +646,6 @@ class TelegramPlug(immp.Plug):
         return requests
 
     async def put(self, channel, msg):
-        if isinstance(msg, immp.SentMessage) and msg.deleted:
-            # TODO
-            return []
         chat = channel.source
         while chat in self._migrations:
             log.debug("Following chat migration: {} -> {}".format(chat, self._migrations[chat]))
@@ -680,6 +677,10 @@ class TelegramPlug(immp.Plug):
             self.queue(sent)
             ids.append(sent.id)
         return ids
+
+    async def delete(self, sent):
+        chat, message = sent.id.split(":", 1)
+        await self._api("deleteMessage", params={"chat_id": chat, "message_id": message})
 
     async def _poll(self):
         while not self._closing:
