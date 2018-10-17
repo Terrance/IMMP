@@ -146,7 +146,7 @@ class _AlertHookBase(immp.Hook):
             # We're in the native channel of a sync, use this channel for reading config.
             log.debug("Translating sync channel: {} -> {}".format(repr(msg.channel), repr(synced)))
             channel = synced
-        members = [user for user in await msg.channel.members() if user.plug in self.plugs]
+        members = [user for user in (await msg.channel.members()) or [] if user.plug in self.plugs]
         if not members:
             raise _Skip
         return channel, members
