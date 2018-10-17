@@ -240,6 +240,10 @@ class SlackRichText(immp.RichText):
         return match.group(2) or match.group(1)
 
     @classmethod
+    def _unescape(cls, text):
+        return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+
+    @classmethod
     def from_mrkdwn(cls, slack, text):
         """
         Convert a string of Slack's Mrkdwn into a :class:`.RichText`.
@@ -271,7 +275,7 @@ class SlackRichText(immp.RichText):
             changes[end][field] = False
         for match in re.finditer(r"<([^@#\|][^\|>]*)(?:\|([^>]+))?>", text):
             # Store the link target; the link tag will be removed after segmenting.
-            changes[match.start()]["link"] = match.group(1)
+            changes[match.start()]["link"] = cls._unescape(match.group(1))
             changes[match.end()]["link"] = None
         for match in re.finditer(r"<@([^\|>]+)(?:\|[^>]+)?>", text):
             changes[match.start()]["mention"] = slack._users[match.group(1)]
@@ -291,8 +295,7 @@ class SlackRichText(immp.RichText):
                 # Strip Slack channel tags, replace with a plain-text representation.
                 part = re.sub(r"<#([^\|>]+)(?:\|[^>]+)?>", partial(cls._sub_channel, slack), part)
                 part = re.sub(r"<([^\|>]+)(?:\|([^>]+))?>", cls._sub_link, part)
-                part = emojize(part.replace("&lt;", "<").replace("&gt;", ">")
-                                   .replace("&amp;", "&"), use_aliases=True)
+                part = emojize(cls._unescape(part), use_aliases=True)
             segments.append(immp.Segment(part, **changes[start]))
         return cls(segments)
 
