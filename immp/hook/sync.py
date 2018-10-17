@@ -357,6 +357,9 @@ class SyncPlug(immp.Plug):
         else:
             raise immp.PlugError("Send to unknown sync channel: {}".format(repr(channel)))
 
+    async def delete(self, sent):
+        await self._hook.delete(self._hook._cache[sent.id])
+
 
 class SyncHook(immp.Hook):
     """
@@ -518,6 +521,15 @@ class SyncHook(immp.Hook):
             ids = dict(await gather(*queue))
             return self._cache.add(SyncRef(ids, source=msg, origin=origin))
 
+    async def delete(self, ref, sent=None):
+        queue = []
+        for channel, ids in ref.ids.items():
+            for id in ids:
+                if not (sent and sent.channel == channel and sent.id == id):
+                    queue.append(immp.SentMessage(channel=channel, id=id).delete())
+        if queue:
+            await gather(*queue)
+
     def _replace_msg(self, channel, msg, sending):
         if not isinstance(msg, immp.SentMessage):
             return msg
@@ -554,15 +566,20 @@ class SyncHook(immp.Hook):
         async with self._lock:
             # No critical section here, just wait for any pending messages to be sent.
             pass
-        if sent.deleted:
-            # TODO: Sync deletions across channels.
-            return
         try:
             ref = self._cache[sent]
         except KeyError:
-            log.debug("Incoming message not in sync cache: {}".format(repr(sent)))
+            if sent.deleted:
+                log.debug("Ignoring deleted message not in sync cache: {}".format(repr(sent)))
+                return
+            else:
+                log.debug("Incoming message not in sync cache: {}".format(repr(sent)))
         else:
-            if ref.revision(sent):
+            if sent.deleted:
+                log.debug("Incoming message is a delete, needs sync: {}".format(repr(sent)))
+                await self.delete(ref)
+                return
+            elif ref.revision(sent):
                 log.debug("Incoming message is an update, needs sync: {}".format(repr(sent)))
             else:
                 log.debug("Incoming message already synced: {}".format(repr(sent)))
