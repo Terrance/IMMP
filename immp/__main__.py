@@ -47,6 +47,7 @@ def config_to_host(config, path, write):
         # Prefer existing hook defined within the config itself.
         pass
     host.resources[RunnerHook].load(config, path, write)
+    host.loaded()
     return host
 
 

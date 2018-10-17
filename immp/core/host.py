@@ -38,6 +38,7 @@ class Host:
         self.channels = {}
         self.hooks = {}
         self.resources = {}
+        self._loaded = False
         self._stream = self._process = None
 
     @property
@@ -176,10 +177,24 @@ class Host:
             for cls in remove:
                 del self.resources[cls]
 
+    def loaded(self):
+        """
+        Trigger the on-load event for all plugs and hooks.
+        """
+        for hook in self.resources.values():
+            hook.on_load()
+        for plug in self.plugs.values():
+            plug.on_load()
+        for hook in self.hooks.values():
+            hook.on_load()
+        self._loaded = True
+
     async def open(self):
         """
         Connect all open plugs and start all hooks.
         """
+        if not self._loaded:
+            raise RuntimeError("On-load event must be sent before opening")
         if self.resources:
             await wait([hook.open() for hook in self.resources.values()])
         if self.plugs:
@@ -242,6 +257,8 @@ class Host:
         """
         if self._process:
             raise RuntimeError("Host is already running")
+        if not self._loaded:
+            self.loaded()
         await self.open()
         try:
             self._process = ensure_future(self.process())

@@ -532,6 +532,11 @@ class Plug(Openable):
         """
         return []
 
+    def on_load(self):
+        """
+        Perform any additional one-time setup that requires other plugs or hooks to be loaded.
+        """
+
     def __repr__(self):
         return "<{}{}>".format(self.__class__.__name__,
                                ": {}".format(self.network_id) if self.network_id else "")

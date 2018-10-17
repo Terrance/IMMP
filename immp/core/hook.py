@@ -37,6 +37,11 @@ class Hook(Openable):
         Perform any teardown tasks.
         """
 
+    def on_load(self):
+        """
+        Perform any additional one-time setup that requires other plugs or hooks to be loaded.
+        """
+
     async def before_send(self, channel, msg):
         """
         Modify an outgoing message before it's pushed to the network.  The ``(channel, msg)`` pair
