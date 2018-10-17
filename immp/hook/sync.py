@@ -554,6 +554,9 @@ class SyncHook(immp.Hook):
         async with self._lock:
             # No critical section here, just wait for any pending messages to be sent.
             pass
+        if sent.deleted:
+            # TODO: Sync deletions across channels.
+            return
         try:
             ref = self._cache[sent]
         except KeyError:
