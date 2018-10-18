@@ -9,9 +9,12 @@ Config:
 
 As the server is unauthenticated, you will typically want to bind it to localhost, and proxy it
 behind a full webserver like nginx to separate out routes, lock down access and so on.
+
+.. note::
+    For templating via Jinja2, both :mod:`jinja2` and :mod:`aiohttp_jinja2` must be installed.
 """
 
-
+from functools import wraps
 import logging
 
 from aiohttp import web
@@ -20,12 +23,91 @@ from voluptuous import ALLOW_EXTRA, Schema
 import immp
 
 
+try:
+    import aiohttp_jinja2
+    from jinja2 import PackageLoader, PrefixLoader
+except ImportError:
+    aiohttp_jinja2 = PackageLoader = PrefixLoader = None
+
+
 log = logging.getLogger(__name__)
 
 
 class _Schema:
 
     config = Schema({"host": str, "port": int}, extra=ALLOW_EXTRA, required=True)
+
+
+class WebContext:
+    """
+    Abstraction from :mod:`aiohttp` to provide routing and templating to other hooks.
+
+    Attributes:
+        hook (.WebHook):
+            Parent hook instance providing the webserver.
+        module (str):
+            Dotted module name of the Python module using this context.
+        prefix (str):
+            URL prefix acting as the base path.
+    """
+
+    def __init__(self, hook, module, prefix):
+        self.hook = hook
+        self.module = module
+        self.prefix = prefix
+        self.routes = {}
+        self.hook.add_loader(self.module)
+
+    def route(self, method, route, fn, template=None, name=None):
+        """
+        Add a new route to the webserver.
+
+        Args:
+            method (str):
+                HTTP verb for the route (``GET``, ``POST`` etc.).
+            route (str):
+                URL pattern to match.
+            fn (function):
+                Callable to render the response, accepting one :class:`aiohttp.Request` argument.
+            template (str):
+                Optional template path, relative to the module path.  If specified, the view
+                callable should return a context :class:`dict` which is passed to the template.
+            name (str):
+                Custom name for the route, defaulting to the function name if not specified.
+        """
+        name = name or fn.__name__
+        if name in self.routes:
+            raise KeyError(name)
+        if template:
+            fn = self._jinja(fn, template)
+        route = self.hook.add_route(method, "{}/{}".format(self.prefix, route), fn,
+                                    name="{}:{}".format(self.module, name))
+        self.routes[name] = route
+
+    def _jinja(self, fn, path):
+        @wraps(fn)
+        async def inner(request):
+            ctx = await fn(request)
+            ctx.update({"ctx": self, "request": request})
+            return ctx
+        if not aiohttp_jinja2:
+            raise immp.HookError("Templating requires Jinja2 and aiohttp_jinja2")
+        outer = aiohttp_jinja2.template("{}/{}".format(self.module, path))
+        return outer(inner)
+
+    def url_for(self, name_, **kwargs):
+        """
+        Generate an absolute URL for the named route.
+
+        Args:
+            name_ (str):
+                Route name, either the function name or the custom name given during registration.
+
+        Returns:
+            str:
+                Relative URL to the corresponding page.
+        """
+        return self.routes[name_].url_for(**kwargs)
 
 
 class WebHook(immp.ResourceHook):
@@ -40,8 +122,52 @@ class WebHook(immp.ResourceHook):
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
         self.app = web.Application()
+        if aiohttp_jinja2:
+            # Empty mapping by default, other hooks can add to this via add_loader().
+            self._loader = PrefixLoader({})
+            self._jinja = aiohttp_jinja2.setup(self.app, loader=self._loader)
+            self._jinja.globals["immp"] = immp
+            self._jinja.globals["host"] = self.host
         self._runner = web.AppRunner(self.app)
         self._site = None
+        self._contexts = {}
+
+    def context(self, module, prefix):
+        """
+        Retrieve a context for the current module.
+
+        Args:
+            module (str):
+                Dotted module name of the Python module using this context.  Callers should use
+                :data:`__name__` from the root of their module.
+            prefix (str):
+                URL prefix acting as the base path.
+
+        Returns:
+            .WebContext:
+                Linked context instance for that module.
+        """
+        if module not in self._contexts:
+            self._contexts[module] = WebContext(self, module, prefix)
+        return self._contexts[module]
+
+    def add_loader(self, module):
+        """
+        Register a Jinja2 package loader for the given module.
+
+        Args:
+            module (str):
+                Module name to register.
+        """
+        if not aiohttp_jinja2:
+            raise immp.HookError("Loaders require Jinja2 and aiohttp_jinja2")
+        self._loader.mapping[module] = PackageLoader(module)
+
+    def add_route(self, *args, **kwargs):
+        """
+        Equivalent to :meth:`aiohttp.web.UrlDispatcher.add_route`.
+        """
+        return self.app.router.add_route(*args)
 
     async def start(self):
         log.debug("Starting server on {}:{}".format(self.config["host"], self.config["port"]))
