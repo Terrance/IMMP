@@ -15,6 +15,7 @@ behind a full webserver like nginx to separate out routes, lock down access and 
 """
 
 from functools import wraps
+import json
 import logging
 
 from aiohttp import web
@@ -49,13 +50,23 @@ class WebContext:
             Dotted module name of the Python module using this context.
         prefix (str):
             URL prefix acting as the base path.
+        env (dict):
+            Additional variables to make available in the Jinja context.  The default context is:
+
+            * :data:`immp`, the top-level :mod:`immp` module
+            * :data:`host`, the running :class:`.Host` instance
+            * :data:`ctx`, this :class:`.WebContext` instance
+            * :data:`request`, the current :class:`aiohttp.web.Request` instance
     """
 
-    def __init__(self, hook, module, prefix):
+    def __init__(self, hook, module, prefix, env=None):
         self.hook = hook
         self.module = module
         self.prefix = prefix
-        self.routes = {}
+        self.env = {"ctx": self}
+        if env:
+            self.env.update(env)
+        self._routes = {}
         self.hook.add_loader(self.module)
 
     def route(self, method, route, fn, template=None, name=None):
@@ -68,7 +79,7 @@ class WebContext:
             route (str):
                 URL pattern to match.
             fn (function):
-                Callable to render the response, accepting one :class:`aiohttp.Request` argument.
+                Callable to render the response, accepting a :class:`aiohttp.web.Request` argument.
             template (str):
                 Optional template path, relative to the module path.  If specified, the view
                 callable should return a context :class:`dict` which is passed to the template.
@@ -76,20 +87,21 @@ class WebContext:
                 Custom name for the route, defaulting to the function name if not specified.
         """
         name = name or fn.__name__
-        if name in self.routes:
+        if name in self._routes:
             raise KeyError(name)
         if template:
             fn = self._jinja(fn, template)
         route = self.hook.add_route(method, "{}/{}".format(self.prefix, route), fn,
                                     name="{}:{}".format(self.module, name))
-        self.routes[name] = route
+        self._routes[name] = route
 
     def _jinja(self, fn, path):
         @wraps(fn)
         async def inner(request):
-            ctx = await fn(request)
-            ctx.update({"ctx": self, "request": request})
-            return ctx
+            env = dict(self.env)
+            env["request"] = request
+            env.update(await fn(request))
+            return env
         if not aiohttp_jinja2:
             raise immp.HookError("Templating requires Jinja2 and aiohttp_jinja2")
         outer = aiohttp_jinja2.template("{}/{}".format(self.module, path))
@@ -107,7 +119,7 @@ class WebContext:
             str:
                 Relative URL to the corresponding page.
         """
-        return self.routes[name_].url_for(**kwargs)
+        return self._routes[name_].url_for(**kwargs)
 
 
 class WebHook(immp.ResourceHook):
@@ -126,13 +138,14 @@ class WebHook(immp.ResourceHook):
             # Empty mapping by default, other hooks can add to this via add_loader().
             self._loader = PrefixLoader({})
             self._jinja = aiohttp_jinja2.setup(self.app, loader=self._loader)
+            self._jinja.filters["json"] = json.dumps
             self._jinja.globals["immp"] = immp
             self._jinja.globals["host"] = self.host
         self._runner = web.AppRunner(self.app)
         self._site = None
         self._contexts = {}
 
-    def context(self, module, prefix):
+    def context(self, module, prefix, env=None):
         """
         Retrieve a context for the current module.
 
@@ -142,13 +155,16 @@ class WebHook(immp.ResourceHook):
                 :data:`__name__` from the root of their module.
             prefix (str):
                 URL prefix acting as the base path.
+            env (dict):
+                Additional variables to make available in the Jinja context.  See
+                :attr:`.WebContext.env` for details.
 
         Returns:
             .WebContext:
                 Linked context instance for that module.
         """
         if module not in self._contexts:
-            self._contexts[module] = WebContext(self, module, prefix)
+            self._contexts[module] = WebContext(self, module, prefix, env)
         return self._contexts[module]
 
     def add_loader(self, module):
