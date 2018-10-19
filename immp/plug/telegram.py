@@ -8,6 +8,8 @@ Config:
         Optional Telegram application ID for the MTProto API.
     api-hash (str):
         Corresponding Telegram application secret.
+    session (str):
+        Optional path to store a session file, used to cache access hashes.
 
 Bots can be created by talking to `@BotFather <https://t.me/BotFather>`_.  Use the ``/token``
 command to retrieve your API token.  You should also call ``/setprivacy`` to grant the bot
@@ -17,6 +19,10 @@ Telegram bots are rather limited by the bot API.  To make use of some features (
 arbitrary users and listing members in chats), you'll need to combine bot authorisation with an
 MTProto application.  This is done via `app credentials <https://my.telegram.org/apps>`_ applied to
 a bot session -- the bot gains some extra permissions from the "app", but accesses them itself.
+
+Note that most objects in Telegram cannot be retrieved by ID until you've "seen" them via other
+methods.  With a session file, you need only do this once, after which the reference to it (the
+"access hash") is cached.
 
 .. note::
     Use of app features requires the `telethon-aio <https://telethon.readthedocs.io/en/asyncio/>`_
@@ -48,7 +54,8 @@ class _Schema:
 
     config = Schema({"token": str,
                      Optional("api-id", default=None): Any(int, None),
-                     Optional("api-hash", default=None): Any(str, None)},
+                     Optional("api-hash", default=None): Any(str, None),
+                     Optional("session", default=None): Any(str, None)},
                     extra=ALLOW_EXTRA, required=True)
 
     user = Schema({"id": int,
@@ -490,7 +497,8 @@ class TelegramPlug(immp.Plug):
         self._receive = ensure_future(self._poll())
         if self.config["api-id"]:
             log.debug("Starting client")
-            self._client = TelegramClient(None, self.config["api-id"], self.config["api-hash"])
+            self._client = TelegramClient(self.config["session"], self.config["api-id"],
+                                          self.config["api-hash"])
             await self._client.start(bot_token=self.config["token"])
 
     async def stop(self):
@@ -505,7 +513,6 @@ class TelegramPlug(immp.Plug):
             self._session = None
         if self._client:
             log.debug("Closing client")
-            await self._client.log_out()
             self._client.disconnect()
             self._client = None
         self._bot_user = None
