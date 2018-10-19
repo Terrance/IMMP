@@ -576,10 +576,15 @@ class TelegramPlug(immp.Plug):
         if not self._client:
             log.debug("Client auth required to list channel members")
             return None
-        try:
-            # Chat IDs can be negative in the bot API dependent on type, not over MTProto.
+        # Channel and supergroup chat IDs have a bot-API-only prefix to distinguish them.
+        if channel.source.startswith("-100"):
+            chat = int(channel.source[4:])
+            cls = tl.functions.channels.GetFullChannelRequest
+        else:
             chat = abs(int(channel.source))
-            data = await self._client(tl.functions.messages.GetFullChatRequest(chat))
+            cls = tl.functions.messages.GetFullChatRequest
+        try:
+            data = await self._client(cls(chat))
         except BadRequestError:
             return None
         else:
