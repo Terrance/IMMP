@@ -8,4 +8,5 @@ jinja2
 peewee>=3.0.0
 ptpython
 pyyaml  # Optional dependency of anyconfig
+telethon>=1.0
 voluptuous

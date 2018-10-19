@@ -25,7 +25,7 @@ methods.  With a session file, you need only do this once, after which the refer
 "access hash") is cached.
 
 .. note::
-    Use of app features requires the `telethon-aio <https://telethon.readthedocs.io/en/asyncio/>`_
+    Use of app features requires the `telethon <https://telethon.readthedocs.io/en/latest/>`_
     Python module.
 """
 
@@ -513,7 +513,7 @@ class TelegramPlug(immp.Plug):
             self._session = None
         if self._client:
             log.debug("Closing client")
-            self._client.disconnect()
+            await self._client.disconnect()
             self._client = None
         self._bot_user = None
         self._offset = 0

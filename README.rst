@@ -24,7 +24,7 @@ Further modules may also be needed for certain features:
 - `Jinja2 <http://jinja.pocoo.org>`_ (optional: sync)
 - `peewee <https://peewee.readthedocs.io/en/latest/>`_ (databases)
 - `ptpython <https://github.com/jonathanslenders/ptpython>`_ (optional: blocking shell)
-- `telethon <https://telethon.readthedocs.io/en/latest>`_ (optional: Telegram)
+- `telethon <https://telethon.readthedocs.io/en/latest/>`_ (optional: Telegram)
 
 Terminology
 -----------
