@@ -338,12 +338,12 @@ class Data:
     def compile_identities(self):
         self.database.create_tables([IdentityGroup, IdentityLink], safe=True)
         self.hooks["identity"] = {"path": "immp.hook.identity.IdentityHook",
-                                  "config": {"database": "db", "plugs": list(self.plugs)}}
+                                  "config": {"instance": 1, "plugs": list(self.plugs)}}
         with self.database.atomic():
             for nick, links in self.identities.inverse.items():
                 # Invalid password hash by default.
                 # Users must `id-password` before they can manage their identities.
-                group = IdentityGroup.create(name=nick, pwd="")
+                group = IdentityGroup.create(instance=1, name=nick, pwd="")
                 for network, user in links:
                     IdentityLink.create(group=group, network=network, user=user)
 
@@ -352,15 +352,19 @@ class Data:
                               "config": {"plug": "sync", "channels": self.syncs.inverse,
                                          "identities": "identity" if self.identities else None}}
 
+    def compile_commands(self):
+        commands = {"plugs": {"private": list(self.plugs), "anywhere": ["sync"]},
+                    "hooks": ["commands"] + list(hook for hook in self.hooks if not hook == "db")}
+        self.hooks["commands"] = {"path": "immp.hook.command.CommandHook",
+                                  "config": {"prefix": "/bot ",
+                                             "groups": {"migrated": commands}}}
+
     def make_config(self):
         if self.identities:
             self.compile_identities()
         if self.syncs:
             self.compile_syncs()
-        self.hooks["commands"] = {"path": "immp.hook.command.CommandHook",
-                                  "config": {"prefix": "/bot ", "plugs": list(self.plugs),
-                                             "hooks": list(hook for hook in self.hooks
-                                                           if not hook == "db")}}
+        self.compile_commands()
         return {"plugs": self.plugs,
                 "channels": {name: {"plug": plug, "source": source}
                              for name, (plug, source) in self.channels.items()},
