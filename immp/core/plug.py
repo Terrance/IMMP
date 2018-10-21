@@ -487,9 +487,9 @@ class Plug(Openable):
             raise PlugError("Can't send messages when not active")
         # Allow any hooks to modify the outgoing message before sending.
         original = channel
-        for hook in chain(self.host.resources.values(), self.host.hooks.values()):
-            if not hook.state == OpenState.active:
-                continue
+        hooks = [hook for hook in chain(self.host.resources.values(), self.host.hooks.values())
+                 if hook.state == OpenState.active]
+        for hook in hooks:
             try:
                 result = await hook.before_send(channel, msg)
             except Exception:
@@ -499,10 +499,10 @@ class Plug(Openable):
                 channel, msg = result
             else:
                 # Message has been suppressed by a hook.
-                break
+                return []
         if not original == channel:
             log.debug("Redirecting message to new channel: {}".format(repr(channel)))
-            # Restart sending with the new channel.
+            # Restart sending with the new channel, including a new round of before-send.
             return await channel.send(msg)
         # When sending messages asynchronously, the network will likely return the new message
         # before the send request returns with confirmation.  Use the lock when sending in order

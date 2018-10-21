@@ -220,9 +220,9 @@ class Host:
             log.exception("Hook '{}' failed on-receive event".format(hook.name))
 
     async def _callback(self, sent, source, primary):
-        for hook in chain(self.resources.values(), self.hooks.values()):
-            if not hook.state == OpenState.active:
-                continue
+        hooks = [hook for hook in chain(self.resources.values(), self.hooks.values())
+                 if hook.state == OpenState.active]
+        for hook in hooks:
             try:
                 result = await hook.before_receive(sent, source, primary)
             except Exception:
@@ -232,11 +232,8 @@ class Host:
                 sent = result
             else:
                 # Message has been suppressed by a hook.
-                break
-        else:
-            hooks = list(self.resources.values()) + list(self.hooks.values())
-            await gather(*(self._safe_receive(hook, sent, source, primary)
-                           for hook in hooks if hook.state == OpenState.active))
+                return
+        await gather(*(self._safe_receive(hook, sent, source, primary) for hook in hooks))
 
     async def process(self):
         """
