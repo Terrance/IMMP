@@ -319,10 +319,12 @@ class Plug(Openable):
 
     async def receive(self):
         """
-        Wrapper method to receive messages from the network.  Plugs should implement
-        :meth:`get` to yield a series of channel/message pairs from a continuous source (e.g.
-        listening on a socket or long-poll).  For event-driven frameworks, use :meth:`queue` to
-        submit new messages, which will be handled by default.
+        Wrapper method to receive messages from the network.  Plugs should implement their own
+        retrieval of messages, scheduled as a background task or managed by another async client,
+        then call :meth:`queue` for each received message to have it yielded here.
+
+        This method is called by the :class:`.PlugStream`, in parallel with other plugs to produce
+        a single stream of messages across all sources.
 
         Yields:
             (.SentMessage, .Message, bool) tuple:
@@ -333,7 +335,7 @@ class Plug(Openable):
             raise PlugError("Can't receive messages when not active")
         if self._getter:
             raise PlugError("Plug is already receiving messages")
-        self._getter = self.get()
+        self._getter = self._get()
         try:
             async for sent in self._getter:
                 async with self._lock:
@@ -353,21 +355,7 @@ class Plug(Openable):
             await self._getter.aclose()
             self._getter = None
 
-    async def get(self):
-        """
-        Generator of :class:`.SentMessage` objects from the underlying network.
-
-        By default, it reads from the built-in message queue (see :meth:`queue`), which works well
-        for event-based libraries.  If the receive logic is a singular logic path (e.g. repeated
-        long-polling), this method may be overridden to yield messages manually.
-
-        If :attr:`state` is :attr:`.OpenState.stopping`, this method should stop making network
-        requests for further messages, return any remaining or queued messages, and then terminate.
-
-        Yields:
-            .SentMessage:
-                Messages received and processed by the plug.
-        """
+    async def _get(self):
         try:
             while self.state == OpenState.active:
                 yield (await self._queue.get())
