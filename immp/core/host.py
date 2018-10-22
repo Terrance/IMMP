@@ -4,7 +4,7 @@ import logging
 
 from .error import ConfigError
 from .hook import ResourceHook
-from .plug import PlugStream
+from .stream import PlugStream
 from .util import OpenState, pretty_str
 
 
