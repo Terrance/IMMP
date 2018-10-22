@@ -284,6 +284,8 @@ class CommandHook(immp.Hook):
             (str, .BoundCommand) dict:
                 Commands provided by this hook, keyed by name.
         """
+        if hook.state != immp.OpenState.active:
+            return {}
         attrs = [getattr(hook, attr) for attr in dir(hook)]
         return {cmd.name: cmd for cmd in attrs if isinstance(cmd, BoundCommand)}
 
