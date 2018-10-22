@@ -331,8 +331,6 @@ class Plug(Openable):
                 Messages received and processed by the plug, paired with a source message if one
                 exists (from a call to :meth:`send`).
         """
-        if not self.state == OpenState.active:
-            raise PlugError("Can't receive messages when not active")
         if self._getter:
             raise PlugError("Plug is already receiving messages")
         self._getter = self._get()
@@ -357,7 +355,7 @@ class Plug(Openable):
 
     async def _get(self):
         try:
-            while self.state == OpenState.active:
+            while True:
                 yield (await self._queue.get())
         except GeneratorExit:
             log.debug("Immediate exit from plug '{}' getter".format(self.name))
