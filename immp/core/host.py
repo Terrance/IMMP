@@ -88,12 +88,15 @@ class Host:
                 Removed plug instance.
         """
         try:
-            plug = self.plugs[name]
+            plug = self.plugs.pop(name)
         except KeyError:
             raise RuntimeError("Plug '{}' not registered to host".format(name)) from None
+        for name, channel in list(self.channels.items()):
+            if channel.plug == plug:
+                del self.channels[name]
         if self._stream:
             self._stream.remove(plug)
-        return self.plugs.pop(name)
+        return plug
 
     def add_channel(self, name, channel):
         """
