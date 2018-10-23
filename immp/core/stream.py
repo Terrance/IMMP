@@ -1,7 +1,5 @@
-from asyncio import CancelledError, ensure_future, wait
+from asyncio import FIRST_COMPLETED, CancelledError, Event, ensure_future, wait
 import logging
-
-from .util import OpenState
 
 
 log = logging.getLogger(__name__)
@@ -9,84 +7,112 @@ log = logging.getLogger(__name__)
 
 class PlugStream:
     """
-    Manager for reading from multiple asynchronous generators in parallel.
+    Message multiplexer, reads messages from multiple asynchronous generators in parallel.
 
-    Requires a callback coroutine that accepts (:class:`.Channel`, :class:`.Message`) arguments.
+    Instances of this class are async-iterable, producing for each incoming message a tuple
+    (:class:`.SentMessage`, :class:`.Message`, :class:`bool`): the physical message received by the
+    plug, a source message if originating from within the system, and a primary flag.
+
+    .. warning::
+        As per :meth:`.Plug.stream`, only one iterator of this class should be used at once.
     """
 
-    def __init__(self, callback, *plugs):
-        self._coros = {}
-        self._plugs = {}
-        self.callback = callback
-        self.add(*plugs)
-
-    def _queue(self, plug):
-        # Poor man's async iteration -- there's no async equivalent to next(gen).
-        log.debug("Queueing receive task for plug '{}'".format(plug.name))
-        self._plugs[ensure_future(self._coros[plug].asend(None))] = plug
+    def __init__(self):
+        # Mapping from plugs to their stream() generator coroutines.
+        self._agens = {}
+        # Mapping from coroutine task wrappers back to their tasks.
+        self._tasks = {}
+        # When a plug is added or removed, the stream wouldn't be able to update until an event
+        # arrives.  This is a signal used to recreate the task list without a message.
+        self._sync = Event()
+        # Generators can't be closed synchronously, schedule the plugs to be done on the next sync.
+        self._close = set()
 
     def add(self, *plugs):
         """
-        Register plugs for reading.  Plugs should be opened prior to registration.
+        Connect plugs to the stream.  When the stream is active, their :meth:`.Plug.stream`
+        methods will be called to start collecting queued messages.
 
         Args:
             plugs (.Plug list):
-                Connected plug instances to register.
+                New plugs to merge in.
         """
         for plug in plugs:
-            if not plug.state == OpenState.active:
-                raise RuntimeError("Plug '{}' is not open".format(plug.name))
-            self._coros[plug] = plug.receive()
-            self._queue(plug)
+            if plug not in self._agens:
+                self._agens[plug] = plug.stream()
+        self._sync.set()
 
-    def has(self, plug):
+    def remove(self, *plugs):
         """
-        Check for the existence of a plug in the manager.
+        Disconnect plugs from the stream.  Their :meth:`.Plug.stream` tasks will be cancelled, and
+        any last messages will be collected before removing.
 
         Args:
-            plug (.Plug):
-                Connected plug instance to check.
-
-        Returns:
-            bool:
-                ``True`` if a :meth:`.Plug.receive` call is still active.
+            plugs (.Plug list):
+                Active plugs to remove.
         """
-        return (plug in self._coros)
+        for plug in plugs:
+            if plug in self._agens:
+                self._close.add(plug)
+        self._sync.set()
 
-    async def _wait(self):
-        done, pending = await wait(list(self._plugs.keys()), return_when="FIRST_COMPLETED")
-        for task in done:
-            plug = self._plugs[task]
+    async def _queue(self):
+        for plug, coro in self._agens.items():
+            if plug not in self._tasks.values():
+                log.debug("Queueing receive task for plug '{}'".format(plug.name))
+                # Poor man's async iteration -- there's no async equivalent to next(gen).
+                self._tasks[ensure_future(coro.asend(None))] = plug
+        for task, plug in list(self._tasks.items()):
+            if plug not in self._agens and plug is not self._sync:
+                task.cancel()
+                self._close.add(plug)
+                del self._tasks[task]
+        for plug in self._close:
+            log.debug("Cancelling receive task for plug '{}'".format(plug.name))
+            await self._agens[plug].aclose()
+        self._close.clear()
+        if self._sync not in self._tasks.values():
+            log.debug("Recreating sync task")
+            self._sync.clear()
+            self._tasks[ensure_future(self._sync.wait())] = self._sync
+
+    async def _stream(self):
+        """
+        Combined generator to produce messages from all connected plugs as they arrive.  See
+        :meth:`.Plug.receive` for more details.  Only a single stream may be active at once.
+
+        Yields:
+            (.SentMessage, .Message, bool) tuple:
+                Messages received and processed by any connected plug.
+        """
+        while True:
+            log.debug("Waiting for next message")
             try:
-                sent, source, primary = task.result()
-            except StopAsyncIteration:
-                log.debug("Plug '{}' finished yielding during process".format(plug.name))
-                del self._coros[plug]
-            except Exception:
-                log.exception("Plug '{}' raised error during process".format(plug.name))
-                del self._coros[plug]
-            else:
-                log.debug("Received: {}".format(repr(sent)))
-                await self.callback(sent, source, primary)
-                self._queue(plug)
-            finally:
-                del self._plugs[task]
+                await self._queue()
+                done, pending = await wait(self._tasks, return_when=FIRST_COMPLETED)
+            except GeneratorExit:
+                for coro in self._agens.values():
+                    await coro.aclose()
+                return
+            for task in done:
+                plug = self._tasks.pop(task)
+                if plug is self._sync:
+                    continue
+                try:
+                    sent, source, primary = task.result()
+                except CancelledError:
+                    del self._agens[plug]
+                except Exception:
+                    log.exception("Generator for plug '{}' exited, recreating".format(plug.name))
+                    self._agens[plug] = plug.stream()
+                else:
+                    log.debug("Received: {}".format(repr(sent)))
+                    yield (sent, source, primary)
 
-    async def process(self):
-        """
-        Retrieve messages from plugs, and distribute them to hooks.
-        """
-        while self._plugs:
-            try:
-                log.debug("Waiting for next message")
-                await self._wait()
-            except CancelledError:
-                log.debug("Host process cancelled, propagating to tasks")
-                for task in self._plugs.keys():
-                    task.cancel()
-                log.debug("Resuming tasks to collect final messages")
-                await self._wait()
-        log.debug("All tasks completed")
+    def __aiter__(self):
+        return self._stream()
 
     def __repr__(self):
-        return "<{}: {} tasks>".format(self.__class__.__name__, len(self._coros))
+        done = sum(1 for task in self._tasks if task.done())
+        pending = len(self._tasks) - done
+        return "<{}: {} done, {} pending>".format(self.__class__.__name__, done, pending)

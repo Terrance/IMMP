@@ -1,4 +1,4 @@
-from asyncio import BoundedSemaphore, CancelledError, Queue
+from asyncio import BoundedSemaphore, Queue
 from itertools import chain
 import logging
 
@@ -317,7 +317,19 @@ class Plug(Openable):
         """
         self._queue.put_nowait(sent)
 
-    async def receive(self):
+    def _lookup(self, sent):
+        try:
+            # If this message was sent by us, retrieve the canonical version.  For source
+            # messages split into multiple parts, only make the first raw message primary.
+            source, ids = self._sent[(sent.channel, sent.id)]
+            primary = ids.index(sent.id) == 0
+        except KeyError:
+            # The message came from elsewhere, consider it the canonical copy.
+            source = sent
+            primary = True
+        return (sent, source, primary)
+
+    async def stream(self):
         """
         Wrapper method to receive messages from the network.  Plugs should implement their own
         retrieval of messages, scheduled as a background task or managed by another async client,
@@ -330,44 +342,27 @@ class Plug(Openable):
             (.SentMessage, .Message, bool) tuple:
                 Messages received and processed by the plug, paired with a source message if one
                 exists (from a call to :meth:`send`).
+
+        .. warning::
+            Because the message buffer is backed by an :class:`asyncio.Queue`, only one generator
+            from this method should be used at once -- each message will only be retrieved from the
+            queue once, by the first instance that asks for it.
         """
-        if self._getter:
-            raise PlugError("Plug is already receiving messages")
-        self._getter = self._get()
         try:
-            async for sent in self._getter:
+            while True:
+                sent = await self._queue.get()
                 async with self._lock:
                     # No critical section here, just wait for any pending messages to be sent.
                     pass
-                try:
-                    # If this message was sent by us, retrieve the canonical version.  For source
-                    # messages split into multiple parts, only make the first raw message primary.
-                    source, ids = self._sent[(sent.channel, sent.id)]
-                    primary = ids.index(sent.id) == 0
-                except KeyError:
-                    # The message came from elsewhere, consider it the canonical copy.
-                    source = sent
-                    primary = True
-                yield (sent, source, primary)
-        finally:
-            await self._getter.aclose()
-            self._getter = None
-
-    async def _get(self):
-        try:
-            while True:
-                yield (await self._queue.get())
+                yield self._lookup(sent)
         except GeneratorExit:
-            log.debug("Immediate exit from plug '{}' getter".format(self.name))
             # Caused by gen.aclose(), in this state we can't yield any further messages.
-        except CancelledError:
-            log.debug("Cancel request for plug '{}' getter".format(self.name))
-            # Fetch any remaining messages from the queue.
+            log.debug("Immediate exit from plug '{}' getter".format(self.name))
+        except Exception:
             if not self._queue.empty():
-                log.debug("Retrieving {} queued message(s) for '{}'"
-                          .format(self._queue.qsize(), self.name))
-                while not self._queue.empty():
-                    yield self._queue.get_nowait()
+                log.debug("Retrieving queued messages for '{}'".format(self.name))
+            while not self._queue.empty():
+                yield self._lookup(self._queue.get_nowait())
 
     async def send(self, channel, msg):
         """

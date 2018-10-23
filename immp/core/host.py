@@ -56,29 +56,18 @@ class Host:
         Args:
             plug (.Plug):
                 Existing plug instance to add.
+
+        Returns:
+            str:
+                Name used to reference this plug.
         """
-        if self._stream:
-            raise RuntimeError("Host is already running, use join_plug() instead")
         if plug.name in self.plugs:
             raise ConfigError("Plug name '{}' already registered".format(plug.name))
         log.debug("Adding plug: {}".format(plug.name))
         self.plugs[plug.name] = plug
-
-    async def join_plug(self, plug):
-        """
-        Register a plug to the host, and connect it if the host is running.
-
-        Args:
-            plug (.Plug):
-                Existing plug instance to add.
-        """
-        if plug.name in self.plugs:
-            raise ConfigError("Plug name '{}' already registered".format(plug.name))
-        log.debug("Joining plug: {}".format(plug.name))
-        self.plugs[plug.name] = plug
         if self._stream:
-            await plug.open()
             self._stream.add(plug)
+        return plug.name
 
     def remove_plug(self, name):
         """
@@ -91,14 +80,18 @@ class Host:
         Args:
             name (str):
                 Name of a previously registered plug instance to remove.
+
+        Returns:
+            .Plug:
+                Removed plug instance.
         """
         try:
             plug = self.plugs[name]
         except KeyError:
             raise RuntimeError("Plug '{}' not registered to host".format(name)) from None
-        if self._stream and self._stream.has(plug):
-            raise RuntimeError("Host and plug are still running")
-        del self.plugs[name]
+        if self._stream:
+            self._stream.remove(plug)
+        return self.plugs.pop(name)
 
     def add_channel(self, name, channel):
         """
@@ -241,9 +234,13 @@ class Host:
         """
         if self._stream:
             raise RuntimeError("Host is already processing")
-        self._stream = PlugStream(self._callback, *self.plugs.values())
+        self._stream = PlugStream()
+        self._stream.add(*self.plugs.values())
         try:
-            await self._stream.process()
+            async for sent, source, primary in self._stream:
+                await self._callback(sent, source, primary)
+        except StopAsyncIteration:
+            log.debug("Plug stream finished")
         finally:
             self._stream = None
 
