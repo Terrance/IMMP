@@ -65,6 +65,8 @@ class Host:
             raise ConfigError("Plug name '{}' already registered".format(plug.name))
         log.debug("Adding plug: {}".format(plug.name))
         self.plugs[plug.name] = plug
+        if self._loaded:
+            plug.on_load()
         if self._stream:
             self._stream.add(plug)
         return plug.name
@@ -134,9 +136,10 @@ class Host:
                 Existing hook instance to add.
         """
         if isinstance(hook, ResourceHook):
-            if any(issubclass(hook.__class__, cls) for cls in self.resources):
-                raise ConfigError("Resource hook type '{}' or superclass already registered"
-                                  .format(hook.__class__.__name__))
+            if any(issubclass(hook.__class__, cls) or hook.name == resource.name
+                   for cls, resource in self.resources.items()):
+                raise ConfigError("Resource hook name '{}' or type '{}' already registered"
+                                  .format(hook.name, hook.__class__.__name__))
             log.debug("Adding resource hook: '{}' ({})"
                       .format(hook.name, hook.__class__.__name__))
             self.resources[hook.__class__] = hook
@@ -145,6 +148,8 @@ class Host:
                 raise ConfigError("Hook name '{}' already registered".format(hook.name))
             log.debug("Adding hook: {}".format(hook.name))
             self.hooks[hook.name] = hook
+        if self._loaded:
+            hook.on_load()
 
     def remove_hook(self, name):
         """
@@ -161,14 +166,15 @@ class Host:
         try:
             del self.hooks[name]
         except KeyError:
-            remove = []
-            for cls, hook in self.resources.values():
-                if hook.name == name:
-                    remove.append(cls)
-            if not remove:
-                raise RuntimeError("Hook '{}' not registered to host".format(name)) from None
-            for cls in remove:
-                del self.resources[cls]
+            pass
+        remove = []
+        for cls, hook in self.resources.values():
+            if hook.name == name:
+                remove.append(cls)
+        if not remove:
+            raise RuntimeError("Hook '{}' not registered to host".format(name)) from None
+        for cls in remove:
+            del self.resources[cls]
 
     def loaded(self):
         """

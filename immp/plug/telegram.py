@@ -703,7 +703,7 @@ class TelegramPlug(immp.Plug):
             try:
                 result = await fetch
             except CancelledError:
-                log.debug("Cancel request for plug '{}' getter".format(self.name))
+                log.debug("Cancelling polling")
                 return
             except TelegramAPIError as e:
                 log.debug("Unexpected response or timeout: {}".format(e))

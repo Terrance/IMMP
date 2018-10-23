@@ -833,7 +833,7 @@ class SlackPlug(immp.Plug):
             try:
                 json = await fetch
             except CancelledError:
-                log.debug("Cancel request for plug '{}' getter".format(self.name))
+                log.debug("Cancelling polling")
                 return
             except TypeError as e:
                 if self._closing:
