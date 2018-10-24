@@ -1,3 +1,13 @@
+"""
+Utility methods related to loading and saving config files, as used by the console entry point to
+save the config on exit.  Creating and running :class:`.Host` via ``python -m immp`` will attach a
+:class:`RunnerHook` to its resources.
+
+Commands:
+    run-write:
+        Force a write of the live config out to the configured file.
+"""
+
 import logging
 
 import anyconfig
@@ -10,22 +20,29 @@ log = logging.getLogger(__name__)
 
 
 class RunnerHook(immp.ResourceHook):
+    """
+    Virtual hook that handles reading and writing of config from/to a file.
+
+    Attributes:
+        writeable (bool):
+            ``True`` if the file will be updated on exit, or ``False`` if being used read-only.
+    """
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         self._config = None
         self._path = None
-        self._write = None
+        self.writeable = None
 
-    def load(self, config, path, write):
+    def load(self, config, path, writeable):
         self._config = config
         self._path = path
-        self._write = write
+        self.writeable = writeable
 
-    @command("run-write", role=CommandRole.admin, test=lambda self: self._write)
+    @command("run-write", role=CommandRole.admin, test=lambda self: self.writeable)
     async def write(self, msg):
         """
-        Write the live config out to the configured file.
+        Force a write of the live config out to the configured file.
         """
         self.write_config()
         await msg.channel.send(immp.Message(text="\N{WHITE HEAVY CHECK MARK} Written"))
@@ -60,7 +77,7 @@ class RunnerHook(immp.ResourceHook):
         return config
 
     def write_config(self):
-        if not self._write:
+        if not self.writeable:
             raise immp.PlugError("Writing not enabled")
         log.info("Writing config file")
         anyconfig.dump(self.config_full, self._path)
