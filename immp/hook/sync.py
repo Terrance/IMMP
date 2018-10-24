@@ -297,7 +297,7 @@ class SyncPlug(immp.Plug):
         return "sync:{}".format(self.name)
 
     def __init__(self, name, hook, host):
-        super().__init__(name, hook.config, host, virtual=True)
+        super().__init__(name, {}, host, virtual=True)
         self._hook = hook
 
     @classmethod
@@ -340,10 +340,10 @@ class SyncPlug(immp.Plug):
         return None
 
     async def channel_is_private(self, channel):
-        return False if channel.source in self.config["channels"] else None
+        return False if channel.source in self._hook.config["channels"] else None
 
     async def channel_members(self, channel):
-        if channel.source not in self.config["channels"]:
+        if channel.source not in self._hook.config["channels"]:
             return None
         members = []
         for synced in self._hook.channels[channel.source]:
@@ -351,7 +351,7 @@ class SyncPlug(immp.Plug):
         return members
 
     async def put(self, channel, msg):
-        if channel.source in self.config["channels"]:
+        if channel.source in self._hook.config["channels"]:
             await self._hook.send(channel.source, msg)
             return []
         else:
