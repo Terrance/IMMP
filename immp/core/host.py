@@ -63,7 +63,7 @@ class Host:
         """
         if plug.name in self.plugs:
             raise ConfigError("Plug name '{}' already registered".format(plug.name))
-        log.debug("Adding plug: {}".format(plug.name))
+        log.debug("Adding plug: {} ({})".format(plug.name, plug.__class__.__name__))
         self.plugs[plug.name] = plug
         if self._loaded:
             plug.on_load()
@@ -87,13 +87,13 @@ class Host:
             .Plug:
                 Removed plug instance.
         """
-        try:
-            plug = self.plugs.pop(name)
-        except KeyError:
-            raise RuntimeError("Plug '{}' not registered to host".format(name)) from None
+        if name not in self.plugs:
+            raise RuntimeError("Plug '{}' not registered to host".format(name))
+        log.debug("Removing plug: {}".format(name))
+        plug = self.plugs.pop(name)
         for name, channel in list(self.channels.items()):
             if channel.plug == plug:
-                del self.channels[name]
+                self.remove_channel(name)
         if self._stream:
             self._stream.remove(plug)
         return plug
@@ -125,10 +125,10 @@ class Host:
             name (str):
                 Name of a previously registered channel instance to remove.
         """
-        try:
-            del self.channels[name]
-        except KeyError:
-            raise RuntimeError("Channel '{}' not registered to host".format(name)) from None
+        if name not in self.channels:
+            raise RuntimeError("Channel '{}' not registered to host".format(name))
+        log.debug("Removing channel: {}".format(name))
+        return self.channels.pop(name)
 
     def add_hook(self, hook):
         """
@@ -137,22 +137,27 @@ class Host:
         Args:
             hook (.Hook):
                 Existing hook instance to add.
+
+        Returns:
+            str:
+                Name used to reference this hook.
         """
+        if hook.name in self.hooks:
+            raise ConfigError("Hook name '{}' already registered".format(hook.name))
+        for cls, resource in self.resources.items():
+            if hook.name == resource.name:
+                raise ConfigError("Resource name '{}' already registered".format(hook.name))
+            elif hook.__class__ == cls:
+                raise ConfigError("Resource class '{}' already registered".format(cls.__name__))
         if isinstance(hook, ResourceHook):
-            if any(issubclass(hook.__class__, cls) or hook.name == resource.name
-                   for cls, resource in self.resources.items()):
-                raise ConfigError("Resource hook name '{}' or type '{}' already registered"
-                                  .format(hook.name, hook.__class__.__name__))
-            log.debug("Adding resource hook: '{}' ({})"
-                      .format(hook.name, hook.__class__.__name__))
+            log.debug("Adding resource: {} ({})".format(hook.name, hook.__class__.__name__))
             self.resources[hook.__class__] = hook
         else:
-            if hook.name in self.hooks:
-                raise ConfigError("Hook name '{}' already registered".format(hook.name))
-            log.debug("Adding hook: {}".format(hook.name))
+            log.debug("Adding hook: {} ({})".format(hook.name, hook.__class__.__name__))
             self.hooks[hook.name] = hook
         if self._loaded:
             hook.on_load()
+        return hook.name
 
     def remove_hook(self, name):
         """
@@ -165,19 +170,21 @@ class Host:
         Args:
             name (str):
                 Name of a previously registered hook instance to remove.
+
+        Returns:
+            .Hook:
+                Removed hook instance.
         """
-        try:
-            del self.hooks[name]
-        except KeyError:
-            pass
-        remove = []
-        for cls, hook in self.resources.values():
-            if hook.name == name:
-                remove.append(cls)
-        if not remove:
-            raise RuntimeError("Hook '{}' not registered to host".format(name)) from None
-        for cls in remove:
-            del self.resources[cls]
+        if name in self.hooks:
+            log.debug("Removing hook: {}".format(name))
+            return self.hooks.pop(name)
+        else:
+            for cls, hook in list(self.resources.items()):
+                if hook.name == name:
+                    log.debug("Removing resource: {} ({})".format(name, cls.__name__))
+                    return self.resources.pop(cls)
+            else:
+                raise RuntimeError("Hook '{}' not registered to host".format(name))
 
     def loaded(self):
         """
