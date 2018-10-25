@@ -20,7 +20,7 @@ import time
 from peewee import CharField, IntegerField
 
 import immp
-from immp.hook.command import command
+from immp.hook.command import CommandParser, command
 from immp.hook.database import BaseModel, DatabaseHook
 
 
@@ -88,16 +88,17 @@ class NotesHook(immp.Hook):
         self.db = self.host.resources[DatabaseHook].db
         self.db.create_tables([Note], safe=True)
 
-    @command("note-add")
-    async def add(self, msg, *text):
+    @command("note-add", parser=CommandParser.none)
+    async def add(self, msg, text):
         """
         Add a new note for this channel.
         """
         Note.create(network=msg.channel.plug.network_id,
                     channel=msg.channel.source,
                     user=(msg.user.id or msg.user.username) if msg.user else None,
-                    text=" ".join(text))
-        await msg.channel.send(immp.Message(text="{} Added".format(TICK)))
+                    text=text)
+        count = Note.select_channel(msg.channel).count()
+        await msg.channel.send(immp.Message(text="{} Added #{}".format(TICK, count)))
 
     @command("note-remove")
     async def remove(self, msg, pos):
