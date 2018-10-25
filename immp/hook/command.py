@@ -36,7 +36,7 @@ elsewhere.  Multiple groups can be used for fine-grained control.
 from enum import Enum
 import inspect
 import logging
-from shlex import split
+import shlex
 
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
@@ -68,6 +68,23 @@ class BadUsage(immp.HookError):
     """
     May be raised from within a command to indicate that the arguments were invalid.
     """
+
+
+class CommandParser(Enum):
+    """
+    Constants representing the method used to parse the argument text following a used command.
+
+    Attributes:
+        spaces:
+            Split using :meth:`str.split`, for simple inputs breaking on whitespace characters.
+        shlex:
+            Split using :func:`shlex.split`, which allows quoting of multi-word arguments.
+        none:
+            Don't split the argument, just provide a single string.
+    """
+    spaces = 0
+    shlex = 1
+    none = 2
 
 
 class CommandScope(Enum):
@@ -168,6 +185,8 @@ class Command:
             Command name, used to access the command when directly following the prefix.
         fn (method):
             Callback function to process the command usage.
+        parser (.CommandParser):
+            Parse mode for the command arguments.
         scope (.CommandScope):
             Accessibility of this command for the different channel types.
         role (.CommandRole):
@@ -180,9 +199,11 @@ class Command:
             Readable summary of accepted arguments, e.g. ``<required> [optional] [varargs...]``.
     """
 
-    def __init__(self, name, fn, scope=CommandScope.anywhere, role=CommandRole.anyone, test=None):
+    def __init__(self, name, fn, parser=CommandParser.spaces, scope=CommandScope.anywhere,
+                 role=CommandRole.anyone, test=None):
         self.name = name
         self.fn = fn
+        self.parser = parser
         self.scope = scope
         self.role = role
         self.test = test
@@ -216,31 +237,52 @@ class Command:
                 parts.append("[{}...]".format(param.name))
         return " ".join(parts)
 
-    def valid(self, *args):
+    def parse(self, args):
         """
-        Test the validity of the given arguments against the command's underlying method.
+        Convert a string of multiple arguments into a list according to the chosen parse mode.
+
+        Args:
+            args (str):
+                Raw arguments from a message.
 
         Returns:
-            bool:
-                ``True`` if the arguments match the signature.
+            str list:
+                Parsed arguments.
+        """
+        if not args:
+            return []
+        if self.parser == CommandParser.spaces:
+            return args.split()
+        elif self.parser == CommandParser.shlex:
+            return shlex.split(args)
+        elif self.parser == CommandParser.none:
+            return [args]
+
+    def valid(self, *args):
+        """
+        Test the validity of the given arguments against the command's underlying method.  Raises
+        :class:`ValueError` if the arguments don't match the signature.
+
+        Args:
+            args (str list):
+                Parsed arguments.
         """
         params = self._args
         required = len([arg for arg in params if arg.default is inspect.Parameter.empty])
         varargs = len([arg for arg in params if arg.kind is inspect.Parameter.VAR_POSITIONAL])
         required -= varargs
         if len(args) < required:
-            return False
-        elif len(args) > len(params) and not varargs:
-            return False
-        else:
-            return True
+            raise ValueError("Expected at least {} args, got {}".format(required, len(args)))
+        if len(args) > len(params) and not varargs:
+            raise ValueError("Expected at most {} args, got {}".format(len(params), len(args)))
 
     def __repr__(self):
         return "<{}: {} @ {}, {} {}>".format(self.__class__.__name__, self.name, self.scope.name,
                                              self.role.name, self.fn)
 
 
-def command(name, scope=CommandScope.anywhere, role=CommandRole.anyone, test=None):
+def command(name, parser=CommandParser.spaces, scope=CommandScope.anywhere,
+            role=CommandRole.anyone, test=None):
     """
     Decorator: mark up the method as a command.
 
@@ -249,6 +291,8 @@ def command(name, scope=CommandScope.anywhere, role=CommandRole.anyone, test=Non
     Arguments:
         name (str):
             Command name, used to access the command when directly following the prefix.
+        parser (.CommandParser):
+            Parse mode for the command arguments.
         scope (.CommandScope):
             Accessibility of this command for the different channel types.
         role (.CommandRole):
@@ -256,7 +300,7 @@ def command(name, scope=CommandScope.anywhere, role=CommandRole.anyone, test=Non
         test (method):
             Additional predicate that can enable or disable a command based on hook state.
     """
-    return lambda fn: Command(name, fn, scope, role, test)
+    return lambda fn: Command(name, fn, parser, scope, role, test)
 
 
 class CommandHook(immp.Hook):
@@ -357,11 +401,10 @@ class CommandHook(immp.Hook):
             return
         if not str(sent.text).startswith(self.config["prefix"]):
             return
-        try:
-            # TODO: Preserve formatting.
-            name, *args = split(str(sent.text)[len(self.config["prefix"]):])
-        except ValueError:
-            return
+        # TODO: Preserve formatting.
+        raw = str(sent.text)[len(self.config["prefix"]):].split(maxsplit=1)
+        name = raw[0]
+        trailing = raw[1] if len(raw) == 2 else None
         cmds = await self.commands(sent.channel, sent.user)
         try:
             cmd = cmds[name]
@@ -370,7 +413,10 @@ class CommandHook(immp.Hook):
             return
         else:
             log.debug("Matched command in {}: {}".format(repr(sent.channel), repr(cmd)))
-        if not cmd.valid(*args):
+        try:
+            args = cmd.parse(trailing)
+            cmd.valid(*args)
+        except ValueError:
             # Invalid number of arguments passed, return the command usage.
             await self.help(sent, name)
             return
