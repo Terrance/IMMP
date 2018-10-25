@@ -26,7 +26,7 @@ import re
 from voluptuous import ALLOW_EXTRA, Optional, Schema
 
 import immp
-from immp.hook.command import command
+from immp.hook.command import CommandParser, command
 
 
 CROSS = "\N{CROSS MARK}"
@@ -54,7 +54,7 @@ class AutoRespondHook(immp.Hook):
         self.responses = self.config["responses"]
         self._sent = []
 
-    @command("ar-add")
+    @command("ar-add", parser=CommandParser.shlex)
     async def add(self, msg, match, response):
         """
         Add a new trigger / response pair.
@@ -63,7 +63,7 @@ class AutoRespondHook(immp.Hook):
         self.responses[match] = response
         await msg.channel.send(immp.Message(text="{} {}".format(TICK, text)))
 
-    @command("ar-remove")
+    @command("ar-remove", parser=CommandParser.shlex)
     async def remove(self, msg, match):
         """
         Remove an existing trigger.
