@@ -138,15 +138,23 @@ class NotesHook(immp.Hook):
         await msg.channel.send(immp.Message(text=text))
 
     @command("note-list")
-    async def list(self, msg):
+    async def list(self, msg, query=None):
         """
-        Recall all notes for this channel.
+        Recall all notes for this channel, or search for text across all notes.
         """
-        notes = list(Note.select_channel(msg.channel))
-        text = immp.RichText([immp.Segment("{} note{} in this channel{}"
-                                           .format(len(notes), "" if len(notes) == 1 else "s",
-                                                   ":" if notes else "."), bold=bool(notes))])
+        notes = Note.select_channel(msg.channel)
+        if query:
+            matches = notes.where(Note.text.contains(query))
+            count = len(matches)
+        else:
+            count = len(notes)
+        title = ("{}{} note{} in this channel{}"
+                 .format(count, " matching" if query else "",
+                         "" if count == 1 else "s", ":" if count else "."))
+        text = immp.RichText([immp.Segment(title, bold=bool(notes))])
         for pos, note in enumerate(notes, 1):
+            if query and note not in matches:
+                continue
             text.append(immp.Segment("\n"),
                         immp.Segment("{}.".format(pos), bold=True),
                         immp.Segment("\t{}\t".format(note.text)),
