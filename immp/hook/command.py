@@ -51,7 +51,7 @@ class _Schema:
     def _key(name, default=dict):
         return Optional(name, default=default)
 
-    config = Schema({"prefix": str,
+    config = Schema({"prefix": [str],
                      _key("return-errors", False): bool,
                      _key("sets"): Any({}, {str: {str: [str]}}),
                      "groups": {str: {_key("plugs"): {_key("anywhere", list): [str],
@@ -201,7 +201,7 @@ class Command:
 
     def __init__(self, name, fn, parser=CommandParser.spaces, scope=CommandScope.anywhere,
                  role=CommandRole.anyone, test=None):
-        self.name = name
+        self.name = name.lower()
         self.fn = fn
         self.parser = parser
         self.scope = scope
@@ -399,11 +399,15 @@ class CommandHook(immp.Hook):
         await super().on_receive(sent, source, primary)
         if not primary or not sent.user or not sent.text:
             return
-        if not str(sent.text).startswith(self.config["prefix"]):
+        plain = str(sent.text)
+        for prefix in self.config["prefix"]:
+            if plain.lower().startswith(prefix):
+                # TODO: Preserve formatting.
+                raw = plain[len(prefix):].split(maxsplit=1)
+                break
+        else:
             return
-        # TODO: Preserve formatting.
-        raw = str(sent.text)[len(self.config["prefix"]):].split(maxsplit=1)
-        name = raw[0]
+        name = raw[0].lower()
         trailing = raw[1] if len(raw) == 2 else None
         cmds = await self.commands(sent.channel, sent.user)
         try:
@@ -428,5 +432,5 @@ class CommandHook(immp.Hook):
         except Exception as e:
             log.exception("Exception whilst running command: {}".format(sent.text))
             if self.config["return-errors"]:
-                text = "{}: {}".format(e.__class__.__name__, e)
+                text = ": ".join(filter(None, (e.__class__.__name__, str(e))))
                 await sent.channel.send(immp.Message(text="\N{WARNING SIGN} {}".format(text)))
