@@ -232,7 +232,8 @@ class Wait:
     line is received.  On failure, a :class:`ValueError` is raised.
     """
 
-    def __init__(self, success, fail, collect):
+    def __init__(self, lines, success, fail, collect):
+        self.lines = lines
         self._success = success
         self._fail = fail
         self._collect = collect
@@ -298,10 +299,10 @@ class IRCPlug(immp.Plug):
         self._reader = ensure_future(self._read_loop(reader, host, port))
         if self.config["server"]["password"]:
             self.write(Line("PASS", self.config["server"]["password"]))
-        self.write(Line("NICK", self.config["user"]["nick"]),
-                   Line("USER", "immp", "0", "*", self.config["user"]["real-name"]))
         # We won't receive this until a valid nick has been set.
-        await self.wait(success=["001"])
+        await self.wait(Line("NICK", self.config["user"]["nick"]),
+                        Line("USER", "immp", "0", "*", self.config["user"]["real-name"]),
+                        success=["001"])
         self._source = (await self.user_from_username(self.config["user"]["nick"])).id
         for channel in self.host.channels.values():
             if channel.plug == self and channel.source.startswith("#"):
@@ -335,15 +336,14 @@ class IRCPlug(immp.Plug):
                 break
             line = Line.parse(raw.decode().rstrip("\r\n"))
             log.debug("Received line: {}".format(repr(line)))
-            await self.handle(line)
+            await self._handle(line)
         log.debug("Reconnecting in 3 seconds")
         await sleep(3)
         await self.start()
 
     async def _who(self, name):
-        self.write(Line("WHO", name))
         users = []
-        for line in await self.wait(success=["315"], collect=["352"]):
+        for line in await self.wait(Line("WHO", name), success=["315"], collect=["352"]):
             id = "{}!{}@{}".format(line.args[5], line.args[2], line.args[3])
             users.append(immp.User(id=id, plug=self, username=line.args[5], raw=line))
         return users
@@ -370,16 +370,19 @@ class IRCPlug(immp.Plug):
     async def channel_members(self, channel):
         return await self._who(channel.source)
 
-    async def handle(self, line):
-        wait = None
-        if self._current_wait:
-            wait = self._current_wait
-        elif not self._waits.empty():
-            wait = self._waits.get_nowait()
-            self._current_wait = wait
-        if wait and wait.add(line):
-            log.debug("Completing wait: {}".format(wait))
+    def _sync_wait(self):
+        if self._current_wait or self._waits.empty():
+            return
+        wait = self._waits.get_nowait()
+        self._current_wait = wait
+        self.write(*wait.lines)
+
+    async def _handle(self, line):
+        self._sync_wait()
+        if self._current_wait and self._current_wait.add(line):
+            log.debug("Completing wait: {}".format(self._current_wait))
             self._current_wait = None
+            self._sync_wait()
         if line.command == "PING":
             self.write(Line("PONG", *line.args))
         elif line.command in ("JOIN", "PART", "PRIVMSG"):
@@ -395,10 +398,11 @@ class IRCPlug(immp.Plug):
             self.write(Line("NICK", self.config["user"]["nick"]),
                        Line("USER", "immp", "0", "*", self.config["user"]["real-name"]))
 
-    def wait(self, success=(), fail=(), collect=()):
-        wait = Wait(success, fail, collect)
-        self._waits.put_nowait(wait)
+    def wait(self, *lines, success=(), fail=(), collect=()):
+        wait = Wait(lines, success, fail, collect)
         log.debug("Adding wait: {}".format(wait))
+        self._waits.put_nowait(wait)
+        self._sync_wait()
         return wait
 
     def write(self, *lines):
