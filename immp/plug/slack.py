@@ -645,7 +645,7 @@ class SlackPlug(immp.Plug):
         log.debug("Bots ({}): {}".format(len(self._bots), ", ".join(self._bots.keys())))
         # Create a map of bot IDs to users, as the bot cache doesn't contain references to them.
         self._bot_to_user = {user.bot_id: user.id for user in self._users.values() if user.bot_id}
-        self._socket = await self._session.ws_connect(rtm["url"])
+        self._socket = await self._session.ws_connect(rtm["url"], heartbeat=60.0)
         log.debug("Connected to websocket")
 
     async def start(self):
