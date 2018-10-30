@@ -131,16 +131,6 @@ class BoundCommand:
         self.hook = hook
         self.cmd = cmd
 
-    def test(self):
-        """
-        Run the custom test predicate against the bound hook.
-
-        Returns:
-            bool:
-                ``True`` if the hook elects to support this command.
-        """
-        return self.cmd.test(self.hook) if self.cmd.test else True
-
     def applicable(self, private, admin):
         """
         Test the availability of the current command based on the scope and role.
@@ -153,10 +143,10 @@ class BoundCommand:
             return False
         elif self.scope == CommandScope.shared and private:
             return False
-        if self.role == CommandRole.admin and not admin:
+        elif self.role == CommandRole.admin and not admin:
             return False
-        if self.test:
-            return bool(self.test())
+        elif self.cmd.test:
+            return self.cmd.test(self.hook)
         else:
             return True
 
@@ -207,7 +197,7 @@ class Command:
         self.scope = scope
         self.role = role
         self.test = test
-        # Since users are providing arguments parsed by shlex.split(), there are no keywords.
+        # Only positional arguments are produced by splitting the input, there are no keywords.
         if any(param.kind in (inspect.Parameter.KEYWORD_ONLY,
                               inspect.Parameter.VAR_KEYWORD) for param in self._args):
             raise ValueError("Keyword-only command parameters are not supported: {}".format(fn))
