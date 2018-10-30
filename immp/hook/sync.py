@@ -545,17 +545,30 @@ class SyncHook(immp.Hook):
             at = ref.source.at if isinstance(ref.source, immp.SentMessage) else None
             return immp.SentMessage.from_abstract(ref.source or msg, id=ref.ids[channel][0],
                                                   at=at, channel=channel)
-        else:
+        elif channel.plug == msg.channel.plug:
+            # Same network, so let the plug handle it.
+            return msg
+        elif not msg.empty:
             return immp.Message.from_sent(msg)
+        else:
+            return None
+
+    def _replace_all(self, channel, msg):
+        msg.reply_to = self._replace_msg(channel, msg.reply_to, True)
+        attachments = []
+        for attach in msg.attachments:
+            if isinstance(attach, immp.Message):
+                replaced = self._replace_msg(channel, attach, True)
+                if replaced:
+                    attachments.append(replaced)
+            else:
+                attachments.append(attach)
+        msg.attachments = attachments
+        return msg
 
     async def before_receive(self, sent, source, primary):
         await super().before_receive(sent, source, primary)
-        # Attempt to find synced sources for referenced messages.
-        sent.reply_to = self._replace_msg(sent.channel, sent.reply_to, False)
-        for i, attach in enumerate(sent.attachments):
-            if isinstance(attach, immp.Message):
-                sent.attachments[i] = self._replace_msg(sent.channel, attach, False)
-        return sent
+        return self._replace_all(sent.channel, copy(sent))
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
@@ -601,13 +614,4 @@ class SyncHook(immp.Hook):
 
     async def before_send(self, channel, msg):
         await super().before_send(channel, msg)
-        clone = copy(msg)
-        # Attempt to find synced sources for referenced messages.
-        clone.reply_to = self._replace_msg(channel, msg.reply_to, True)
-        clone.attachments = []
-        for attach in msg.attachments:
-            if isinstance(attach, immp.Message):
-                clone.attachments.append(self._replace_msg(channel, attach, True))
-            else:
-                clone.attachments.append(attach)
-        return (channel, clone)
+        return (channel, self._replace_all(channel, copy(msg)))
