@@ -607,8 +607,12 @@ class TelegramPlug(immp.Plug):
         # Prefer a source URL if available, else fall back to re-uploading the file.
         base = {"chat_id": str(chat)}
         if msg.user:
-            base["caption"] = ("{} sent an image"
-                               .format(msg.user.real_name or msg.user.username))
+            rich = immp.RichText([immp.Segment(msg.user.real_name or msg.user.username,
+                                               bold=True, italic=True),
+                                  immp.Segment(" sent an image", italic=True)])
+            text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
+            base["caption"] = text
+            base["parse_mode"] = "HTML"
         if attach.type == immp.File.Type.image:
             data = await self._form_data(base, "photo", attach)
             try:
