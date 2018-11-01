@@ -92,6 +92,7 @@ class _Schema:
                                            Optional("bot_id", default=None): Any(str, None),
                                            Optional("username", default=None): Any(str, None),
                                            Optional("icons", default=dict): Any(dict, None)}),
+                         _base_msg.extend({"subtype": "thread_broadcast"}),
                          _base_msg.extend({"subtype": "message_changed",
                                            "message": lambda v: _Schema.message(v),
                                            "previous_message": lambda v: _Schema.message(v)}),
@@ -426,6 +427,8 @@ class SlackMessage(immp.Message):
                 if event["username"]:
                     user = immp.User(real_name=event["username"])
             text = event["text"]
+        elif event["subtype"] == "thread_broadcast":
+            raise NotImplementedError
         elif event["subtype"] == "message_changed":
             if event["message"]["text"] == event["previous_message"]["text"]:
                 # Message remains unchanged.  Can be caused by link unfurling (adds an attachment)
