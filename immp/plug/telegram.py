@@ -77,7 +77,9 @@ class _Schema:
                       Optional("forward_from", default=None): Any(user, None),
                       Optional("forward_date", default=None): Any(int, None),
                       Optional("text", default=None): Any(str, None),
+                      Optional("caption", default=None): Any(str, None),
                       Optional("entities", default=[]): [entity],
+                      Optional("caption_entities", default=[]): [entity],
                       Optional("reply_to_message", default=None):
                           Any(lambda v: _Schema.message(v), None),
                       Optional("photo", default=[]): [{"file_id": str}],
@@ -367,6 +369,9 @@ class TelegramMessage(immp.Message):
             url = ("https://api.telegram.org/file/bot{}/{}"
                    .format(telegram.config["token"], file["file_path"]))
             attachments.append(immp.File(type=immp.File.Type.image, source=url))
+            if message["caption"]:
+                text = TelegramRichText.from_entities(message["caption"],
+                                                      message["caption_entities"])
         elif message["sticker"]:
             params = {"file_id": message["sticker"]["file_id"]}
             file = await telegram._api("getFile", _Schema.file, params=params)
