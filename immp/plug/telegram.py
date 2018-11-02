@@ -474,6 +474,7 @@ class TelegramPlug(immp.Plug):
 
     async def _api(self, endpoint, schema=_Schema.api(), **kwargs):
         url = "https://api.telegram.org/bot{}/{}".format(self.config["token"], endpoint)
+        log.debug("Making API request to {}".format(endpoint))
         try:
             async with self._session.post(url, **kwargs) as resp:
                 try:
@@ -700,7 +701,6 @@ class TelegramPlug(immp.Plug):
 
     async def _poll(self):
         while not self._closing:
-            log.debug("Making long-poll request")
             params = {"offset": self._offset,
                       "timeout": 240}
             fetch = ensure_future(self._api("getUpdates", _Schema.updates, params=params))
