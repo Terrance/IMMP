@@ -8,6 +8,8 @@ Config:
         Name to display for incoming messages without an attached user (default: ``IMMP``).
     fallback-image (str):
         Avatar to display for incoming messages without a user or image (default: none).
+    thread-broadcast (bool):
+        ``True`` to always send outgoing thread replies back to the channel.
 
 You'll need to create either a full `Slack App <https://api.slack.com/apps>`_ and add a bot, or
 a `Bot Integration <https://my.slack.com/apps/A0F7YS25R-bots>`_.  In either case, you should end up
@@ -42,7 +44,8 @@ class _Schema:
 
     config = Schema({"token": str,
                      Optional("fallback-name", default="IMMP"): str,
-                     Optional("fallback-image", default=None): Any(str, None)},
+                     Optional("fallback-image", default=None): Any(str, None),
+                     Optional("thread-broadcast", default=False): bool},
                     extra=ALLOW_EXTRA, required=True)
 
     user = Schema({"id": str,
@@ -768,6 +771,8 @@ class SlackPlug(immp.Plug):
                     # Reply directly to the corresponding thread.  Note that thread_ts can be any
                     # message in the thread, it need not be resolved to the parent.
                     data.add_field("thread_ts", msg.reply_to.id)
+                    if self.config["thread-broadcast"]:
+                        data.add_field("broadcast", "true")
                 if msg.user:
                     comment = immp.RichText([immp.Segment(name, bold=True, italic=True),
                                              immp.Segment(" uploaded this file", italic=True)])
@@ -796,6 +801,8 @@ class SlackPlug(immp.Plug):
         attachments = []
         if isinstance(msg.reply_to, immp.SentMessage):
             data["thread_ts"] = msg.reply_to.id
+            if self.config["thread-broadcast"]:
+                data["reply_broadcast"] = "true"
         elif isinstance(msg.reply_to, immp.Message):
             attachments.append(SlackMessage.to_attachment(self, msg.reply_to, True))
         for attach in msg.attachments:
