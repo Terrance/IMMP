@@ -60,10 +60,15 @@ class _Schema:
                      "user": str},
                     extra=ALLOW_EXTRA, required=True)
 
+    _shares = {str: [{"ts": str}]}
+
     file = Schema({"id": str,
                    "name": Any(str, None),
                    "pretty_type": str,
-                   "url_private": str},
+                   "url_private": str,
+                   Optional("shares", default={"public": {}, "private": {}}):
+                       {Optional("public", default=dict): Any(_shares, {}),
+                        Optional("private", default=dict): Any(_shares, {})}},
                   extra=ALLOW_EXTRA, required=True)
 
     attachment = Schema({Optional("title", default=None): Any(str, None),
@@ -746,8 +751,8 @@ class SlackPlug(immp.Plug):
         raise MessageNotFound
 
     async def put(self, channel, msg):
-        uploads = []
         ids = []
+        uploads = 0
         if msg.user:
             name = msg.user.real_name or msg.user.username
             image = msg.user.avatar
@@ -770,18 +775,12 @@ class SlackPlug(immp.Plug):
                 img_resp = await attach.get_content(self._session)
                 data.add_field("file", img_resp.content, filename="file")
                 upload = await self._api("files.upload", _Schema.upload, data=data)
-                uploads.append(upload["file"]["id"])
-        if uploads:
-            # Slack doesn't provide us with a message ID, so we have to find it ourselves.
-            history = await self._api("conversations.history", _Schema.history,
-                                      params={"channel": channel.source, "limit": 100})
-            for message in history["messages"]:
-                for file in message["files"]:
-                    if file["id"] in uploads:
-                        ids.append(message["ts"])
-            if len(ids) < len(uploads):
-                # Of the 100 messages we just looked at, at least one file wasn't found.
-                log.debug("Missing some file upload messages")
+                uploads += 1
+                for cat, shared in upload["file"]["shares"].items():
+                    if channel.source in shared:
+                        ids += [share["ts"] for share in shared[channel.source]]
+        if len(ids) < uploads:
+            log.warning("Missing some file shares: sent {}, got {}".format(uploads, len(ids)))
         data = {"channel": channel.source,
                 "as_user": msg.user is None,
                 "username": name,
