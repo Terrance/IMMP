@@ -6,6 +6,8 @@ Config:
         Unique instance code.
     plugs (str list):
         List of plug names to accept identities for.
+    multiple (bool):
+        ``True`` (default) to allow linking multiple accounts from the same network.
 
 Commands:
     id-show <name>:
@@ -51,7 +53,8 @@ log = logging.getLogger(__name__)
 class _Schema:
 
     config = Schema({Optional("instance", default=None): Any(int, None),
-                     "plugs": [str]},
+                     "plugs": [str],
+                     Optional("multiple", default=True): bool},
                     extra=ALLOW_EXTRA, required=True)
 
 
@@ -228,6 +231,9 @@ class IdentityHook(immp.Hook):
                 group = IdentityGroup.create(name=name, pwd=pwd)
             if exists and not group.pwd == pwd:
                 text = "{} Password incorrect".format(CROSS)
+            elif not self.config["multiple"] and any(link.network == msg.user.plug.network_id
+                                                     for link in group.links):
+                text = "{} Already identified on {}".format(CROSS, msg.user.plug.network_name)
             else:
                 IdentityLink.create(group=group, network=msg.user.plug.network_id,
                                     user=msg.user.id)
