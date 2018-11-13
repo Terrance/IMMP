@@ -27,10 +27,10 @@ will be used in lieu of a webhook, e.g. with direct messages.
     <https://discordpy.readthedocs.io/en/rewrite/>`_ Python module, which is currently in alpha.
 """
 
-from asyncio import Condition, ensure_future
+from asyncio import Condition, ensure_future, sleep
 from collections import defaultdict
 from functools import partial
-from json import dumps as json_dumps
+import json
 import logging
 import re
 
@@ -55,6 +55,114 @@ class _Schema:
 
     webhook = Schema(Any({"code": int, "message": str}, {"id": str}),
                      extra=ALLOW_EXTRA, required=True)
+
+
+# https://github.com/Rapptz/discord.py/issues/1150
+discord.AsyncWebhookAdapter.http = None
+
+# https://github.com/Rapptz/discord.py/issues/1242
+discord.AsyncWebhookAdapter.store_user = discord.AsyncWebhookAdapter._store_user
+
+
+# https://github.com/Rapptz/discord.py/pull/1698
+class MultiFileWebhookAdapter(discord.AsyncWebhookAdapter):
+    """
+    Modification of discord.py's aiohttp webhook adapter to accept multiple file uploads.
+    """
+
+    # Updated to place any file parameter in the form data, whether single or multiple.
+    async def request(self, verb, url, payload=None, multipart=None):
+        headers = {}
+        data = None
+        if payload:
+            headers["Content-Type"] = "application/json"
+            data = discord.utils.to_json(payload)
+        if multipart:
+            data = FormData()
+            for key, value in multipart.items():
+                if key.startswith("file"):
+                    data.add_field(key, value[1], filename=value[0], content_type=value[2])
+                else:
+                    data.add_field(key, value)
+        for tries in range(5):
+            async with self.session.request(verb, url, headers=headers, data=data) as r:
+                data = await r.text(encoding="utf-8")
+                if r.headers["Content-Type"] == "application/json":
+                    data = json.loads(data)
+                remaining = r.headers.get("X-Ratelimit-Remaining")
+                if remaining == "0" and r.status != 429:
+                    delta = discord.utils._parse_ratelimit_header(r)
+                    await sleep(delta, loop=self.loop)
+                if 300 > r.status >= 200:
+                    return data
+                if r.status == 429:
+                    retry_after = data["retry_after"] / 1000.0
+                    await sleep(retry_after, loop=self.loop)
+                    continue
+                if r.status in (500, 502):
+                    await sleep(1 + tries * 2, loop=self.loop)
+                    continue
+                if r.status == 403:
+                    raise discord.Forbidden(r, data)
+                elif r.status == 404:
+                    raise discord.NotFound(r, data)
+                else:
+                    raise discord.HTTPException(r, data)
+
+    def execute_webhook(self, *, payload, wait=False, files=None):
+        if files is None:
+            data = payload
+            multipart = None
+        else:
+            multipart = {"payload_json": discord.utils.to_json(payload)}
+            for i, file in enumerate(files, start=1):
+                multipart["file{}".format(i)] = file
+            data = None
+        coro = self.request("POST", "{}?wait={}".format(self._request_url, wait),
+                            multipart=multipart, payload=data)
+        return self.handle_execution_response(coro, wait=wait)
+
+    # Webhook.send() doesn't accept a `files` parameter, instead we'll just send via the adapter
+    # for now to avoid patching discord.py.
+    def send_with(self, content=None, *, wait=False, username=None, avatar_url=None, tts=False,
+                  file=None, files=None, embed=None, embeds=None):
+        """
+        Equivalent to :meth:`discord.Webhook.send`.
+
+        Args:
+            files (discord.File list):
+                Multiple files to attach to this message.
+        """
+        payload = {}
+        if files is not None and file is not None:
+            raise discord.InvalidArgument("Cannot mix file and files keyword arguments")
+        if embeds is not None and embed is not None:
+            raise discord.InvalidArgument("Cannot mix embed and embeds keyword arguments")
+        if embeds is not None:
+            if len(embeds) > 10:
+                raise discord.InvalidArgument("embeds has a maximum of 10 elements")
+            payload["embeds"] = [e.to_dict() for e in embeds]
+        if embed is not None:
+            payload["embeds"] = [embed.to_dict()]
+        if content is not None:
+            payload["content"] = str(content)
+        payload["tts"] = tts
+        if avatar_url:
+            payload["avatar_url"] = avatar_url
+        if username:
+            payload["username"] = username
+        if file is not None:
+            files = [file]
+        if files is not None:
+            try:
+                to_pass = [(file.filename, file.open_file(), "application/octet-stream")
+                           for file in files]
+                return self.execute_webhook(wait=wait, files=to_pass, payload=payload)
+            finally:
+                for file in files:
+                    file.close()
+        else:
+            return self.execute_webhook(wait=wait, payload=payload)
 
 
 class DiscordAPIError(immp.PlugError):
@@ -268,13 +376,13 @@ class DiscordMessage(immp.Message):
                                 raw=message)
 
     @classmethod
-    async def to_webhook_embed(cls, discord, msg, reply=False):
+    async def to_embed(cls, discord_, msg, reply=False):
         """
         Convert a :class:`.Message` to a message embed structure, suitable for embedding within an
         outgoing message.
 
         Args:
-            discord (.DiscordPlug):
+            discord_ (.DiscordPlug):
                 Target plug instance for this attachment.
             msg (.Message):
                 Original message from another plug or hook.
@@ -282,33 +390,38 @@ class DiscordMessage(immp.Message):
                 Whether to show a reply icon instead of a quote icon.
 
         Returns.
-            dict:
+            discord.Embed:
                 Discord API `embed <https://discordapp.com/developers/docs/resources/channel>`_
                 object.
         """
         icon = "\N{RIGHTWARDS ARROW WITH HOOK}" if reply else "\N{SPEECH BALLOON}"
-        quote = {"footer": {"text": icon}}
+        embed = discord.Embed()
+        embed.set_footer(text=icon)
         if isinstance(msg, immp.SentMessage):
-            quote["timestamp"] = msg.at.isoformat()
+            embed.timestamp = msg.at
         if msg.user:
-            quote["author"] = {"name": msg.user.real_name or msg.user.username,
-                               "icon_url": msg.user.avatar}
-        quoted_rich = None
-        quoted_action = False
+            link = discord.Embed.Empty
+            # Exclude platform-specific join protocol URLs.
+            if (msg.user.link or "").startswith("http"):
+                link = msg.user.link
+            embed.set_author(name=(msg.user.real_name or msg.user.username),
+                             url=link, icon_url=msg.user.avatar or discord.Embed.Empty)
+        quote = None
+        action = False
         if msg.text:
-            quoted_rich = msg.text.clone()
-            quoted_action = msg.action
+            quote = msg.text.clone()
+            action = msg.action
         elif msg.attachments:
             count = len(msg.attachments)
-            what = "{} files".format(count) if count > 1 else "this file"
-            quoted_rich = immp.RichText([immp.Segment("sent {}".format(what))])
-            quoted_action = True
-        if quoted_rich:
-            if quoted_action:
-                for segment in quoted_rich:
+            what = "{} attachment".format(count) if count > 1 else "this attachment"
+            quote = immp.RichText([immp.Segment("sent {}".format(what))])
+            action = True
+        if quote:
+            if action:
+                for segment in quote:
                     segment.italic = True
-            quote["description"] = DiscordRichText.to_markdown(discord, quoted_rich)
-        return quote
+            embed.description = DiscordRichText.to_markdown(discord_, quote)
+        return embed
 
 
 class DiscordClient(discord.Client):
@@ -435,140 +548,89 @@ class DiscordPlug(immp.Plug):
 
     def _resolve_channel(self, channel):
         dc_channel = self._get_channel(channel)
-        webhook = None
+        adapter = None
         for label, host_channel in self.host.channels.items():
-            if channel == host_channel:
-                webhook = self.config["webhooks"].get(label)
+            if channel == host_channel and label in self.config["webhooks"]:
+                adapter = MultiFileWebhookAdapter(self._session)
+                # We'll be sending via the adapter to leverage the `files` field, and creating a
+                # webhook binds it to the adapter, so we don't actually need a webhook reference.
+                discord.Webhook.from_url(self.config["webhooks"][label], adapter=adapter)
                 break
-        return dc_channel, webhook
+        return dc_channel, adapter
 
     async def _resolve_message(self, dc_channel, msg):
         if isinstance(msg, immp.SentMessage):
             # Discord offers no reply mechanism, so instead we just fetch the referenced message
             # and render it manually.
             message = await dc_channel.get_message(msg.id)
-            return DiscordMessage.from_message(discord, message)
+            return DiscordMessage.from_message(self, message)
         elif isinstance(msg, immp.Message):
             return msg
 
-    async def _put_webhook(self, dc_channel, webhook, msg):
-        name = image = rich = None
+    async def _requests(self, dc_channel, adapter, msg):
+        name = image = None
+        embeds = []
+        files = []
         if msg.user:
             name = msg.user.real_name or msg.user.username
             image = msg.user.avatar
-        if msg.text:
-            rich = msg.text.clone()
-            if msg.action:
-                for segment in rich:
-                    segment.italic = True
-        data = FormData()
-        payload = {}
-        embeds = []
-        if msg.attachments:
-            for i, attach in enumerate(msg.attachments):
-                if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
-                    img_resp = await attach.get_content(self._session)
-                    filename = attach.title or "image_{}.png".format(i)
-                    data.add_field("file_{}".format(i), img_resp.content, filename=filename)
-                elif isinstance(attach, immp.Location):
-                    embeds.append({"title": attach.name or "Location",
-                                   "url": attach.google_map_url,
-                                   "description": attach.address,
-                                   "thumbnail": {"url": attach.google_image_url(80)},
-                                   "footer": {"text": "{}, {}".format(attach.latitude,
-                                                                      attach.longitude)}})
-                elif isinstance(attach, immp.Message):
-                    resolved = await self._resolve_message(dc_channel, attach)
-                    embeds.append(await DiscordMessage.to_webhook_embed(self, resolved))
+        for i, attach in enumerate(msg.attachments or []):
+            if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
+                img_resp = await attach.get_content(self._session)
+                filename = attach.title or "image_{}.png".format(i)
+                files.append(discord.File(img_resp.content, filename))
+            elif isinstance(attach, immp.Location):
+                embed = discord.Embed()
+                embed.title = attach.name or "Location"
+                embed.url = attach.google_map_url
+                embed.description = attach.address
+                embed.set_thumbnail(url=attach.google_image_url(80))
+                embed.set_footer(text="{}, {}".format(attach.latitude, attach.longitude))
+                embeds.append((embed, "sent a location"))
+            elif isinstance(attach, immp.Message):
+                resolved = await self._resolve_message(dc_channel, attach)
+                embeds.append((await DiscordMessage.to_embed(self, resolved), "sent a message"))
         if msg.reply_to:
             resolved = await self._resolve_message(dc_channel, msg.reply_to)
-            embeds.append(await DiscordMessage.to_webhook_embed(self, resolved, True))
-        # Null values aren't accepted, only add name/image to data if they're set.
-        if name:
-            payload["username"] = name
-        if image:
-            payload["avatar_url"] = image
-        if rich:
-            if isinstance(msg, immp.SentMessage) and msg.edited:
-                rich.append(immp.Segment(" (edited)", italic=True))
-            payload["content"] = DiscordRichText.to_markdown(self, rich.normalise())
-        if embeds:
-            payload["embeds"] = embeds
-        data.add_field("payload_json", json_dumps(payload))
-        async with self._session.post("{}?wait=true".format(webhook), data=data) as resp:
-            json = await resp.json()
-        message = _Schema.webhook(json)
-        if "code" in message:
-            raise DiscordAPIError("{}: {}".format(message["code"], message["message"]))
-        return [message["id"]]
-
-    async def _requests(self, dc_channel, msg):
-        embeds = []
-        if msg.attachments:
-            for i, attach in enumerate(msg.attachments):
-                if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
-                    img_resp = await attach.get_content(self._session)
-                    filename = attach.title or "image_{}.png".format(i)
-                    embeds.append((None, discord.File(img_resp.content, filename), "an image"))
-                elif isinstance(attach, immp.Location):
-                    embed = discord.Embed()
-                    embed.title = attach.name or "Location"
-                    embed.url = attach.google_map_url
-                    embed.description = attach.address
-                    embed.set_thumbnail(url=attach.google_image_url(80))
-                    embed.set_footer(text="{}, {}".format(attach.latitude, attach.longitude))
-                    embeds.append((embed, None, "a location"))
-        requests = []
-        if msg.text or msg.reply_to:
-            rich = msg.render(quote_reply=True)
-            embed = file = None
+            embeds.append((await DiscordMessage.to_embed(self, resolved, True), None))
+        if adapter:
+            # Sending via webhook: multiple embeds and files supported.
+            text = None
+            if msg.text:
+                rich = msg.text.clone()
+                if msg.action:
+                    for segment in rich:
+                        segment.italic = True
+                text = DiscordRichText.to_markdown(self, rich)
+            return [adapter.send_with(content=text, wait=True, username=name, avatar_url=image,
+                                      files=files, embeds=[embed[0] for embed in embeds])]
+        else:
+            # Sending via client: only a single embed per message.
+            text = embed = None
+            requests = []
+            rich = msg.render() or None
+            if rich:
+                text = DiscordRichText.to_markdown(self, rich)
             if len(embeds) == 1:
                 # Attach the only embed to the message text.
-                embed, file, _ = embeds.pop()
-            requests.append(dc_channel.send(content=DiscordRichText.to_markdown(self, rich),
-                                            embed=embed, file=file))
-        for embed, file, desc in embeds:
-            # Send any additional embeds in their own separate messages.
-            content = None
-            if msg.user:
-                label = immp.Message(user=msg.user, text="sent {}".format(desc), action=True)
-                content = DiscordRichText.to_markdown(self, label.render())
-            requests.append(dc_channel.send(content=content, embed=embed, file=file))
-        return requests
+                embed, _ = embeds.pop()
+            requests.append(dc_channel.send(content=text, embed=embed, files=files))
+            for embed, desc in embeds:
+                # Send any additional embeds in their own separate messages.
+                content = None
+                if msg.user and desc:
+                    label = immp.Message(user=msg.user, text="sent {}".format(desc), action=True)
+                    content = DiscordRichText.to_markdown(self, label.render())
+                requests.append(dc_channel.send(content=content, embed=embed))
+            return requests
 
-    async def _put_client(self, dc_channel, msg):
-        requests = []
-        for attach in msg.attachments:
-            # Generate requests for attached messages first.
-            if isinstance(attach, immp.Message):
-                resolved = await self._resolve_message(dc_channel, attach)
-                requests += await self._requests(dc_channel, resolved)
-        own_requests = await self._requests(dc_channel, msg)
-        if requests and not own_requests:
-            # Forwarding a message but no content to show who forwarded it.
-            info = immp.Message(user=msg.user, action=True, text="forwarded a message")
-            own_requests = await self._requests(dc_channel, info)
-        requests += own_requests
+    async def put(self, channel, msg):
+        dc_channel, adapter = self._resolve_channel(channel)
+        requests = await self._requests(dc_channel, adapter, msg)
         sent = []
         for request in requests:
             sent.append(await request)
         return [str(resp.id) for resp in sent]
-
-    async def put(self, channel, msg):
-        dc_channel, webhook = self._resolve_channel(channel)
-        webhook = None
-        for label, host_channel in self.host.channels.items():
-            if channel == host_channel:
-                webhook = self.config["webhooks"].get(label)
-                break
-        if webhook:
-            log.debug("Sending to {} via webhook".format(repr(channel)))
-            return await self._put_webhook(dc_channel, webhook, msg)
-        elif dc_channel:
-            log.debug("Sending to {} via client".format(repr(channel)))
-            return await self._put_client(dc_channel, msg)
-        else:
-            raise DiscordAPIError("No access to channel {}".format(channel.source))
 
     async def delete(self, sent):
         dc_channel, webhook = self._resolve_channel(sent.channel)
