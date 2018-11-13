@@ -33,6 +33,7 @@ hook-specific config -- you can, for example, bind some commands to an admin-onl
 elsewhere.  Multiple groups can be used for fine-grained control.
 """
 
+from copy import copy
 from enum import Enum
 import inspect
 import logging
@@ -183,20 +184,19 @@ class Command:
             Accessibility of this command for different users.
         test (method):
             Additional predicate that can enable or disable a command based on hook state.
-        doc (str):
-            Full description of the command.
-        spec (str):
-            Readable summary of accepted arguments, e.g. ``<required> [optional] [varargs...]``.
+        sync_aware (bool):
+            ``True`` if the hook is aware of synced channels provided by a :class:`.SyncPlug`.
     """
 
     def __init__(self, name, fn, parser=CommandParser.spaces, scope=CommandScope.anywhere,
-                 role=CommandRole.anyone, test=None):
+                 role=CommandRole.anyone, test=None, sync_aware=False):
         self.name = name.lower()
         self.fn = fn
         self.parser = parser
         self.scope = scope
         self.role = role
         self.test = test
+        self.sync_aware = sync_aware
         # Only positional arguments are produced by splitting the input, there are no keywords.
         if any(param.kind in (inspect.Parameter.KEYWORD_ONLY,
                               inspect.Parameter.VAR_KEYWORD) for param in self._args):
@@ -272,7 +272,7 @@ class Command:
 
 
 def command(name, parser=CommandParser.spaces, scope=CommandScope.anywhere,
-            role=CommandRole.anyone, test=None):
+            role=CommandRole.anyone, test=None, sync_aware=False):
     """
     Decorator: mark up the method as a command.
 
@@ -289,8 +289,12 @@ def command(name, parser=CommandParser.spaces, scope=CommandScope.anywhere,
             Accessibility of this command for different users.
         test (method):
             Additional predicate that can enable or disable a command based on hook state.
+        sync_aware (bool):
+            ``True`` if the hook is aware of synced channels provided by a :class:`.SyncPlug`.  In
+            this case, the command handler will receive the native channel rather than the virtual
+            sync channel.  See :meth:`.SyncPlug.sync_for` for resolving this to a virtual channel.
     """
-    return lambda fn: Command(name, fn, parser, scope, role, test)
+    return lambda fn: Command(name, fn, parser, scope, role, test, sync_aware)
 
 
 class CommandHook(immp.Hook):
@@ -387,16 +391,23 @@ class CommandHook(immp.Hook):
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
-        if not primary or not sent.user or not sent.text:
+        if not primary or not sent.user or not sent.text or sent != source:
             return
         plain = str(sent.text)
+        raw = None
         for prefix in self.config["prefix"]:
             if plain.lower().startswith(prefix):
-                # TODO: Preserve formatting.
                 raw = plain[len(prefix):].split(maxsplit=1)
                 break
-        else:
+        if not raw:
             return
+        # Sync integration: exclude native channels of syncs from command execution.
+        if isinstance(sent.channel.plug, immp.hook.sync.SyncPlug):
+            log.debug("Suppressing command in virtual sync channel: {}".format(repr(sent.channel)))
+            return
+        synced = immp.hook.sync.SyncPlug.any_sync(self.host, sent.channel)
+        if synced:
+            log.debug("Mapping command channel: {} -> {}".format(repr(sent.channel), repr(synced)))
         name = raw[0].lower()
         trailing = raw[1] if len(raw) == 2 else None
         cmds = await self.commands(sent.channel, sent.user)
@@ -408,15 +419,21 @@ class CommandHook(immp.Hook):
         else:
             log.debug("Matched command in {}: {}".format(repr(sent.channel), repr(cmd)))
         try:
+            # TODO: Preserve formatting.
             args = cmd.parse(trailing)
             cmd.valid(*args)
         except ValueError:
             # Invalid number of arguments passed, return the command usage.
             await self.help(sent, name)
             return
+        if synced and not cmd.sync_aware:
+            msg = copy(sent)
+            msg.channel = synced
+        else:
+            msg = sent
         try:
             log.debug("Executing command: {} {}".format(repr(sent.channel), sent.text))
-            await cmd(sent, *args)
+            await cmd(msg, *args)
         except BadUsage:
             await self.help(sent, name)
         except Exception as e:
