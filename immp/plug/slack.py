@@ -113,12 +113,17 @@ class _Schema:
     event = Schema(Any(message,
                        {"type": Any("team_join", "user_change"),
                         "user": user},
-                       {"type": Any("channel_joined", "group_joined", "im_created"),
-                        "channel": {"id": str}},
-                       {"type": Any("channel_rename", "group_rename"),
+                       {"type": Any("channel_created", "channel_joined", "channel_rename",
+                                    "group_created", "group_joined", "group_rename"),
                         "channel": {"id": str, "name": str}},
-                       {"type": str,
-                        Optional("subtype", default=None): Any(str, None)}),
+                       {"type": "im_created",
+                        "channel": {"id": str}},
+                       {"type": Any("member_joined_channel", "member_left_channel"),
+                        "user": str,
+                        "channel": str},
+                       {"type": "message",
+                        Optional("subtype", default=None): Any(str, None)},
+                       {"type": str}),
                    extra=ALLOW_EXTRA, required=True)
 
     def _api(nested={}):
@@ -591,7 +596,7 @@ class SlackPlug(immp.Plug):
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
         self._team = self._bot_user = None
-        self._users = self._channels = self._directs = self._bots = None
+        self._users = self._channels = self._directs = self._bots = self._members = None
         # Connection objects that need to be closed on disconnect.
         self._session = self._socket = self._receive = None
         self._closing = False
@@ -654,6 +659,7 @@ class SlackPlug(immp.Plug):
         log.debug("Directs ({}): {}".format(len(self._directs), ", ".join(self._directs.keys())))
         self._bots = {b["id"]: b for b in rtm["bots"] if not b["deleted"]}
         log.debug("Bots ({}): {}".format(len(self._bots), ", ".join(self._bots.keys())))
+        self._members = {}
         # Create a map of bot IDs to users, as the bot cache doesn't contain references to them.
         self._bot_to_user = {user.bot_id: user.id for user in self._users.values() if user.bot_id}
         self._socket = await self._session.ws_connect(rtm["url"], heartbeat=60.0)
@@ -716,9 +722,11 @@ class SlackPlug(immp.Plug):
     async def channel_members(self, channel):
         if channel.plug is not self:
             return None
-        members = await self._paged("conversations.members", _Schema.members, "members",
-                                    data={"channel": channel.source})
-        return [self._users[member] for member in members]
+        if channel.source not in self._members:
+            members = await self._paged("conversations.members", _Schema.members, "members",
+                                        data={"channel": channel.source})
+            self._members[channel.source] = members
+        return [self._users[member] for member in self._members[channel.source]]
 
     async def channel_invite(self, channel, user):
         if user.id == self._bot_user["id"]:
@@ -869,6 +877,10 @@ class SlackPlug(immp.Plug):
             elif event["type"] == "im_created":
                 # A DM appeared, add to our cache.
                 self._directs[event["channel"]["id"]] = event["channel"]
+            elif event["type"] == "member_joined_channel" and event["channel"] in self._members:
+                self._members[event["channel"]].append(event["user"])
+            elif event["type"] == "member_left_channel" and event["channel"] in self._members:
+                self._members[event["channel"]].remove(event["user"])
             elif event["type"] == "message" and not event["subtype"] == "message_replied":
                 # A new message arrived, push it back to the host.
                 try:
