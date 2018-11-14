@@ -16,7 +16,7 @@ Config:
 
         plugs ((str, str list) dict):
             List of plugs where commands should be processed in **private** or **shared**
-            (non-private) channels, or **anywhere**.
+            (non-private) channels, **named** for top-level-defined channels, or **anywhere**.
         channels (str list):
             List of channels to process public commands in (independent of *plugs* above).
         hooks (str list):
@@ -56,6 +56,7 @@ class _Schema:
                      _key("return-errors", False): bool,
                      _key("sets"): Any({}, {str: {str: [str]}}),
                      "groups": {str: {_key("plugs"): {_key("anywhere", list): [str],
+                                                      _key("named", list): [str],
                                                       _key("private", list): [str],
                                                       _key("shared", list): [str]},
                                       _key("channels", list): [str],
@@ -343,6 +344,9 @@ class CommandHook(immp.Hook):
             if channel.plug.name in anywhere + group["plugs"]["private"] and private:
                 groups.append(group)
             elif channel.plug.name in anywhere + group["plugs"]["shared"] and not private:
+                groups.append(group)
+            elif (channel.plug.name in group["plugs"]["named"] and
+                  channel in self.host.channels.values()):
                 groups.append(group)
             elif any(channel == self.host.channels[label] for label in group["channels"]):
                 groups.append(group)
