@@ -68,6 +68,30 @@ class HangoutsUser(immp.User):
                    avatar=avatar,
                    raw=user)
 
+    @classmethod
+    def from_entity(cls, hangouts, entity):
+        """
+        Convert a :class:`hangups.hangouts_pb2.Entity` into a :class:`.User`.
+
+        Args:
+            hangouts (.HangoutsPlug):
+                Related plug instance that provides the user.
+            user (hangups.hangouts_pb2.Entity):
+                Hangouts entity response retrieved from a
+                :class:`hangups.hangouts_pb2.GetEntityByIdRequest`.
+
+        Returns:
+            .HangoutsUser:
+                Parsed user object.
+        """
+        avatar = (re.sub("^//", "https://", entity.properties.photo_url)
+                  if entity.properties.photo_url else None)
+        return cls(id=entity.id_.chat_id,
+                   plug=hangouts,
+                   real_name=entity.properties.display_name,
+                   avatar=avatar,
+                   raw=entity)
+
     @property
     def link(self):
         if self.id:
@@ -433,7 +457,16 @@ class HangoutsPlug(immp.Plug):
 
     async def user_from_id(self, id):
         user = self._users.get_user(hangups.user.UserID(chat_id=id, gaia_id=id))
-        return HangoutsUser.from_user(self, user) if user else None
+        if user:
+            return HangoutsUser.from_user(self, user)
+        request = hangouts_pb2.GetEntityByIdRequest(
+            request_header=self._client.get_request_header(),
+            batch_lookup_spec=[hangouts_pb2.EntityLookupSpec(gaia_id=id)])
+        response = await self._client.get_entity_by_id(request)
+        if response.entity:
+            return HangoutsUser.from_entity(self, response.entity)
+        else:
+            return None
 
     async def channel_for_user(self, user):
         if not isinstance(user, HangoutsUser) or not isinstance(user.raw, hangups.user.User):
