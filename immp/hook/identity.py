@@ -288,7 +288,7 @@ class IdentityHook(immp.Hook):
         if not group:
             text = "{} Not identified".format(CROSS)
         else:
-            group.delete()
+            group.delete_instance()
             text = "{} Reset".format(TICK)
         await msg.channel.send(immp.Message(text=text))
 
