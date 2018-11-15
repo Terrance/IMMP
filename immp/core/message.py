@@ -497,7 +497,8 @@ class Message(Attachment):
         else:
             raise ValueError("Message text must be RichText or plain str")
 
-    def render(self, *, real_name=True, edit=False, delimiter="\n", quote_reply=False, trim=None):
+    def render(self, *, real_name=True, link_name=True, edit=False, delimiter="\n",
+               quote_reply=False, trim=None):
         """
         Add the sender's name (if present) to the start of the message text, suitable for sending
         as-is on plugs that need all the textual message content in the body.
@@ -506,6 +507,8 @@ class Message(Attachment):
             real_name (bool):
                 ``True`` (default) to display real names, or ``False`` to prefer usernames.  If
                 only one kind of name is available, it will be used regardless of this setting.
+            link_name (bool):
+                ``True`` (default) to link the author's name to their profile, if a link exists.
             edit (bool):
                 Whether this render should show an ``[edit]`` tag next to the author.
             delimiter (str):
@@ -523,13 +526,15 @@ class Message(Attachment):
                 Rendered message body.
         """
         output = RichText()
-        name = None
+        name = link = None
         action = self.action
         if self.user and not self.user.suggested:
             if real_name:
                 name = self.user.real_name or self.user.username
             else:
                 name = self.user.username or self.user.real_name
+            if link_name:
+                link = self.user.link
         if self.text:
             if isinstance(self.text, RichText):
                 text = self.text
@@ -551,7 +556,7 @@ class Message(Attachment):
                 output.prepend(Segment(":", bold=True))
             if edit:
                 output.prepend(Segment(" [edit]"))
-            output.prepend(Segment(name, bold=True))
+            output.prepend(Segment(name, bold=True, link=link))
         elif edit:
             output.prepend(Segment("[edit] "))
         if action:
@@ -559,7 +564,8 @@ class Message(Attachment):
                 segment.italic = True
         if quote_reply and self.reply_to:
             if not (isinstance(self.reply_to, SentMessage) and self.reply_to.empty):
-                quoted = self.reply_to.render(real_name=real_name, delimiter=delimiter, trim=32)
+                quoted = self.reply_to.render(real_name=real_name, link_name=link_name,
+                                              delimiter=delimiter, trim=32)
                 output.prepend(*(quoted.indent("\N{BOX DRAWINGS LIGHT VERTICAL} ")), Segment("\n"))
         return output
 

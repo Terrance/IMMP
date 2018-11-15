@@ -600,7 +600,7 @@ class HangoutsPlug(immp.Plug):
         requests = []
         if msg.text or msg.reply_to:
             edited = msg.edited if isinstance(msg, immp.SentMessage) else False
-            segments = self._serialise(msg.render(edit=edited, quote_reply=True))
+            segments = self._serialise(msg.render(link_name=False, edit=edited, quote_reply=True))
             media = None
             if len(images) == 1:
                 # Attach the only image to the message text.
@@ -610,7 +610,7 @@ class HangoutsPlug(immp.Plug):
             segments = []
             if msg.user:
                 label = immp.Message(user=msg.user, text="sent an image", action=True)
-                segments = self._serialise(label.render())
+                segments = self._serialise(label.render(link_name=False))
             # Send any additional media items in their own separate messages.
             for media in images:
                 requests.append(self._request(conv, segments, media))
@@ -621,7 +621,7 @@ class HangoutsPlug(immp.Plug):
             # Include a label only if we haven't sent a text message earlier.
             if msg.user and not msg.text:
                 label = immp.Message(user=msg.user, text="sent a location", action=True)
-                segments = self._serialise(label.render())
+                segments = self._serialise(label.render(link_name=False))
                 requests.append(self._request(conv, segments))
         return requests
 
