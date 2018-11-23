@@ -282,7 +282,7 @@ class DiscordRichText(immp.RichText):
         return ":{}:".format(match.group(1))
 
     @classmethod
-    def to_markdown(cls, discord, rich):
+    def to_markdown(cls, discord, rich, webhook=False):
         """
         Convert a :class:`.RichText` instance into a Markdown string.
 
@@ -291,6 +291,8 @@ class DiscordRichText(immp.RichText):
                 Related plug instance to cross-reference users.
             rich (.DiscordRichText):
                 Parsed rich text container.
+            webhook (bool):
+                ``True`` if being sent via a webhook, which allows use of hyperlinks.
 
         Returns:
             str:
@@ -313,7 +315,12 @@ class DiscordRichText(immp.RichText):
             if segment.mention and isinstance(segment.mention.plug, DiscordPlug):
                 text += "<@{}>".format(segment.mention.id)
             elif segment.link:
-                text += "[{}]({})".format(segment.text, segment.link)
+                if webhook:
+                    text += "[{}]({})".format(segment.text, segment.link)
+                elif segment.text == segment.link:
+                    text += segment.text
+                else:
+                    text += "{} [{}]".format(segment.text, segment.link)
             else:
                 text += segment.text
         for tag in reversed(active):
@@ -601,14 +608,14 @@ class DiscordPlug(immp.Plug):
                 if msg.action:
                     for segment in rich:
                         segment.italic = True
-                text = DiscordRichText.to_markdown(self, rich)
+                text = DiscordRichText.to_markdown(self, rich, True)
             return [adapter.send_with(content=text, wait=True, username=name, avatar_url=image,
                                       files=files, embeds=[embed[0] for embed in embeds])]
         else:
             # Sending via client: only a single embed per message.
             text = embed = None
             requests = []
-            rich = msg.render() or None
+            rich = msg.render(link_name=False) or None
             if rich:
                 text = DiscordRichText.to_markdown(self, rich)
             if len(embeds) == 1:
