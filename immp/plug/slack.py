@@ -292,8 +292,9 @@ class SlackRichText(immp.RichText):
             changes[match.start()]["link"] = cls._unescape(match.group(1))
             changes[match.end()]["link"] = None
         for match in re.finditer(r"<@([^\|>]+)(?:\|[^>]+)?>", text):
-            changes[match.start()]["mention"] = slack._users[match.group(1)]
-            changes[match.end()]["mention"] = None
+            if match.group(1) in slack._users:
+                changes[match.start()]["mention"] = slack._users[match.group(1)]
+                changes[match.end()]["mention"] = None
         segments = []
         points = list(changes.keys())
         # Iterate through text in change start/end pairs.
