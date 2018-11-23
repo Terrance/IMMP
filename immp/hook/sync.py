@@ -517,12 +517,12 @@ class SyncHook(immp.Hook):
                 name = tmpl.render(user=clone.user, identity=identity)
             elif identity:
                 name = "{} ({})".format(clone.user.real_name or clone.user.username, identity.name)
-            if self.config["strip-name-emoji"]:
-                if not EMOJI_REGEX:
-                    raise immp.PlugError("'emoji' module not installed")
-                name = EMOJI_REGEX.sub("", name)
-            name = re.sub(r"\s+", " ", name).strip()
             if name:
+                if self.config["strip-name-emoji"]:
+                    if not EMOJI_REGEX:
+                        raise immp.PlugError("'emoji' module not installed")
+                    name = EMOJI_REGEX.sub("", name)
+                name = re.sub(r"\s+", " ", name).strip()
                 clone.user = copy(clone.user)
                 clone.user.real_name = name
             if identity:
