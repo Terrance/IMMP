@@ -12,12 +12,14 @@ Config:
         Whether to sync channel title changes across the bridge.
     identities (str):
         Name of a registered :class:`.IdentityHook` to provide unified names across networks.
-    name-format(str):
+    name-format (str):
         Template to use for replacing real names on synced messages, parsed by :mod:`jinja2`.  If
         not set but the user is identified, it defaults to ``<real name> (<identity name>)``.
 
         Available variables are ``user`` (:class:`.User`) and ``identity`` (if enabled as above --
         :class:`.IdentityGroup`, or ``None`` if no link).
+    strip-name-emoji (bool):
+        ``True`` to remove emoji characters from message authors' real names.
 
 Commands:
     sync-members:
@@ -34,13 +36,15 @@ as one.  This allows them to listen to a unified stream of messages, or push new
 synced channels.
 
 .. note::
-    Use of ``name-format`` requires the `Jinja2 <http://jinja.pocoo.org>`_ Python module.
+    Use of ``name-format`` requires the `Jinja2 <http://jinja.pocoo.org>`_ Python module.  Use of
+    ``strip-name-emoji`` requires the **emoji** Python module.
 """
 
 from asyncio import BoundedSemaphore, gather
 from collections import defaultdict
 from copy import copy
 import logging
+import re
 
 from peewee import CharField
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
@@ -56,6 +60,13 @@ try:
 except ImportError:
     Template = None
 
+try:
+    from emoji import get_emoji_regexp
+except ImportError:
+    EMOJI_REGEX = None
+else:
+    EMOJI_REGEX = get_emoji_regexp()
+
 
 log = logging.getLogger(__name__)
 
@@ -67,7 +78,8 @@ class _Schema:
                      Optional("joins", default=True): bool,
                      Optional("renames", default=True): bool,
                      Optional("identities", default=None): Any(str, None),
-                     Optional("name-format", default=None): Any(str, None)},
+                     Optional("name-format", default=None): Any(str, None),
+                     Optional("strip-name-emoji", default=False): bool},
                     extra=ALLOW_EXTRA, required=True)
 
 
@@ -505,11 +517,16 @@ class SyncHook(immp.Hook):
                 name = tmpl.render(user=clone.user, identity=identity)
             elif identity:
                 name = "{} ({})".format(clone.user.real_name or clone.user.username, identity.name)
+            if self.config["strip-name-emoji"]:
+                if not EMOJI_REGEX:
+                    raise immp.PlugError("'emoji' module not installed")
+                name = EMOJI_REGEX.sub("", name)
+            name = re.sub(r"\s+", " ", name).strip()
             if name:
                 clone.user = copy(clone.user)
-                clone.user.real_name = name or None
-                if identity:
-                    clone.user.username = clone.user.username or identity.name
+                clone.user.real_name = name
+            if identity:
+                clone.user.username = clone.user.username or identity.name
         queue = []
         # Just like with plugs, when sending a new (external) message to all channels in a sync, we
         # need to wait for all plugs to complete before processing further messages.
