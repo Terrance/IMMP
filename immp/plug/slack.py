@@ -254,6 +254,10 @@ class SlackRichText(immp.RichText):
         return match.group(2) or match.group(1)
 
     @classmethod
+    def _escape(cls, text):
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    @classmethod
     def _unescape(cls, text):
         return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
 
@@ -346,9 +350,9 @@ class SlackRichText(immp.RichText):
             if segment.mention and slack.same_team(segment.mention.plug):
                 text += "<@{}>".format(segment.mention.id)
             elif segment.link:
-                text += "<{}|{}>".format(segment.link, segment.text)
+                text += "<{}|{}>".format(segment.link, cls._escape(segment.text))
             else:
-                text += segment.text
+                text += cls._escape(segment.text)
         for tag in reversed(active):
             # Close all remaining tags.
             text += tag
