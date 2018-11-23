@@ -395,6 +395,7 @@ class HangoutsPlug(immp.Plug):
         self._looped = None
         self._starting = Condition()
         self._closing = False
+        self._users = self._convs = None
         self._bot_user = None
 
     async def _loop(self):
@@ -589,12 +590,12 @@ class HangoutsPlug(immp.Plug):
     async def _requests(self, conv, msg):
         uploads = []
         images = []
-        locations = []
+        places = []
         for attach in msg.attachments:
             if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
                 uploads.append(self._upload(attach))
             elif isinstance(attach, immp.Location):
-                locations.append((attach, HangoutsLocation.to_place(attach)))
+                places.append(HangoutsLocation.to_place(attach))
         if uploads:
             images = await gather(*uploads)
         requests = []
@@ -614,9 +615,9 @@ class HangoutsPlug(immp.Plug):
             # Send any additional media items in their own separate messages.
             for media in images:
                 requests.append(self._request(conv, segments, media))
-        if locations:
+        if places:
             # Send each location separately.
-            for location, place in locations:
+            for place in places:
                 requests.append(self._request(conv, place=place))
             # Include a label only if we haven't sent a text message earlier.
             if msg.user and not msg.text:

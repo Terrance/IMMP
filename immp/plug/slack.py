@@ -601,7 +601,8 @@ class SlackPlug(immp.Plug):
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
         self._team = self._bot_user = None
-        self._users = self._channels = self._directs = self._bots = self._members = None
+        self._users = self._channels = self._directs = None
+        self._bots = self._bot_to_user = self._members = None
         # Connection objects that need to be closed on disconnect.
         self._session = self._socket = self._receive = None
         self._closing = False
@@ -697,7 +698,7 @@ class SlackPlug(immp.Plug):
         return self._users.get(id)
 
     async def user_from_username(self, username):
-        for id, user in self._users.items():
+        for user in self._users.values():
             if user.username == username:
                 return user
         return None
@@ -794,7 +795,7 @@ class SlackPlug(immp.Plug):
                 data.add_field("file", img_resp.content, filename="file")
                 upload = await self._api("files.upload", _Schema.upload, data=data)
                 uploads += 1
-                for cat, shared in upload["file"]["shares"].items():
+                for shared in upload["file"]["shares"].values():
                     if channel.source in shared:
                         ids += [share["ts"] for share in shared[channel.source]]
         if len(ids) < uploads:
