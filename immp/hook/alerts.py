@@ -6,7 +6,7 @@ Mentions
 
 Config:
     plugs (str list):
-        List of plug names to enable mentions for.
+        List of plug names to enable mention alerts for.
     usernames (bool):
         Whether to match network usernames (``True`` by default).
     real-names (bool):
@@ -28,7 +28,7 @@ Subscriptions
 
 Config:
     plugs (str list):
-        List of plug names to enable mentions for.
+        List of plug names to enable subscription alerts for.
 
 Commands:
     sub-add <text>:
@@ -260,7 +260,10 @@ class SubscriptionsHook(_AlertHookBase):
         self.db = self.host.resources[DatabaseHook].db
         self.db.create_tables([SubTrigger, SubExclude], safe=True)
 
-    @command("sub-add", scope=CommandScope.private)
+    def _test(self, channel, user):
+        return channel.plug in self.plugs
+
+    @command("sub-add", scope=CommandScope.private, test=_test)
     async def add(self, msg, *words):
         """
         Add a subscription to your trigger list.
@@ -271,7 +274,7 @@ class SubscriptionsHook(_AlertHookBase):
         resp = "{} {}".format(TICK, "Subscribed" if created else "Already subscribed")
         await msg.channel.send(immp.Message(text=resp))
 
-    @command("sub-remove", scope=CommandScope.private)
+    @command("sub-remove", scope=CommandScope.private, test=_test)
     async def remove(self, msg, *words):
         """
         Remove a subscription from your trigger list.
@@ -283,7 +286,7 @@ class SubscriptionsHook(_AlertHookBase):
         resp = "{} {}".format(TICK, "Unsubscribed" if count else "Not subscribed")
         await msg.channel.send(immp.Message(text=resp))
 
-    @command("sub-list", scope=CommandScope.private)
+    @command("sub-list", scope=CommandScope.private, test=_test)
     async def list(self, msg):
         """
         Show all active subscriptions.
@@ -298,7 +301,7 @@ class SubscriptionsHook(_AlertHookBase):
             text = "No active subscriptions."
         await msg.channel.send(immp.Message(text=text))
 
-    @command("sub-exclude", scope=CommandScope.shared)
+    @command("sub-exclude", scope=CommandScope.shared, test=_test)
     async def exclude(self, msg, *words):
         """
         Don't trigger a specific subscription in the current channel.

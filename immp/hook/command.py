@@ -133,9 +133,19 @@ class BoundCommand:
         self.hook = hook
         self.cmd = cmd
 
-    def applicable(self, private, admin):
+    def applicable(self, channel, user, private, admin):
         """
         Test the availability of the current command based on the scope and role.
+
+        Args:
+            channel (.Channel):
+                Source channel where the command will be executed.
+            user (.User):
+                Author of the message to trigger the command.
+            private (bool):
+                Result of :meth:`.Channel.is_private`.
+            admin (bool):
+                ``True`` if the author is defined as an admin of this :class:`.CommandHook`.
 
         Returns:
             bool:
@@ -148,7 +158,7 @@ class BoundCommand:
         elif self.role == CommandRole.admin and not admin:
             return False
         elif self.cmd.test:
-            return self.cmd.test(self.hook)
+            return self.cmd.test(self.hook, channel, user)
         else:
             return True
 
@@ -330,13 +340,19 @@ class CommandHook(immp.Hook):
 
     async def commands(self, channel, user):
         """
-        Retrieve all commands, and filter against the group config based on the containing channel
-        and user.
+        Retrieve all commands, and filter against the group config.
+
+        Args:
+            channel (.Channel):
+                Source channel where the command will be executed.
+            user (.User):
+                Author of the message to trigger the command.
 
         Returns:
             (str, .BoundCommand) dict:
                 Commands provided by all hooks, in this channel for this user, keyed by name.
         """
+        log.debug("Collecting commands for {} in {}".format(repr(channel), repr(user)))
         private = await channel.is_private()
         groups = []
         for group in self.config["groups"].values():
@@ -360,7 +376,7 @@ class CommandHook(immp.Hook):
                 for name, cmdset in self.config["sets"][label].items():
                     discovered = self.discover(self._hook(name))
                     cmdgroup.update(set(discovered[cmd] for cmd in cmdset))
-            cmds.update(cmd for cmd in cmdgroup if cmd.applicable(private, admin))
+            cmds.update(cmd for cmd in cmdgroup if cmd.applicable(channel, user, private, admin))
         mapped = {cmd.name: cmd for cmd in cmds}
         if len(cmds) > len(mapped):
             # Mapping by name silently overwrote at least one command with a duplicate name.
@@ -373,6 +389,8 @@ class CommandHook(immp.Hook):
         List all available commands in this channel, or show help about a single command.
         """
         cmds = await self.commands(msg.channel, msg.user)
+        if not cmds:
+            return
         if command:
             try:
                 cmd = cmds[command]

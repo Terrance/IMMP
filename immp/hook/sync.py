@@ -429,7 +429,10 @@ class SyncHook(immp.Hook):
         else:
             self.db.create_tables([SyncBackRef], safe=True)
 
-    @command("sync-members")
+    def _test(self, channel, user):
+        return self.label_for_channel(channel)
+
+    @command("sync-members", test=_test)
     async def members(self, msg):
         """
         List all members of the current conversation, across all channels.
@@ -462,7 +465,7 @@ class SyncHook(immp.Hook):
                         immp.Segment("(list may be incomplete)"))
         await msg.channel.send(immp.Message(user=immp.User(real_name="Sync"), text=text))
 
-    @command("sync-list")
+    @command("sync-list", test=_test)
     async def list(self, msg):
         """
         List all channels connected to this conversation.

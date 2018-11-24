@@ -13,7 +13,7 @@ import logging
 import anyconfig
 
 import immp
-from immp.hook.command import CommandRole, command
+from immp.hook.command import CommandRole, CommandScope, command
 
 
 log = logging.getLogger(__name__)
@@ -39,7 +39,10 @@ class RunnerHook(immp.ResourceHook):
         self._path = path
         self.writeable = writeable
 
-    @command("run-write", role=CommandRole.admin, test=lambda self: self.writeable)
+    def _test(self, channel, user):
+        return self.writeable
+
+    @command("run-write", scope=CommandScope.private, role=CommandRole.admin, test=_test)
     async def write(self, msg):
         """
         Force a write of the live config out to the configured file.

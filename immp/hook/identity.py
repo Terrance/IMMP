@@ -178,7 +178,10 @@ class IdentityHook(immp.Hook):
         except IdentityGroup.DoesNotExist:
             return None
 
-    @command("id-show")
+    def _test(self, channel, user):
+        return channel.plug in self.plugs
+
+    @command("id-show", test=_test)
     async def show(self, msg, name):
         """
         Recall a known identity and all of its links.
@@ -212,7 +215,7 @@ class IdentityHook(immp.Hook):
                     text.append(immp.Segment(link.user, code=True))
         await msg.channel.send(immp.Message(text=text))
 
-    @command("id-add", scope=CommandScope.private)
+    @command("id-add", scope=CommandScope.private, test=_test)
     async def add(self, msg, name, pwd):
         """
         Create a new identity, or link to an existing one from a second user.
@@ -240,7 +243,7 @@ class IdentityHook(immp.Hook):
                 text = "{} {}".format(TICK, "Added" if exists else "Claimed")
         await msg.channel.send(immp.Message(text=text))
 
-    @command("id-rename", scope=CommandScope.private)
+    @command("id-rename", scope=CommandScope.private, test=_test)
     async def rename(self, msg, name):
         """
         Rename the current identity.
@@ -261,7 +264,7 @@ class IdentityHook(immp.Hook):
             text = "{} Claimed".format(TICK)
         await msg.channel.send(immp.Message(text=text))
 
-    @command("id-password", scope=CommandScope.private)
+    @command("id-password", scope=CommandScope.private, test=_test)
     async def password(self, msg, pwd):
         """
         Update the password for the current identity.
@@ -277,7 +280,7 @@ class IdentityHook(immp.Hook):
             text = "{} Changed".format(TICK)
         await msg.channel.send(immp.Message(text=text))
 
-    @command("id-reset", scope=CommandScope.private)
+    @command("id-reset", scope=CommandScope.private, test=_test)
     async def reset(self, msg):
         """
         Delete the current identity and all linked users.
@@ -292,7 +295,7 @@ class IdentityHook(immp.Hook):
             text = "{} Reset".format(TICK)
         await msg.channel.send(immp.Message(text=text))
 
-    @command("id-role", scope=CommandScope.private, role=CommandRole.admin)
+    @command("id-role", scope=CommandScope.private, role=CommandRole.admin, test=_test)
     async def role(self, msg, name, role=None):
         """
         List roles assigned to an identity, or add/remove a given role.
