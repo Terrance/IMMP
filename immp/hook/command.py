@@ -367,7 +367,7 @@ class CommandHook(immp.Hook):
             raise immp.ConfigError("Multiple applicable commands named '{}'".format(name))
         return mapped
 
-    @command("help")
+    @command("help", sync_aware=True)
     async def help(self, msg, command=None):
         """
         List all available commands in this channel, or show help about a single command.
