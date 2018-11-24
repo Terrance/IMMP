@@ -106,7 +106,7 @@ class IdentityLink(BaseModel):
             User identifier as given by the plug.
     """
 
-    group = ForeignKeyField(IdentityGroup, related_name="links")
+    group = ForeignKeyField(IdentityGroup, related_name="links", on_delete="cascade")
     network = CharField()
     user = CharField()
 
@@ -126,7 +126,7 @@ class IdentityRole(BaseModel):
             Plain role identifier.
     """
 
-    group = ForeignKeyField(IdentityGroup, related_name="roles")
+    group = ForeignKeyField(IdentityGroup, related_name="roles", on_delete="cascade")
     role = CharField()
 
     def __repr__(self):
@@ -228,7 +228,7 @@ class IdentityHook(immp.Hook):
                 group = IdentityGroup.get(instance=self.config["instance"], name=name)
                 exists = True
             except IdentityGroup.DoesNotExist:
-                group = IdentityGroup.create(name=name, pwd=pwd)
+                group = IdentityGroup.create(instance=self.config["instance"], name=name, pwd=pwd)
             if exists and not group.pwd == pwd:
                 text = "{} Password incorrect".format(CROSS)
             elif not self.config["multiple"] and any(link.network == msg.user.plug.network_id
