@@ -12,6 +12,9 @@ Config:
         Whether to sync channel title changes across the bridge.
     identities (str):
         Name of a registered :class:`.IdentityHook` to provide unified names across networks.
+
+        If enabled, this will rewrite mentions for users identified in both the source and any sync
+        target channels, to use their platform-native identity.
     name-format (str):
         Template to use for replacing real names on synced messages, parsed by :mod:`jinja2`.  If
         not set but the user is identified, it defaults to ``<real name> (<identity name>)``.
@@ -473,6 +476,28 @@ class SyncHook(immp.Hook):
         await msg.channel.send(immp.Message(user=immp.User(real_name="Sync"), text=text))
 
     async def _send(self, channel, msg):
+        if self.config["identities"] and msg.text:
+            # Identities integration: replace mentions for identified users.
+            try:
+                identities = self.host.hooks[self.config["identities"]]
+                if not isinstance(identities, IdentityHook):
+                    raise KeyError
+            except KeyError:
+                raise immp.ConfigError("Hook reference '{}' is not an IdentityHook"
+                                       .format(self.config["identities"])) from None
+            msg = copy(msg)
+            msg.text = msg.text.clone()
+            for segment in msg.text:
+                identity = identities.find(segment.mention)
+                if identity:
+                    for link in identity.links:
+                        if link.network == channel.plug.network_id:
+                            user = await channel.plug.user_from_id(link.user)
+                            if user:
+                                log.debug("Replacing mention: {} -> {}"
+                                          .format(repr(segment.mention), repr(user)))
+                                segment.mention = user
+                                break
         try:
             ids = await channel.send(msg)
             log.debug("Synced IDs in {}: {}".format(repr(channel), ids))
