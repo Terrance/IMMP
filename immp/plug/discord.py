@@ -27,14 +27,13 @@ will be used in lieu of a webhook, e.g. with direct messages.
     <https://discordpy.readthedocs.io/en/rewrite/>`_ Python module, which is currently in alpha.
 """
 
-from asyncio import Condition, ensure_future, sleep
+from asyncio import Condition, ensure_future
 from collections import defaultdict
 from functools import partial
-import json
 import logging
 import re
 
-from aiohttp import ClientSession, FormData
+from aiohttp import ClientSession
 import discord
 from emoji import emojize
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
@@ -62,107 +61,6 @@ discord.AsyncWebhookAdapter.http = None
 
 # https://github.com/Rapptz/discord.py/issues/1242
 discord.AsyncWebhookAdapter.store_user = discord.AsyncWebhookAdapter._store_user
-
-
-# https://github.com/Rapptz/discord.py/pull/1698
-class MultiFileWebhookAdapter(discord.AsyncWebhookAdapter):
-    """
-    Modification of discord.py's aiohttp webhook adapter to accept multiple file uploads.
-    """
-
-    # Updated to place any file parameter in the form data, whether single or multiple.
-    async def request(self, verb, url, payload=None, multipart=None):
-        headers = {}
-        data = None
-        if payload:
-            headers["Content-Type"] = "application/json"
-            data = discord.utils.to_json(payload)
-        if multipart:
-            data = FormData()
-            for key, value in multipart.items():
-                if key.startswith("file"):
-                    data.add_field(key, value[1], filename=value[0], content_type=value[2])
-                else:
-                    data.add_field(key, value)
-        for tries in range(5):
-            async with self.session.request(verb, url, headers=headers, data=data) as r:
-                data = await r.text(encoding="utf-8")
-                if r.headers["Content-Type"] == "application/json":
-                    data = json.loads(data)
-                remaining = r.headers.get("X-Ratelimit-Remaining")
-                if remaining == "0" and r.status != 429:
-                    delta = discord.utils._parse_ratelimit_header(r)
-                    await sleep(delta, loop=self.loop)
-                if 300 > r.status >= 200:
-                    return data
-                if r.status == 429:
-                    retry_after = data["retry_after"] / 1000.0
-                    await sleep(retry_after, loop=self.loop)
-                    continue
-                if r.status in (500, 502):
-                    await sleep(1 + tries * 2, loop=self.loop)
-                    continue
-                if r.status == 403:
-                    raise discord.Forbidden(r, data)
-                elif r.status == 404:
-                    raise discord.NotFound(r, data)
-                else:
-                    raise discord.HTTPException(r, data)
-
-    def execute_webhook(self, *, payload, wait=False, files=None):
-        if files is None:
-            data = payload
-            multipart = None
-        else:
-            multipart = {"payload_json": discord.utils.to_json(payload)}
-            for i, file in enumerate(files, start=1):
-                multipart["file{}".format(i)] = file
-            data = None
-        coro = self.request("POST", "{}?wait={}".format(self._request_url, wait),
-                            multipart=multipart, payload=data)
-        return self.handle_execution_response(coro, wait=wait)
-
-    # Webhook.send() doesn't accept a `files` parameter, instead we'll just send via the adapter
-    # for now to avoid patching discord.py.
-    def send_with(self, content=None, *, wait=False, username=None, avatar_url=None, tts=False,
-                  file=None, files=None, embed=None, embeds=None):
-        """
-        Equivalent to :meth:`discord.Webhook.send`.
-
-        Args:
-            files (discord.File list):
-                Multiple files to attach to this message.
-        """
-        payload = {}
-        if files is not None and file is not None:
-            raise discord.InvalidArgument("Cannot mix file and files keyword arguments")
-        if embeds is not None and embed is not None:
-            raise discord.InvalidArgument("Cannot mix embed and embeds keyword arguments")
-        if embeds is not None:
-            if len(embeds) > 10:
-                raise discord.InvalidArgument("embeds has a maximum of 10 elements")
-            payload["embeds"] = [e.to_dict() for e in embeds]
-        if embed is not None:
-            payload["embeds"] = [embed.to_dict()]
-        if content is not None:
-            payload["content"] = str(content)
-        payload["tts"] = tts
-        if avatar_url:
-            payload["avatar_url"] = avatar_url
-        if username:
-            payload["username"] = username
-        if file is not None:
-            files = [file]
-        if files is not None:
-            try:
-                to_pass = [(file.filename, file.open_file(), "application/octet-stream")
-                           for file in files]
-                return self.execute_webhook(wait=wait, files=to_pass, payload=payload)
-            finally:
-                for file in files:
-                    file.close()
-        else:
-            return self.execute_webhook(wait=wait, payload=payload)
 
 
 class DiscordAPIError(immp.PlugError):
@@ -555,15 +453,13 @@ class DiscordPlug(immp.Plug):
 
     def _resolve_channel(self, channel):
         dc_channel = self._get_channel(channel)
-        adapter = None
+        webhook = None
         for label, host_channel in self.host.channels.items():
             if channel == host_channel and label in self.config["webhooks"]:
-                adapter = MultiFileWebhookAdapter(self._session)
-                # We'll be sending via the adapter to leverage the `files` field, and creating a
-                # webhook binds it to the adapter, so we don't actually need a webhook reference.
-                discord.Webhook.from_url(self.config["webhooks"][label], adapter=adapter)
+                adapter = discord.AsyncWebhookAdapter(self._session)
+                webhook = discord.Webhook.from_url(self.config["webhooks"][label], adapter=adapter)
                 break
-        return dc_channel, adapter
+        return dc_channel, webhook
 
     async def _resolve_message(self, dc_channel, msg):
         if isinstance(msg, immp.SentMessage):
@@ -574,7 +470,7 @@ class DiscordPlug(immp.Plug):
         elif isinstance(msg, immp.Message):
             return msg
 
-    async def _requests(self, dc_channel, adapter, msg):
+    async def _requests(self, dc_channel, webhook, msg):
         name = image = None
         embeds = []
         files = []
@@ -600,7 +496,7 @@ class DiscordPlug(immp.Plug):
         if msg.reply_to:
             resolved = await self._resolve_message(dc_channel, msg.reply_to)
             embeds.append((await DiscordMessage.to_embed(self, resolved, True), None))
-        if adapter:
+        if webhook:
             # Sending via webhook: multiple embeds and files supported.
             text = None
             if msg.text:
@@ -609,8 +505,8 @@ class DiscordPlug(immp.Plug):
                     for segment in rich:
                         segment.italic = True
                 text = DiscordRichText.to_markdown(self, rich, True)
-            return [adapter.send_with(content=text, wait=True, username=name, avatar_url=image,
-                                      files=files, embeds=[embed[0] for embed in embeds])]
+            return [webhook.send(content=text, wait=True, username=name, avatar_url=image,
+                                 files=files, embeds=[embed[0] for embed in embeds])]
         else:
             # Sending via client: only a single embed per message.
             text = embed = None
@@ -632,8 +528,8 @@ class DiscordPlug(immp.Plug):
             return requests
 
     async def put(self, channel, msg):
-        dc_channel, adapter = self._resolve_channel(channel)
-        requests = await self._requests(dc_channel, adapter, msg)
+        dc_channel, webhook = self._resolve_channel(channel)
+        requests = await self._requests(dc_channel, webhook, msg)
         sent = []
         for request in requests:
             sent.append(await request)
