@@ -115,6 +115,10 @@ class DiscordRichText(immp.RichText):
     _format_regex = re.compile(r"(?<![{0}\\])({1})(?![{2}])(.+?)(?<![{2}\\])\1(?![{0}])"
                                .format(_outside_chars, _tag_chars, _inside_chars))
 
+    _mention_regex = re.compile(r"<@!?(\d+)>")
+    _channel_regex = re.compile(r"<#(\d+)>")
+    _emoji_regex = re.compile(r"<(:[^: ]+?:)\d+>")
+
     @classmethod
     def _sub_channel(cls, discord, match):
         return "#{}".format(discord._client.get_channel(match.group(1)).name)
@@ -149,27 +153,29 @@ class DiscordRichText(immp.RichText):
             field = cls.tags[tag]
             changes[start][field] = True
             changes[end][field] = False
-        for match in re.finditer(r"<@!?(\d+)>", text):
+        for match in cls._mention_regex.finditer(text):
             user = discord._client.get_user(int(match.group(1)))
             if user:
                 changes[match.start()]["mention"] = DiscordUser.from_user(discord, user)
                 changes[match.end()]["mention"] = None
         segments = []
-        points = list(changes.keys())
+        points = list(sorted(changes.keys()))
+        formatting = {}
         # Iterate through text in change start/end pairs.
         for start, end in zip([0] + points, points + [len(text)]):
+            formatting.update(changes[start])
             if start == end:
                 # Zero-length segment at the start or end, ignore it.
                 continue
-            if changes[start].get("mention"):
-                user = changes[start]["mention"]
+            if formatting.get("mention"):
+                user = formatting["mention"]
                 part = "@{}".format(user.username or user.real_name)
             else:
                 part = emojize(text[start:end], use_aliases=True)
                 # Strip Discord channel/emoji tags, replace with a plain text representation.
-                part = re.sub(r"<#(\d+)>", partial(cls._sub_channel, discord), part)
-                part = re.sub(r"<(:[^: ]+:)\d+>", r"\1", part)
-            segments.append(immp.Segment(part, **changes[start]))
+                part = cls._channel_regex.sub(partial(cls._sub_channel, discord), part)
+                part = cls._emoji_regex.sub(r"\1", part)
+            segments.append(immp.Segment(part, **formatting))
         return cls(segments)
 
     @classmethod

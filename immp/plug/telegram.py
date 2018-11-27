@@ -273,15 +273,16 @@ class TelegramRichText(immp.RichText):
             start = entity["offset"]
             end = start + entity["length"]
             changes[start][entity["type"]] = True
-            changes[end][entity["type"]] = False
         segments = []
-        points = list(changes.keys())
+        points = list(sorted(changes.keys()))
+        formatting = {}
         # Iterate through text in change start/end pairs.
         for start, end in zip([0] + points, points + [len(text)]):
+            formatting.update(changes[start])
             if start == end:
                 # Zero-length segment at the start or end, ignore it.
                 continue
-            segments.append(TelegramSegment(text[start:end], **changes[start]))
+            segments.append(TelegramSegment(text[start:end], **formatting))
         return cls(segments)
 
 

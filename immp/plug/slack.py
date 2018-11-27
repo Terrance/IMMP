@@ -244,6 +244,10 @@ class SlackRichText(immp.RichText):
     _format_regex = re.compile(r"(?<![{0}\\])({1})(?![{2}])(.+?)(?<![{2}\\])\1(?![{0}])"
                                .format(_outside_chars, _tag_chars, _inside_chars))
 
+    _link_regex = re.compile(r"<([^@#\|][^\|>]*?)(?:\|([^>]+?))?>")
+    _mention_regex = re.compile(r"<@([^\|>]+?)(?:\|[^>]+?)?>")
+    _channel_regex = re.compile(r"<#([^\|>]+?)(?:\|[^>]+?)?>")
+
     @classmethod
     def _sub_channel(cls, slack, match):
         return "#{}".format(slack._channels[match.group(1)]["name"])
@@ -291,31 +295,33 @@ class SlackRichText(immp.RichText):
             field = cls.tags[tag]
             changes[start][field] = True
             changes[end][field] = False
-        for match in re.finditer(r"<([^@#\|][^\|>]*)(?:\|([^>]+))?>", text):
+        for match in cls._link_regex.finditer(text):
             # Store the link target; the link tag will be removed after segmenting.
             changes[match.start()]["link"] = cls._unescape(match.group(1))
             changes[match.end()]["link"] = None
-        for match in re.finditer(r"<@([^\|>]+)(?:\|[^>]+)?>", text):
+        for match in cls._mention_regex.finditer(text):
             if match.group(1) in slack._users:
                 changes[match.start()]["mention"] = slack._users[match.group(1)]
                 changes[match.end()]["mention"] = None
         segments = []
-        points = list(changes.keys())
+        points = list(sorted(changes.keys()))
+        formatting = {}
         # Iterate through text in change start/end pairs.
         for start, end in zip([0] + points, points + [len(text)]):
+            formatting.update(changes[start])
             if start == end:
                 # Zero-length segment at the start or end, ignore it.
                 continue
-            if changes[start].get("mention"):
-                user = changes[start]["mention"]
+            if formatting.get("mention"):
+                user = formatting["mention"]
                 part = "@{}".format(user.username or user.real_name)
             else:
                 part = text[start:end]
                 # Strip Slack channel tags, replace with a plain-text representation.
-                part = re.sub(r"<#([^\|>]+)(?:\|[^>]+)?>", partial(cls._sub_channel, slack), part)
-                part = re.sub(r"<([^\|>]+)(?:\|([^>]+))?>", cls._sub_link, part)
+                part = cls._channel_regex.sub(partial(cls._sub_channel, slack), part)
+                part = cls._link_regex.sub(cls._sub_link, part)
                 part = emojize(cls._unescape(part), use_aliases=True)
-            segments.append(immp.Segment(part, **changes[start]))
+            segments.append(immp.Segment(part, **formatting))
         return cls(segments)
 
     @classmethod
