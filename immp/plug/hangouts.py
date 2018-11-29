@@ -116,6 +116,8 @@ class HangoutsSegment(immp.Segment):
             .HangoutsSegment:
                 Parsed segment object.
         """
+        if segment.type_ == hangouts_pb2.SEGMENT_TYPE_LINE_BREAK:
+            return cls("\n")
         link = segment.link_target
         if segment.link_target:
             match = re.match(r"https://www.google.com/url\?(?:[^&]+&)*q=([^&]+)",
