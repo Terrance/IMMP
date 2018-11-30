@@ -643,7 +643,8 @@ class TelegramPlug(immp.Plug):
                 reply_to = int(msg.reply_to.id.split(":")[1])
             elif isinstance(msg.reply_to, immp.Message):
                 quote = True
-            rich = msg.render(quote_reply=quote)
+            edited = msg.edited if isinstance(msg, immp.SentMessage) else False
+            rich = msg.render(edit=edited, quote_reply=quote)
             text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
             requests.append(self._api("sendMessage", _Schema.send,
                                       params={"chat_id": chat,
