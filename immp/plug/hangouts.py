@@ -635,7 +635,7 @@ class HangoutsPlug(immp.Plug):
         clone.reply_to = await self._resolve_msg(conv, clone.reply_to)
         for i, attach in enumerate(clone.attachments):
             if isinstance(attach, immp.Message):
-                clone.attachments[i] = await self._resolve_msg(conv, attach.reply_to)
+                clone.attachments[i] = await self._resolve_msg(conv, attach)
         requests = []
         for i, attach in enumerate(clone.attachments):
             # Generate requests for attached messages first.
