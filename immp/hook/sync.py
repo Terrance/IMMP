@@ -387,6 +387,7 @@ class SyncHook(immp.Hook):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
+        self.db = None
         # Message cache, stores IDs of all synced messages by channel.
         self._cache = SyncCache(self)
         # Hook lock, to put a hold on retrieving messages whilst a send is in progress.
@@ -425,12 +426,15 @@ class SyncHook(immp.Hook):
         try:
             self.db = self.host.resources[DatabaseHook].db
         except KeyError:
-            self.db = None
+            pass
         else:
             self.db.create_tables([SyncBackRef], safe=True)
 
+    async def stop(self):
+        self.db = None
+
     def _test(self, channel, user):
-        return self.label_for_channel(channel)
+        return any(channel in channels for channels in self.channels.values())
 
     @command("sync-members", test=_test)
     async def members(self, msg):
