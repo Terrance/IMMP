@@ -36,6 +36,7 @@ class Host:
     def __init__(self):
         self.plugs = {}
         self.channels = {}
+        self.groups = {}
         self.hooks = {}
         self.resources = {}
         self._loaded = False
@@ -110,9 +111,6 @@ class Host:
         """
         if name in self.channels:
             raise ConfigError("Channel name '{}' already registered".format(name))
-        if channel.plug.name not in self.plugs:
-            raise ConfigError("Channel plug '{}' not yet registered"
-                              .format(channel.plug.name))
         log.debug("Adding channel: {} ({}/{})"
                   .format(name, channel.plug.name, channel.source))
         self.channels[name] = channel
@@ -129,6 +127,45 @@ class Host:
             raise RuntimeError("Channel '{}' not registered to host".format(name))
         log.debug("Removing channel: {}".format(name))
         return self.channels.pop(name)
+
+    def add_group(self, group):
+        """
+        Register a group to the host.
+
+        Args:
+            group (.Group):
+                Existing group instance to add.
+
+        Returns:
+            str:
+                Name used to reference this group.
+        """
+        if group.name in self.groups:
+            raise ConfigError("Group name '{}' already registered".format(group.name))
+        log.debug("Adding group: {}".format(group.name))
+        self.groups[group.name] = group
+        return group.name
+
+    def remove_group(self, name):
+        """
+        Unregister an existing group.
+
+        .. warning::
+            This will not notify any hooks with a reference to this group, nor will it attempt to
+            remove it from their state.
+
+        Args:
+            name (str):
+                Name of a previously registered group instance to remove.
+
+        Returns:
+            .Group:
+                Removed group instance.
+        """
+        if name not in self.groups:
+            raise RuntimeError("Group '{}' not registered to host".format(name))
+        log.debug("Removing group: {}".format(name))
+        return self.groups.pop(name)
 
     def add_hook(self, hook):
         """
