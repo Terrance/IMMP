@@ -11,14 +11,11 @@ Config:
         (``False`` by default).
     sets ((str, str list) dict):
         Subsets of hook commands by name, to restrict certain features.
-    groups (str, dict) dict):
+    mapping (str, dict) dict):
         Named config groups to enable commands in selected channels.
 
-        plugs ((str, str list) dict):
-            List of plugs where commands should be processed in **private** or **shared**
-            (non-private) channels, **named** for top-level-defined channels, or **anywhere**.
-        channels (str list):
-            List of channels to process public commands in (independent of *plugs* above).
+        groups (str list):
+            List of groups (plugs and channels) to process public commands in.
         hooks (str list):
             List of hooks to enable commands for.
         sets (str list):
@@ -55,14 +52,10 @@ class _Schema:
     config = Schema({"prefix": [str],
                      _key("return-errors", False): bool,
                      _key("sets"): Any({}, {str: {str: [str]}}),
-                     "groups": {str: {_key("plugs"): {_key("anywhere", list): [str],
-                                                      _key("named", list): [str],
-                                                      _key("private", list): [str],
-                                                      _key("shared", list): [str]},
-                                      _key("channels", list): [str],
-                                      _key("hooks", list): [str],
-                                      _key("sets", list): [str],
-                                      _key("admins"): Any({}, {str: [str]})}}},
+                     "mapping": {str: {_key("groups", list): [str],
+                                       _key("hooks", list): [str],
+                                       _key("sets", list): [str],
+                                       _key("admins"): Any({}, {str: [str]})}}},
                     extra=ALLOW_EXTRA, required=True)
 
 
@@ -340,7 +333,7 @@ class CommandHook(immp.Hook):
 
     async def commands(self, channel, user):
         """
-        Retrieve all commands, and filter against the group config.
+        Retrieve all commands, and filter against the mappings.
 
         Args:
             channel (.Channel):
@@ -354,25 +347,19 @@ class CommandHook(immp.Hook):
         """
         log.debug("Collecting commands for {} in {}".format(repr(channel), repr(user)))
         private = await channel.is_private()
-        groups = []
-        for group in self.config["groups"].values():
-            anywhere = group["plugs"]["anywhere"]
-            if channel.plug.name in anywhere + group["plugs"]["private"] and private:
-                groups.append(group)
-            elif channel.plug.name in anywhere + group["plugs"]["shared"] and not private:
-                groups.append(group)
-            elif (channel.plug.name in group["plugs"]["named"] and
-                  channel in self.host.channels.values()):
-                groups.append(group)
-            elif any(channel == self.host.channels[label] for label in group["channels"]):
-                groups.append(group)
+        mappings = []
+        for mapping in self.config["mapping"].values():
+            for label in mapping["groups"]:
+                group = self.host.groups[label]
+                if await group.has_channel(channel):
+                    mappings.append(mapping)
         cmds = set()
-        for group in groups:
+        for mapping in mappings:
             cmdgroup = set()
-            admin = user.plug and user.id in (group["admins"].get(user.plug.name) or [])
-            for name in group["hooks"]:
+            admin = user.plug and user.id in (mapping["admins"].get(user.plug.name) or [])
+            for name in mapping["hooks"]:
                 cmdgroup.update(set(self.discover(self._hook(name)).values()))
-            for label in group["sets"]:
+            for label in mapping["sets"]:
                 for name, cmdset in self.config["sets"][label].items():
                     discovered = self.discover(self._hook(name))
                     cmdgroup.update(set(discovered[cmd] for cmd in cmdset))
@@ -380,7 +367,7 @@ class CommandHook(immp.Hook):
         mapped = {cmd.name: cmd for cmd in cmds}
         if len(cmds) > len(mapped):
             # Mapping by name silently overwrote at least one command with a duplicate name.
-            raise immp.ConfigError("Multiple applicable commands named '{}'".format(name))
+            raise immp.ConfigError("Multiple applicable commands with the same name")
         return mapped
 
     @command("help", sync_aware=True)

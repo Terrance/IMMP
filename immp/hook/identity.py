@@ -134,11 +134,12 @@ class IdentityRole(BaseModel):
                                         repr(self.group))
 
 
-@immp.config_props("plugs")
 class IdentityHook(immp.Hook):
     """
     Hook for managing physical users with multiple logical links across different plugs.
     """
+
+    plugs = immp.Plug.Property()
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)

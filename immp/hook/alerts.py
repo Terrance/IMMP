@@ -70,11 +70,11 @@ TICK = "\N{WHITE HEAVY CHECK MARK}"
 
 class _Schema:
 
-    config = Schema({"plugs": [str],
-                     Optional("usernames", default=True): bool,
-                     Optional("real-names", default=False): bool,
-                     Optional("ambiguous", default=False): bool},
-                    extra=ALLOW_EXTRA, required=True)
+    config = Schema({"groups": [str]}, extra=ALLOW_EXTRA, required=True)
+
+    config_mentions = config.extend({Optional("usernames", default=True): bool,
+                                     Optional("real-names", default=False): bool,
+                                     Optional("ambiguous", default=False): bool})
 
 
 class _Skip(Exception):
@@ -126,11 +126,9 @@ class SubExclude(BaseModel):
                                              repr(self.channel), repr(self.trigger))
 
 
-@immp.config_props("plugs")
 class _AlertHookBase(immp.Hook):
 
-    def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+    groups = immp.Group.Property()
 
     async def _get_members(self, msg):
         # Sync integration: avoid duplicate notifications inside and outside a synced channel.
@@ -146,7 +144,8 @@ class _AlertHookBase(immp.Hook):
             # We're in the native channel of a sync, use this channel for reading config.
             log.debug("Translating sync channel: {} -> {}".format(repr(msg.channel), repr(synced)))
             channel = synced
-        members = [user for user in (await msg.channel.members()) or [] if user.plug in self.plugs]
+        members = [user for user in (await msg.channel.members()) or []
+                   if self.groups.has_plug(user.plug)]
         if not members:
             raise _Skip
         return channel, members
@@ -156,6 +155,9 @@ class MentionsHook(_AlertHookBase):
     """
     Hook to send mention alerts via private channels.
     """
+
+    def __init__(self, name, config, host):
+        super().__init__(name, _Schema.config_mentions(config), host)
 
     @staticmethod
     def clean(text):
@@ -252,6 +254,9 @@ class SubscriptionsHook(_AlertHookBase):
     Hook to send trigger word alerts via private channels.
     """
 
+    def __init__(self, name, config, host):
+        super().__init__(name, _Schema.config(config), host)
+
     @classmethod
     def clean(cls, text):
         return re.sub(r"[^\w ]", "", text).lower()
@@ -261,7 +266,7 @@ class SubscriptionsHook(_AlertHookBase):
         self.db.create_tables([SubTrigger, SubExclude], safe=True)
 
     def _test(self, channel, user):
-        return channel.plug in self.plugs
+        return self.groups.has_plug(channel.plug)
 
     @command("sub-add", scope=CommandScope.private, test=_test)
     async def add(self, msg, *words):

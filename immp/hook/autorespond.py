@@ -38,16 +38,17 @@ log = logging.getLogger(__name__)
 
 class _Schema:
 
-    config = Schema({"channels": [str],
+    config = Schema({"groups": [str],
                      Optional("responses", default=dict): {str: str}},
                     extra=ALLOW_EXTRA, required=True)
 
 
-@immp.config_props("channels")
 class AutoRespondHook(immp.Hook):
     """
     Basic text responses for given trigger words and phrases.
     """
+
+    groups = immp.Group.Property()
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
@@ -77,7 +78,7 @@ class AutoRespondHook(immp.Hook):
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
-        if not primary or sent.channel not in self.channels:
+        if not primary or not await self.groups.has_channel(sent.channel):
             return
         # Skip our own response messages.
         if (sent.channel, sent.id) in self._sent:
