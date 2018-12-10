@@ -71,34 +71,32 @@ def pretty_str(cls):
     return cls
 
 
-def _make_config_prop(field):
+class ConfigProperty:
+    """
+    Data descriptor to present config from :class:`.Openable` instances using the actual objects
+    stored in a :class:`.Host`.
 
-    def _find_hook(self, label):
-        if label in self.host.hooks:
-            return self.host.hooks[label]
-        for cls, hook in self.host.resources.items():
-            if hook.name == label:
-                return hook
-        raise KeyError(label)
+    This class should be subclassed for each type maintained by the host, and the resulting
+    subclasses may then be used by plugs and hooks using those config types.
+    """
 
-    def config_get_hook(self):
-        # Special case read to support resource hooks.
+    def __init__(self, name, key=None, attr=None):
+        self._name = name
+        self._key = key or "{}s".format(name)
+        self._attr = attr or self._key
+
+    def __get__(self, instance, owner):
+        if not instance:
+            return self
+        objs = getattr(instance.host, self._attr)
         try:
-            return tuple(_find_hook(self, label) for label in self.config[field])
+            return tuple(objs[label] for label in instance.config[self._key])
         except KeyError as e:
-            raise ConfigError("No {} {} on host".format(field[:-1], repr(e.args[0]))) from None
+            raise ConfigError("No {} {} on host".format(self._name, repr(e.args[0]))) from None
 
-    def config_get(self):
-        # Read a list of object labels from a config dict, and return the corresponding objects.
-        objs = getattr(self.host, field)
-        try:
-            return tuple(objs[label] for label in self.config[field])
-        except KeyError as e:
-            raise ConfigError("No {} {} on host".format(field[:-1], repr(e.args[0]))) from None
-
-    def config_set(self, value):
+    def __set__(self, instance, value):
         # Replace a list of object labels in a config dict according to the given objects.
-        objs = getattr(self.host, field)
+        objs = getattr(instance.host, self._attr)
         labels = []
         for val in value:
             for label, obj in objs.items():
@@ -107,34 +105,13 @@ def _make_config_prop(field):
                     break
             else:
                 raise ConfigError("{} {} not registered to host"
-                                  .format(field.title()[:-1], repr(val)))
+                                  .format(self._name.title(), repr(val)))
         # Update the config list in place, in case anyone has a reference to it.
-        self.config[field].clear()
-        self.config[field].extend(labels)
+        instance.config[self._key].clear()
+        instance.config[self._key].extend(labels)
 
-    return property(config_get_hook if field == "hooks" else config_get, config_set)
-
-
-def config_props(*fields):
-    """
-    Callable class decorator to add :attr:`plugs`, :attr:`channels` and :attr:`hooks` helper
-    properties.  Works with :class:`.Hook` or :class:`.Plug` to read the corresponding config key
-    and look up the referenced objects by label.
-
-    Args:
-        fields (str list):
-            Can be one or more of ``plugs``, ``channels``, ``hooks``.
-    """
-    for field in fields:
-        if field not in ("plugs", "channels", "hooks"):
-            raise KeyError(field)
-
-    def inner(cls):
-        for field in fields:
-            setattr(cls, field, _make_config_prop(field))
-        return cls
-
-    return inner
+    def __repr__(self):
+        return "<{}: {}>".format(self.__class__.__name__, repr(self._name))
 
 
 class OpenState(Enum):

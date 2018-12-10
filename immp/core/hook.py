@@ -1,4 +1,5 @@
-from .util import Openable, pretty_str
+from .error import ConfigError
+from .util import ConfigProperty, Openable, pretty_str
 
 
 @pretty_str
@@ -19,6 +20,29 @@ class Hook(Openable):
         virtual (bool):
             ``True`` if managed by another component (e.g. a hook that exposes plug functionality).
     """
+
+    class Property(ConfigProperty):
+
+        def __init__(self):
+            super().__init__("hook")
+
+        @staticmethod
+        def _find_hook(host, label):
+            if label in host.hooks:
+                return host.hooks[label]
+            for cls, hook in host.resources.items():
+                if hook.name == label:
+                    return hook
+            raise KeyError(label)
+
+        def __get__(self, instance, owner):
+            if not instance:
+                return self
+            try:
+                return tuple(self._find_hook(instance.host, label)
+                             for label in instance.config[self._key])
+            except KeyError as e:
+                raise ConfigError("No hook {} on host".format(repr(e.args[0]))) from None
 
     def __init__(self, name, config, host, virtual=False):
         super().__init__()

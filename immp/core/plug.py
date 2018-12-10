@@ -3,7 +3,7 @@ from itertools import chain
 import logging
 
 from .error import PlugError
-from .util import Openable, OpenState, pretty_str
+from .util import ConfigProperty, Openable, OpenState, pretty_str
 
 
 log = logging.getLogger(__name__)
@@ -35,6 +35,11 @@ class Plug(Openable):
             with later connections.  If a network provides multiple distinct spaces, this should
             also vary by space.
     """
+
+    class Property(ConfigProperty):
+
+        def __init__(self):
+            super().__init__("plug")
 
     def __init__(self, name, config, host, virtual=False):
         super().__init__()

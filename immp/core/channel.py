@@ -1,6 +1,6 @@
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
-from .util import config_props, pretty_str
+from .util import ConfigProperty, pretty_str
 
 
 _GROUP_FIELDS = ("channels", "anywhere", "named", "private", "shared")
@@ -24,6 +24,11 @@ class Channel:
         source (str):
             Plug-specific channel identifier.
     """
+
+    class Property(ConfigProperty):
+
+        def __init__(self):
+            super().__init__("channel")
 
     def __init__(self, plug, source):
         self.plug = plug
@@ -122,7 +127,6 @@ class Channel:
 
 
 @pretty_str
-@config_props("channels")
 class Group:
     """
     Container of multiple channels.
@@ -134,6 +138,20 @@ class Group:
     latter may target **private** or **shared** (non-private) channels, **named** for host-defined
     channels, or **anywhere** as long as it belongs to the given plug.
     """
+
+    class Property(ConfigProperty):
+
+        def __init__(self):
+            super().__init__("group")
+
+        def __get__(self, instance, owner):
+            value = super().__get__(instance, owner)
+            if instance:
+                return Group.merge(instance.host, *value)
+            else:
+                return value
+
+    _channels = Channel.Property()
 
     def __init__(self, name, config, host):
         self.name = name
@@ -151,7 +169,7 @@ class Group:
     async def has_channel(self, channel):
         if not isinstance(channel, Channel):
             raise TypeError
-        elif channel in self.channels:
+        elif channel in self._channels:
             return True
         elif self.has_plug(channel.plug, "anywhere"):
             return True
