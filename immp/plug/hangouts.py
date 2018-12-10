@@ -558,7 +558,12 @@ class HangoutsPlug(immp.Plug):
         if isinstance(msg, immp.SentMessage):
             event = await self._get_event(conv, msg.id)
             if event:
-                return HangoutsMessage.from_event(self, event)
+                sent = HangoutsMessage.from_event(self, event)
+                # As we only use this for rendering the message again, we shouldn't add a second
+                # layer of authorship if we originally sent the message being retrieved.
+                if sent.user.id == self._bot_user:
+                    sent.user = None
+                return sent
             elif not msg.empty:
                 return msg
         elif isinstance(msg, immp.Message):
@@ -633,20 +638,11 @@ class HangoutsPlug(immp.Plug):
         # Attempt to find sources for referenced messages.
         clone = copy(msg)
         clone.reply_to = await self._resolve_msg(conv, clone.reply_to)
-        for i, attach in enumerate(clone.attachments):
-            if isinstance(attach, immp.Message):
-                clone.attachments[i] = await self._resolve_msg(conv, attach)
         requests = []
         for i, attach in enumerate(clone.attachments):
             # Generate requests for attached messages first.
-            if isinstance(attach, immp.SentMessage):
-                event = await self._get_event(conv, attach.id)
-                if event:
-                    requests += await self._requests(conv, HangoutsMessage.from_event(self, event))
-                elif not attach.empty:
-                    requests += await self._requests(conv, attach)
-            elif isinstance(attach, immp.Message):
-                requests += await self._requests(conv, attach)
+            if isinstance(attach, immp.Message):
+                requests += await self._requests(conv, await self._resolve_msg(conv, attach))
         own_requests = await self._requests(conv, clone)
         if requests and not own_requests:
             # Forwarding a message but no content to show who forwarded it.
