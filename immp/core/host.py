@@ -215,13 +215,32 @@ class Host:
         if name in self.hooks:
             log.debug("Removing hook: {}".format(name))
             return self.hooks.pop(name)
+        for cls, hook in list(self.resources.items()):
+            if hook.name == name:
+                log.debug("Removing resource: {} ({})".format(name, cls.__name__))
+                return self.resources.pop(cls)
         else:
-            for cls, hook in list(self.resources.items()):
-                if hook.name == name:
-                    log.debug("Removing resource: {} ({})".format(name, cls.__name__))
-                    return self.resources.pop(cls)
-            else:
-                raise RuntimeError("Hook '{}' not registered to host".format(name))
+            raise RuntimeError("Hook '{}' not registered to host".format(name))
+
+    def find_hook(self, name):
+        """
+        Retrieve a normal or resource hook by name.
+
+        Args:
+            name (str):
+                Target hook name.
+
+        Returns:
+            .Hook:
+                Corresponding hook registered to the host.
+        """
+        if name in self.hooks:
+            return self.hooks[name]
+        for hook in self.resources.values():
+            if hook.name == name:
+                return hook
+        else:
+            raise KeyError(name)
 
     def loaded(self):
         """

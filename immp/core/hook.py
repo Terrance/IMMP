@@ -26,20 +26,11 @@ class Hook(Openable):
         def __init__(self):
             super().__init__("hook")
 
-        @staticmethod
-        def _find_hook(host, label):
-            if label in host.hooks:
-                return host.hooks[label]
-            for cls, hook in host.resources.items():
-                if hook.name == label:
-                    return hook
-            raise KeyError(label)
-
         def __get__(self, instance, owner):
             if not instance:
                 return self
             try:
-                return tuple(self._find_hook(instance.host, label)
+                return tuple(instance.host.find_hook(label)
                              for label in instance.config[self._key])
             except KeyError as e:
                 raise ConfigError("No hook {} on host".format(repr(e.args[0]))) from None
