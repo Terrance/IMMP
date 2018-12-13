@@ -555,7 +555,8 @@ class HangoutsPlug(immp.Plug):
         return None
 
     async def _resolve_msg(self, conv, msg):
-        if isinstance(msg, immp.SentMessage):
+        if isinstance(msg, immp.SentMessage) and msg.empty:
+            # We have the message reference but not the content.
             event = await self._get_event(conv, msg.id)
             if event:
                 sent = HangoutsMessage.from_event(self, event)
