@@ -586,16 +586,27 @@ class TelegramPlug(immp.Plug):
         # Channel and supergroup chat IDs have a bot-API-only prefix to distinguish them.
         if channel.source.startswith("-100"):
             chat = int(channel.source[4:])
-            cls = tl.functions.channels.GetFullChannelRequest
+            users = []
+            try:
+                while True:
+                    data = await self._client(tl.functions.channels.GetParticipantsRequest(
+                        chat, tl.types.ChannelParticipantsRecent(), len(users), 1000, 0))
+                    if data.users:
+                        users += [TelegramUser.from_proto_user(self, user) for user in data.users]
+                    else:
+                        break
+            except BadRequestError:
+                return None
+            else:
+                return users
         else:
             chat = abs(int(channel.source))
-            cls = tl.functions.messages.GetFullChatRequest
-        try:
-            data = await self._client(cls(chat))
-        except BadRequestError:
-            return None
-        else:
-            return [TelegramUser.from_proto_user(self, user) for user in data.users]
+            try:
+                data = await self._client(tl.functions.messages.GetFullChatRequest(chat))
+            except BadRequestError:
+                return None
+            else:
+                return [TelegramUser.from_proto_user(self, user) for user in data.users]
 
     async def channel_remove(self, channel, user):
         await self._api("kickChatMember", params={"chat_id": channel.source, "user_id": user.id})
