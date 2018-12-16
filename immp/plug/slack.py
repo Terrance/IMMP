@@ -314,7 +314,7 @@ class SlackRichText(immp.RichText):
                 continue
             if formatting.get("mention"):
                 user = formatting["mention"]
-                part = "@{}".format(user.username or user.real_name)
+                part = "@{}".format(user.real_name)
             else:
                 part = text[start:end]
                 # Strip Slack channel tags, replace with a plain-text representation.
