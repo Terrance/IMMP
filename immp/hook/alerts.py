@@ -217,6 +217,11 @@ class MentionsHook(_AlertHookBase):
                 mentioned.update(matches)
             else:
                 log.debug("Mention '{}' doesn't apply".format(mention))
+        for segment in source.text:
+            if segment.mention and segment.mention in members:
+                log.debug("Segment mention '{}' applies: {}"
+                          .format(segment.text, repr(segment.mention)))
+                mentioned.add(segment.mention)
         if not mentioned:
             return
         text = immp.RichText()
