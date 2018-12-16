@@ -499,6 +499,7 @@ class DiscordPlug(immp.Plug):
         if msg.reply_to:
             resolved = await self._resolve_message(dc_channel, msg.reply_to)
             embeds.append((await DiscordMessage.to_embed(self, resolved, True), None))
+        edited = msg.edited if isinstance(msg, immp.SentMessage) else False
         if webhook:
             # Sending via webhook: multiple embeds and files supported.
             text = None
@@ -507,20 +508,21 @@ class DiscordPlug(immp.Plug):
                 if msg.action:
                     for segment in rich:
                         segment.italic = True
+                if edited:
+                    rich.append(immp.Segment(" (edited)", italic=True))
                 text = DiscordRichText.to_markdown(self, rich, True)
             return [webhook.send(content=text, wait=True, username=name, avatar_url=image,
                                  files=files, embeds=[embed[0] for embed in embeds])]
         else:
             # Sending via client: only a single embed per message.
             text = embed = None
-            requests = []
-            rich = msg.render(link_name=False) or None
+            rich = msg.render(link_name=False, edit=edited) or None
             if rich:
                 text = DiscordRichText.to_markdown(self, rich)
             if len(embeds) == 1:
                 # Attach the only embed to the message text.
                 embed, _ = embeds.pop()
-            requests.append(dc_channel.send(content=text, embed=embed, files=files))
+            requests = [dc_channel.send(content=text, embed=embed, files=files)]
             for embed, desc in embeds:
                 # Send any additional embeds in their own separate messages.
                 content = None
