@@ -59,9 +59,6 @@ class _Schema:
 # https://github.com/Rapptz/discord.py/issues/1150
 discord.AsyncWebhookAdapter.http = None
 
-# https://github.com/Rapptz/discord.py/issues/1242
-discord.AsyncWebhookAdapter.store_user = discord.AsyncWebhookAdapter._store_user
-
 
 class DiscordAPIError(immp.PlugError):
     """
