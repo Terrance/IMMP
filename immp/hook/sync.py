@@ -1,5 +1,9 @@
 """
-Bridge multiple channels into a single unified conversation.
+Bridge multiple channels into a single unified conversation, or relay messages from one channel to
+one or more others.
+
+Sync
+~~~~
 
 Config:
     channels ((str, str list) dict):
@@ -37,6 +41,33 @@ If ``plug`` is specified, a virtual plug is registered under that name, with a c
 defined bridge.  Other hooks may reference these channels, to work with all channels in that sync
 as one.  This allows them to listen to a unified stream of messages, or push new messages to all
 synced channels.
+
+Forward
+~~~~~~~
+
+Config:
+    channels ((str, str list) dict):
+        Mapping from source channel names to lists of channel names to forward to.
+    joins (bool):
+        Whether to forward join and part messages.
+    renames (bool):
+        Whether to forward channel title changes.
+    identities (str):
+        Name of a registered :class:`.IdentityHook` to provide unified names across networks.
+
+        If enabled, this will rewrite mentions for users identified in both the source and any sync
+        target channels, to use their platform-native identity.
+    name-format (str):
+        Template to use for replacing real names on synced messages, parsed by :mod:`jinja2`.  If
+        not set but the user is identified, it defaults to ``<real name> (<identity name>)``.
+
+        Available variables are ``user`` (:class:`.User`) and ``identity`` (if enabled as above --
+        :class:`.IdentityGroup`, or ``None`` if no link).
+    strip-name-emoji (bool):
+        ``True`` to remove emoji characters from message authors' real names.
+
+When a message is received in a configured source channel, a copy is pushed to all downstream
+channels.  Unlike a sync, this is a one-direction copy, useful for announcements or alerts.
 
 .. note::
     Use of ``name-format`` requires the `Jinja2 <http://jinja.pocoo.org>`_ Python module.  Use of
@@ -681,6 +712,9 @@ class SyncHook(_SyncHookBase):
 
 
 class ForwardHook(_SyncHookBase):
+    """
+    Hook to propagate messages from a source channel to one or more destination channels.
+    """
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config_forward(config), host)
