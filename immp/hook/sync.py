@@ -76,14 +76,15 @@ log = logging.getLogger(__name__)
 
 class _Schema:
 
-    config = Schema({"channels": {str: [str]},
-                     Optional("plug", default=None): Any(str, None),
-                     Optional("joins", default=True): bool,
-                     Optional("renames", default=True): bool,
-                     Optional("identities", default=None): Any(str, None),
-                     Optional("name-format", default=None): Any(str, None),
-                     Optional("strip-name-emoji", default=False): bool},
-                    extra=ALLOW_EXTRA, required=True)
+    config_forward = Schema({"channels": {str: [str]},
+                             Optional("joins", default=True): bool,
+                             Optional("renames", default=True): bool,
+                             Optional("identities", default=None): Any(str, None),
+                             Optional("name-format", default=None): Any(str, None),
+                             Optional("strip-name-emoji", default=False): bool},
+                            extra=ALLOW_EXTRA, required=True)
+
+    config_sync = config_forward.extend({Optional("plug", default=None): Any(str, None)})
 
 
 class SyncBackRef(BaseModel):
@@ -376,7 +377,82 @@ class SyncPlug(immp.Plug):
         await self._hook.delete(self._hook._cache[sent.id])
 
 
-class SyncHook(immp.Hook):
+class _SyncHookBase(immp.Hook):
+
+    @property
+    def _identities(self):
+        if self.config["identities"] is None:
+            return None
+        try:
+            identities = self.host.hooks[self.config["identities"]]
+            if not isinstance(identities, IdentityHook):
+                raise KeyError
+        except KeyError:
+            raise immp.ConfigError("Hook reference '{}' ids not an IdentityHook"
+                                   .format(self.config["identities"])) from None
+        else:
+            return identities
+
+    def _accept(self, msg):
+        if not self.config["joins"] and (msg.joined or msg.left):
+            log.debug("Not syncing join/part message: {}".format(msg.id))
+            return False
+        if not self.config["renames"] and msg.title:
+            log.debug("Not syncing rename message: {}".format(msg.id))
+            return False
+        return True
+
+    async def _replace_identity_mentions(self, msg, channel):
+        # Replace mentions for identified users in the target channel.
+        if not msg.text or not self._identities:
+            return
+        msg.text = msg.text.clone()
+        for segment in msg.text:
+            identity = self._identities.find(segment.mention)
+            if identity:
+                for link in identity.links:
+                    if link.network == channel.plug.network_id:
+                        user = await channel.plug.user_from_id(link.user)
+                        if user:
+                            log.debug("Replacing mention: {} -> {}"
+                                      .format(repr(segment.mention), repr(user)))
+                            segment.mention = user
+                            break
+
+    def _replace_name(self, msg):
+        # Use name-format or identities to render a suitable author real name.
+        if not msg.user:
+            return
+        name = identity = None
+        if self._identities:
+            identity = self._identities.find(msg.user)
+        if self.config["name-format"]:
+            if not Template:
+                raise immp.PlugError("'jinja2' module not installed")
+            tmpl = Template(self.config["name-format"])
+            name = tmpl.render(user=msg.user, identity=identity)
+        elif identity:
+            name = "{} ({})".format(msg.user.real_name or msg.user.username, identity.name)
+        if name:
+            if self.config["strip-name-emoji"]:
+                if not EMOJI_REGEX:
+                    raise immp.PlugError("'emoji' module not installed")
+                name = EMOJI_REGEX.sub("", name)
+            name = re.sub(r"\s+", " ", name).strip()
+            msg.user = copy(msg.user)
+            msg.user.real_name = name
+
+    async def _send(self, channel, msg):
+        try:
+            ids = await channel.send(msg)
+            log.debug("Synced IDs in {}: {}".format(repr(channel), ids))
+            return (channel, ids)
+        except Exception:
+            log.exception("Failed to relay message to channel: {}".format(repr(channel)))
+            return (channel, [])
+
+
+class SyncHook(_SyncHookBase):
     """
     Hook to propagate messages between two or more channels.
 
@@ -386,7 +462,7 @@ class SyncHook(immp.Hook):
     """
 
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+        super().__init__(name, _Schema.config_sync(config), host)
         self.db = None
         # Message cache, stores IDs of all synced messages by channel.
         self._cache = SyncCache(self)
@@ -482,37 +558,6 @@ class SyncHook(immp.Hook):
                 text.append(immp.Segment(": {}".format(title)))
         await msg.channel.send(immp.Message(user=immp.User(real_name="Sync"), text=text))
 
-    async def _send(self, channel, msg):
-        if self.config["identities"] and msg.text:
-            # Identities integration: replace mentions for identified users.
-            try:
-                identities = self.host.hooks[self.config["identities"]]
-                if not isinstance(identities, IdentityHook):
-                    raise KeyError
-            except KeyError:
-                raise immp.ConfigError("Hook reference '{}' is not an IdentityHook"
-                                       .format(self.config["identities"])) from None
-            msg = copy(msg)
-            msg.text = msg.text.clone()
-            for segment in msg.text:
-                identity = identities.find(segment.mention)
-                if identity:
-                    for link in identity.links:
-                        if link.network == channel.plug.network_id:
-                            user = await channel.plug.user_from_id(link.user)
-                            if user:
-                                log.debug("Replacing mention: {} -> {}"
-                                          .format(repr(segment.mention), repr(user)))
-                                segment.mention = user
-                                break
-        try:
-            ids = await channel.send(msg)
-            log.debug("Synced IDs in {}: {}".format(repr(channel), ids))
-            return (channel, ids)
-        except Exception:
-            log.exception("Failed to relay message to channel: {}".format(repr(channel)))
-            return (channel, [])
-
     async def send(self, label, msg, origin=None):
         """
         Send a message to all channels in this sync.
@@ -528,44 +573,17 @@ class SyncHook(immp.Hook):
         """
         # Note that `origin` corresponds to the enriched message (i.e. `sent` in on_receive()),
         # and `msg` refers to the canonical copy (i.e. `source`).
-        clone = copy(msg)
-        identity = None
-        if clone.user:
-            if self.config["identities"]:
-                # Identities integration: show identity name on synced messages.
-                try:
-                    identities = self.host.hooks[self.config["identities"]]
-                    if not isinstance(identities, IdentityHook):
-                        raise KeyError
-                except KeyError:
-                    raise immp.ConfigError("Hook reference '{}' is not an IdentityHook"
-                                           .format(self.config["identities"])) from None
-                identity = identities.find(clone.user)
-            name = None
-            if self.config["name-format"]:
-                if not Template:
-                    raise immp.PlugError("'jinja2' module not installed")
-                tmpl = Template(self.config["name-format"])
-                name = tmpl.render(user=clone.user, identity=identity)
-            elif identity:
-                name = "{} ({})".format(clone.user.real_name or clone.user.username, identity.name)
-            if name:
-                if self.config["strip-name-emoji"]:
-                    if not EMOJI_REGEX:
-                        raise immp.PlugError("'emoji' module not installed")
-                    name = EMOJI_REGEX.sub("", name)
-                name = re.sub(r"\s+", " ", name).strip()
-                clone.user = copy(clone.user)
-                clone.user.real_name = name
-            if identity:
-                clone.user.username = clone.user.username or identity.name
         queue = []
         # Just like with plugs, when sending a new (external) message to all channels in a sync, we
         # need to wait for all plugs to complete before processing further messages.
         async with self._lock:
             for synced in self.channels[label]:
-                if not (origin and synced == origin.channel):
-                    queue.append(self._send(synced, clone))
+                if origin and synced == origin.channel:
+                    continue
+                clone = copy(msg)
+                self._replace_name(clone)
+                await self._replace_identity_mentions(clone, synced)
+                queue.append(self._send(synced, clone))
             # Send all the messages in parallel, and match the resulting IDs up by channel.
             ids = dict(await gather(*queue))
             return self._cache.add(SyncRef(ids, source=msg, origin=origin))
@@ -646,11 +664,7 @@ class SyncHook(immp.Hook):
             else:
                 log.debug("Incoming message already synced: {}".format(repr(sent)))
                 return
-        if not self.config["joins"] and (source.joined or source.left):
-            log.debug("Not syncing join/part message: {}".format(source.id))
-            return
-        if not self.config["renames"] and source.title:
-            log.debug("Not syncing rename message: {}".format(source.id))
+        if not self._accept(source):
             return
         log.debug("Sending message to synced channel {}: {}".format(repr(label), sent.id))
         ref = await self.send(label, source, sent)
@@ -664,3 +678,41 @@ class SyncHook(immp.Hook):
     async def before_send(self, channel, msg):
         await super().before_send(channel, msg)
         return (channel, self._replace_all(channel, copy(msg)))
+
+
+class ForwardHook(_SyncHookBase):
+
+    def __init__(self, name, config, host):
+        super().__init__(name, _Schema.config_forward(config), host)
+
+    @property
+    def _channels(self):
+        try:
+            return {self.host.channels[key]: tuple(self.host.channels[label] for label in value)
+                    for key, value in self.config["channels"].items()}
+        except KeyError as e:
+            raise immp.ConfigError("No such channel '{}'".format(repr(e.args[0])))
+
+    async def send(self, channel, msg):
+        """
+        Send a message to all channels in this sync.
+
+        Args:
+            channel (.Channel):
+                Source channel that defines the underlying forwarding channels to send to.
+            msg (.Message):
+                External message to push.
+        """
+        queue = []
+        for synced in self._channels[channel]:
+            clone = copy(msg)
+            self._replace_name(clone)
+            await self._replace_identity_mentions(clone, synced)
+            queue.append(self._send(synced, clone))
+        # Send all the messages in parallel.
+        await gather(*queue)
+
+    async def on_receive(self, sent, source, primary):
+        await super().on_receive(sent, source, primary)
+        if primary and sent.channel in self._channels and self._accept(source):
+            await self.send(sent.channel, source)
