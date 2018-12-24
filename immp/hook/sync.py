@@ -108,14 +108,16 @@ log = logging.getLogger(__name__)
 class _Schema:
 
     config_forward = Schema({"channels": {str: [str]},
-                             Optional("joins", default=True): bool,
-                             Optional("renames", default=True): bool,
+                             Optional("joins", default=False): bool,
+                             Optional("renames", default=False): bool,
                              Optional("identities", default=None): Any(str, None),
                              Optional("name-format", default=None): Any(str, None),
                              Optional("strip-name-emoji", default=False): bool},
                             extra=ALLOW_EXTRA, required=True)
 
-    config_sync = config_forward.extend({Optional("plug", default=None): Any(str, None)})
+    config_sync = config_forward.extend({Optional("joins", default=True): bool,
+                                         Optional("renames", default=True): bool,
+                                         Optional("plug", default=None): Any(str, None)})
 
 
 class SyncBackRef(BaseModel):
