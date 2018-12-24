@@ -1,0 +1,28 @@
+{% extends ctx.module + "/base.j2" %}
+{% set title = "Remove" %}
+{% set subtitle = hook.name %}
+{% set nav = [("Hook: " + hook.name, hook_url_for(hook))] %}
+
+{% block body %}
+<div class="container">
+  <article class="message is-danger">
+    <div class="message-body">
+      <p>This will not notify any other hooks with a reference to this hook, nor will it attempt to remove it from their state.</p>
+    </div>
+  </article>
+  <form method="post">
+    <div class="field is-grouped">
+      <div class="control">
+        <button type="submit" class="button is-dark">
+          <i class="fas fa-fw fa-trash-alt }}"></i> Remove
+        </button>
+      </div>
+      <div class="control">
+        <a href="{{ hook_url_for(hook) }}" class="button">
+          <i class="fas fa-fw fa-undo"></i> Cancel
+        </a>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

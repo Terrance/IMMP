@@ -1,0 +1,118 @@
+{% extends ctx.module + "/base.j2" %}
+{% set title = "Plug: " + plug.name %}
+{% set subtitle = plug.network_name %}
+{% if plug.network_id %}
+  {% set subtitle = subtitle + " (" + plug.network_id + ")" %}
+{% endif %}
+
+{% block body -%}
+<div class="container">
+  <nav class="level">
+    <div class="level-left">
+      {% set colour = open_colour(plug.state) %}
+      <div class="level-item{% if colour %} has-text-{{ colour }}{% endif %}">
+        <span>
+          <i class="fas fa-fw fa-{{ open_icon(plug.state) }}"></i> {{ plug.state.name|title }}
+        </span>
+      </div>
+      <div class="level-item">
+        {%- if plug.state == immp.OpenState.active %}
+        <form action="{{ ctx.url_for("plug_stop", name=plug.name) }}" method="post">
+          <button type="submit" class="button is-danger">
+            <i class="fas fa-fw fa-stop"></i> Stop
+          </button>
+        </form>
+        {%- elif plug.state == immp.OpenState.inactive %}
+        <form action="{{ ctx.url_for("plug_start", name=plug.name) }}" method="post">
+          <button type="submit" class="button is-success">
+            <i class="fas fa-fw fa-play"></i> Start
+          </button>
+        </form>
+        {%- endif %}
+      </div>
+      <div class="level-item">
+        {%- if plug.virtual %}
+        <span><i class="fas fa-fw fa-ghost"></i> Virtual</span>
+        {%- else %}
+        <a class="button is-dark" href="{{ ctx.url_for("plug_remove", name=plug.name) }}">
+          <i class="fas fa-fw fa-trash-alt }}"></i> Remove
+        </a>
+        {%- endif %}
+      </div>
+    </div>
+  </nav>
+  {%- if not plug.virtual %}
+  <h3 class="title">Channels</h3>
+  <table class="table">
+    <tbody>
+      {%- for name, channel in channels.items() %}
+      <tr>
+        <td>{{ name }}</td>
+        <td>{{ channel.source }}</td>
+        <td>
+         <div class="buttons">
+            <a class="button is-small" href="{{ ctx.url_for("plug_channel", plug=plug.name, source=channel.source) }}">
+              <i class="fas fa-fw fa-hashtag"></i> View</a>
+            <form method="post" action="{{ ctx.url_for("channel_remove", name=name) }}">
+              <button type="submit" class="button is-small is-danger">
+                <i class="fas fa-fw fa-trash-alt"></i> Remove
+              </button>
+            </form>
+         </div>
+        </td>
+      </tr>
+      {%- endfor %}
+      {%- if not channels %}
+      <tr>
+        <td colspan="3">No channels defined.</td>
+      </tr>
+      {%- endif %}
+    </tbody>
+    <tfoot>
+      <form method="post" action="{{ ctx.url_for("channel_add") }}">
+        <input name="plug" type="hidden" value="{{ plug.name }}">
+        <tr>
+          <td>
+            <input name="name" type="text" class="input" placeholder="Name" required>
+          </td>
+          <td>
+            <input name="source" type="text" class="input" placeholder="Source" required>
+          </td>
+          <td>
+           <div class="buttons">
+             <button type="submit" class="button is-primary">
+               <i class="fas fa-fw fa-plus"></i> Add
+             </button>
+           </div>
+          </td>
+        </tr>
+      </form>
+    </tfoot>
+  </table>
+  {%- endif %}
+  <h3 class="title">Config</h3>
+  {%- if runner and not runner.writeable %}
+  <article class="message is-danger">
+    <div class="message-body">
+      <p>A config file is being used, but will not be written to.  Changes will only apply to the current session.</p>
+    </div>
+  </article>
+  {%- endif %}
+  <form action="{{ ctx.url_for("plug_config", name=plug.name) }}" method="post">
+    <div class="field">
+      <div class="control">
+        <div id="config-editor"></div>
+        <textarea name="config" class="textarea is-small json-editor" data-editor="config-editor">{{ plug.config|json(indent=2) }}</textarea>
+      </div>
+    </div>
+    <div class="field is-grouped">
+      <div class="control">
+        <button class="button is-primary" type="submit"><i class="fas fa-fw fa-save"></i> Save</button>
+      </div>
+      <div class="control">
+        <button class="button" type="reset"><i class="fas fa-fw fa-undo"></i> Revert</button>
+      </div>
+    </div>
+  </form>
+</div>
+{%- endblock %}

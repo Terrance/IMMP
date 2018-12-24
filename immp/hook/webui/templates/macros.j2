@@ -1,0 +1,17 @@
+{%- macro open_icon(state) -%}
+  {%- if state == immp.OpenState.active -%}
+  circle
+  {%- elif state == immp.OpenState.inactive -%}
+  ban
+  {%- else -%}
+  hourglass-half
+  {%- endif -%}
+{%- endmacro -%}
+
+{%- macro open_colour(state) -%}
+  {%- if state == immp.OpenState.active -%}
+  success
+  {%- elif state == immp.OpenState.inactive -%}
+  danger
+  {%- endif -%}
+{%- endmacro -%}

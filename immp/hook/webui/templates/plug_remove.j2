@@ -1,0 +1,31 @@
+{% extends ctx.module + "/base.j2" %}
+{% set title = "Remove" %}
+{% set subtitle = plug.network_name %}
+{% if plug.network_id %}
+  {% set subtitle = subtitle + " (" + plug.network_id + ")" %}
+{% endif %}
+{% set nav = [("Plug: " + plug.name, ctx.url_for("plug", name=plug.name))] %}
+
+{% block body %}
+<div class="container">
+  <article class="message is-danger">
+    <div class="message-body">
+      <p>This will not notify any hooks with a reference to this plug, nor will it attempt to remove it from their state.{% if channels %}  {{ channels|length }} named channel{% if channels|length != 1 %}s{% endif %} will also be removed.{% endif %}</p>
+    </div>
+  </article>
+  <form method="post">
+    <div class="field is-grouped">
+      <div class="control">
+        <button type="submit" class="button is-dark">
+          <i class="fas fa-fw fa-trash-alt }}"></i> Remove
+        </button>
+      </div>
+      <div class="control">
+        <a href="{{ ctx.url_for("plug", name=plug.name) }}" class="button">
+          <i class="fas fa-fw fa-undo"></i> Cancel
+        </a>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

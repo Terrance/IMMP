@@ -1,0 +1,66 @@
+{% extends ctx.module + "/base.j2" %}
+{% set title = ("Resource" if resource else "Hook") + ": " + hook.name %}
+{% set subtitle = hook.__class__.__module__ + "." + hook.__class__.__name__ %}
+
+{% block body -%}
+<div class="container">
+  <nav class="level">
+    <div class="level-left">
+      {% set colour = open_colour(hook.state) %}
+      <div class="level-item{% if colour %} has-text-{{ colour }}{% endif %}">
+        <span>
+          <i class="fas fa-fw fa-{{ open_icon(hook.state) }}"></i> {{ hook.state.name|title }}
+        </span>
+      </div>
+      <div class="level-item">
+        {%- if hook.state == immp.OpenState.active %}
+        <form action="{{ hook_url_for(hook, "stop") }}" method="post">
+          <button type="submit" class="button is-danger"{% if not can_stop %} disabled{% endif %}>
+            <i class="fas fa-fw fa-stop"></i> Stop
+          </button>
+        </form>
+        {%- elif hook.state == immp.OpenState.inactive %}
+        <form action="{{ hook_url_for(hook, "start") }}" method="post">
+          <button type="submit" class="button is-success">
+            <i class="fas fa-fw fa-play }}"></i> Start
+          </button>
+        </form>
+        {%- endif %}
+      </div>
+      <div class="level-item">
+        {%- if hook.virtual %}
+        <span><i class="fas fa-fw fa-ghost"></i> Virtual</span>
+        {%- else %}
+        <a class="button is-dark" {% if can_stop %}href="{{ hook_url_for(hook, "remove") }}"{% else %}disabled{% endif %}>
+          <i class="fas fa-fw fa-trash-alt }}"></i> Remove
+        </a>
+        {%- endif %}
+      </div>
+    </div>
+  </nav>
+  <h3 class="title">Config</h3>
+  {%- if runner and not runner.writeable %}
+  <article class="message is-danger">
+    <div class="message-body">
+      <p>A config file is being used, but will not be written to.  Changes will only apply to the current session.</p>
+    </div>
+  </article>
+  {%- endif %}
+  <form action="{{ hook_url_for(hook, "config") }}" method="post">
+    <div class="field">
+      <div class="control">
+        <div id="config-editor"></div>
+        <textarea name="config" class="textarea is-small json-editor" data-editor="config-editor" style="font-family: monospace">{{ hook.config|json(indent=2) }}</textarea>
+      </div>
+    </div>
+    <div class="field is-grouped">
+      <div class="control">
+        <button class="button is-primary" type="submit"><i class="fas fa-fw fa-save"></i> Save</button>
+      </div>
+      <div class="control">
+        <button class="button" type="reset"><i class="fas fa-fw fa-undo"></i> Revert</button>
+      </div>
+    </div>
+  </form>
+</div>
+{%- endblock %}

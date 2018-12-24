@@ -1,0 +1,69 @@
+{%- from ctx.module + "/macros.j2" import open_icon, open_colour -%}
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>{% if title %}{{ title }} | {% endif %}IMMP</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.2/css/bulma.min.css" integrity="sha256-2pUeJf+y0ltRPSbKOeJh09ipQFYxUdct5nTY6GAXswA=" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.4.1/css/all.css" integrity="sha384-5sAR7xN1Nv6T6+dT2mhtzEpVJvfS3NScPQTrOxhwjIuvcA67KV2R5Jz6kr4abQsz" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/josdejong/jsoneditor@v5.24.6/dist/jsoneditor.min.css" integrity="sha384-OC0x1yhDAHS+N1Do1hm8ASEhisiOijhpEfh57KZNvIDAmBgooTEgC7Msju1gD0cl" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/gh/josdejong/jsoneditor@v5.24.6/dist/jsoneditor.min.js" integrity="sha384-RNa9jGyRdZqaZPUcntD5CR+eTMxebIIsa71PwgAqlKruDPA5AvlLE+1A1PXMVuUP" crossorigin="anonymous" defer></script>
+    <script>
+      window.addEventListener("load", function(e) {
+        var fields = document.querySelectorAll("textarea.json-editor");
+        for (var i = 0; i < fields.length; ++i) {
+          var field = fields[i];
+          var editor = new JSONEditor(document.getElementById(field.dataset.editor), {
+            name: field.name,
+            modes: ["tree", "code"]
+          });
+          field.style.display = "none";
+          var form = field.closest("form");
+          form.addEventListener("submit", function(e) {
+            field.value = JSON.stringify(editor.get(), null, 2);
+          });
+          form.addEventListener("reset", function(e) {
+            setTimeout(function() {
+              editor.set(JSON.parse(field.value));
+            }, 1);
+          });
+          if (field.value) {
+            editor.set(JSON.parse(field.value));
+          }
+        }
+      });
+    </script>
+  </head>
+  <body>
+    <section class="hero is-primary is-bold">
+      <div class="hero-body">
+        <div class="container">
+          {%- if title %}
+          <h1 class="title">{{ title }}</h1>
+          {%- endif %}
+          {%- if subtitle %}
+          <h2 class="subtitle">{{ subtitle }}</h2>
+          {%- endif %}
+        </div>
+      </div>
+    </section>
+    <section class="section">
+      {%- if request.rel_url != ctx.url_for("main") %}
+      <nav class="breadcrumb">
+        <div class="container">
+          <ul>
+            <li><a href="{{ ctx.url_for("main") }}">Status</a></li>
+            {%- for label, url in nav or [] %}
+            <li><a href="{{ url }}">{{ label }}</a></li>
+            {%- endfor %}
+            <li class="is-active"><a href="{{ request.rel_url }}">{{ title }}</a></li>
+          </ul>
+        </div>
+      </nav>
+      {%- endif %}
+      {%- block body %}{% endblock %}
+    </section>
+  </body>
+</html>

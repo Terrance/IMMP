@@ -1,0 +1,62 @@
+{% extends ctx.module + "/base.j2" %}
+{% set title = "Channel: " + channel.source %}
+{% if title_ %}
+  {% set subtitle = title_ %}
+{% endif %}
+{% set nav = [("Plug: " + channel.plug.name, ctx.url_for("plug", name=channel.plug.name))] %}
+
+{% block body -%}
+<div class="container">
+  <nav class="level">
+    <div class="level-left">
+      <div class="level-item">
+        <span>
+          {%- if private %}
+          <i class="fas fa-fw fa-user"></i> Private
+          {%- else %}
+          <i class="fas fa-fw fa-users"></i> Group
+          {%- endif %}
+        </span>
+      </div>
+      {%- if link %}
+      <div class="level-item">
+        <span><i class="fas fa-fw fa-link"></i> <a href="{{ link }}">{{ link }}</a>
+      </div>
+      {%- endif %}
+    </div>
+  </nav>
+  {%- if members %}
+  <h3 class="title">Members ({{ members|length }})</h3>
+  <div class="columns is-multiline">
+  {%- for member in members %}
+    <div class="column is-one-quarter-widescreen is-one-third-tablet is-half-mobile">
+      <div class="card-content">
+        <div class="media">
+          {%- if member.avatar %}
+          <div class="media-left">
+            <figure class="image is-48x48">
+              <img src="{{ member.avatar }}">
+            </figure>
+          </div>
+          {%- endif %}
+          <div class="media-content">
+            <p class="title is-4">
+              {% if member.link %}<a href="{{ member.link }}">{% endif -%}
+              {{ member.real_name or member.username }}
+              {%- if member.link %}</a>{% endif %}
+            </p>
+            <p class="subtitle is-6">
+              {%- if member.real_name and member.username %}
+              {{ member.username }}<br>
+              {%- endif %}
+              <code>{{ member.id }}</code>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  {%- endfor %}
+  </div>
+  {%- endif %}
+</div>
+{%- endblock %}
