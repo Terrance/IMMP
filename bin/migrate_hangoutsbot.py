@@ -353,11 +353,11 @@ class Data:
                                          "identities": "identity" if self.identities else None}}
 
     def compile_commands(self):
-        commands = {"plugs": {"private": list(self.plugs), "anywhere": ["sync"]},
+        commands = {"groups": ["migrated"],
                     "hooks": ["commands"] + list(hook for hook in self.hooks if not hook == "db")}
         self.hooks["commands"] = {"path": "immp.hook.command.CommandHook",
-                                  "config": {"prefix": "/bot ",
-                                             "groups": {"migrated": commands}}}
+                                  "config": {"prefix": ["/bot "],
+                                             "mapping": {"migrated": commands}}}
 
     def make_config(self):
         if self.identities:
@@ -368,6 +368,7 @@ class Data:
         return {"plugs": self.plugs,
                 "channels": {name: {"plug": plug, "source": source}
                              for name, (plug, source) in self.channels.items()},
+                "groups": {"migrated": {"anywhere": list(self.plugs.keys())}},
                 "hooks": self.hooks}
 
 
