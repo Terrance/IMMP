@@ -35,47 +35,47 @@ log = logging.getLogger(__name__)
 class _Schema:
 
     config = Schema({
-            "plugins": [str],
-            Optional("sync_rooms", default=list): Any([[str]], []),
-            Optional("slackrtm", default=None): Any({  # rewrite
-                "syncs": [{
-                    "channel": [str, str],
-                    "hangout": str
-                }],
-                "teams": {str: {
-                    "token": str,
-                    "admins": [str]
-                }}
-            }, None),
-            Optional("telesync", default=None): Any({
-                "api_key": str
-            }, None)
-        }, extra=REMOVE_EXTRA, required=True)
+        "plugins": [str],
+        Optional("sync_rooms", default=list): Any([[str]], []),
+        Optional("slackrtm", default=None): Any({  # rewrite
+            "syncs": [{
+                "channel": [str, str],
+                "hangout": str
+            }],
+            "teams": {str: {
+                "token": str,
+                "admins": [str]
+            }}
+        }, None),
+        Optional("telesync", default=None): Any({
+            "api_key": str
+        }, None)
+    }, extra=REMOVE_EXTRA, required=True)
 
     memory = Schema({
-            "convmem": {str: {
-                "title": str
-            }},
-            "user_data": {str: {
-                Optional("_hangups", default=lambda: {"is_self": False}): {"is_self": bool},
-                Optional("nickname", default=""): str
-            }},
-            Optional("slackrtm", default=dict): Any({str: {
-                "identities": {
-                    "hangouts": {str: str},
-                    "slack": {str: str}
-                }
-            }}, {}),
-            Optional("profilesync", default=lambda: {"ho2tg": {}}): {  # telesync
-                "ho2tg": Any({str: str}, {})  # HO: TG or HO: "VERIFY000..."
-            },
-            Optional("telesync", default=lambda: {"ho2tg": {}}): {
-                "ho2tg": Any({str: str}, {})  # HO: TG
-            },
-            Optional("tldr", default=dict): Any({  # HO: timestamp: text
-                str: Any({str: str}, {})
-            }, {})
-        }, extra=REMOVE_EXTRA, required=True)
+        "convmem": {str: {
+            "title": str
+        }},
+        "user_data": {str: {
+            Optional("_hangups", default=lambda: {"is_self": False}): {"is_self": bool},
+            Optional("nickname", default=""): str
+        }},
+        Optional("slackrtm", default=dict): Any({str: {
+            "identities": {
+                "hangouts": {str: str},
+                "slack": {str: str}
+            }
+        }}, {}),
+        Optional("profilesync", default=lambda: {"ho2tg": {}}): {  # telesync
+            "ho2tg": Any({str: str}, {})  # HO: TG or HO: "VERIFY000..."
+        },
+        Optional("telesync", default=lambda: {"ho2tg": {}}): {
+            "ho2tg": Any({str: str}, {})  # HO: TG
+        },
+        Optional("tldr", default=dict): Any({  # HO: timestamp: text
+            str: Any({str: str}, {})
+        }, {})
+    }, extra=REMOVE_EXTRA, required=True)
 
 
 class RevDict(dict):
