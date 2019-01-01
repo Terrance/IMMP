@@ -296,6 +296,7 @@ class Data:
 
     def tldr(self):
         self.hooks["notes"] = {"path": "immp.hook.notes.NotesHook"}
+        self.database.drop_tables([Note], safe=True)
         self.database.create_tables([Note], safe=True)
         syncs = set()
         for ho, tldr in self.memory["tldr"].items():
@@ -336,6 +337,7 @@ class Data:
             self.tldr()
 
     def compile_identities(self):
+        self.database.drop_tables([IdentityGroup, IdentityLink], safe=True)
         self.database.create_tables([IdentityGroup, IdentityLink], safe=True)
         self.hooks["identity"] = {"path": "immp.hook.identity.IdentityHook",
                                   "config": {"instance": 1, "plugs": list(self.plugs)}}
