@@ -6,7 +6,6 @@ to the plug are cloned and returned as if a network had processed them.
 """
 
 from asyncio import ensure_future, sleep
-from itertools import count
 import logging
 
 import immp
@@ -25,7 +24,7 @@ class DummyPlug(immp.Plug):
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
-        self.counter = count()
+        self.counter = immp.IDGen()
         self.user = immp.User(id="dummy", real_name=name)
         self.channel = immp.Channel(self, "dummy")
         self._task = None
@@ -57,7 +56,7 @@ class DummyPlug(immp.Plug):
         while True:
             await sleep(10)
             log.debug("Creating next test message")
-            self.queue(self.channel,
-                       immp.Message(id=next(self.counter),
-                                    text="Test",
-                                    user=self.user))
+            self.queue(immp.SentMessage(id=self.counter(),
+                                        channel=self.channel,
+                                        text="Test",
+                                        user=self.user))
