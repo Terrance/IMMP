@@ -4,19 +4,25 @@
 {% block body -%}
 <div class="container">
   <form method="post">
-    <div class="field">
-      <label class="label" for="path">Path</label>
-      <div class="control">
-        <input type="text" class="input" id="path" name="path" placeholder="module.FooPlug" required>
+    <div class="columns is-desktop">
+      <div class="column">
+        <div class="field">
+          <label class="label" for="path">Path</label>
+          <div class="control">
+            <input type="text" class="input" id="path" name="path" placeholder="module.FooPlug" required>
+          </div>
+          <p class="help">Full path to your plug or hook class.  External modules must be present on the system path, either installed to a default directory or one added to <code>sys.path</code>.</p>
+        </div>
       </div>
-      <p class="help">Full path to your plug or hook class.  External modules must be present on the system path, either installed to a default directory or one added to <code>sys.path</code>.</p>
-    </div>
-    <div class="field">
-      <label class="label" for="name">Name</label>
-      <div class="control">
-        <input type="text" class="input" id="name" name="name" placeholder="foo-test" required>
+      <div class="column">
+        <div class="field">
+          <label class="label" for="name">Name</label>
+          <div class="control">
+            <input type="text" class="input" id="name" name="name" placeholder="foo-test" required>
+          </div>
+          <p class="help">Identifier available to other hooks, in order to reference this instance in config.</p>
+        </div>
       </div>
-      <p class="help">Identifier available to other hooks, in order to reference this instance in config.</p>
     </div>
     <div class="field">
       <label class="label" for="config">Config</label>
