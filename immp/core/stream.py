@@ -106,7 +106,7 @@ class PlugStream:
                     log.exception("Generator for plug '{}' exited, recreating".format(plug.name))
                     self._agens[plug] = plug.stream()
                 else:
-                    log.debug("Received: {}".format(repr(sent)))
+                    log.info("Received: {}".format(repr(sent)))
                     yield (sent, source, primary)
 
     def __aiter__(self):
