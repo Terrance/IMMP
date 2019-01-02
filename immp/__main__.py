@@ -13,15 +13,19 @@ from immp.hook.runner import RunnerHook
 
 class _Schema:
 
-    logging = Schema({Optional("disable_existing_loggers", default=False): bool},
-                     extra=ALLOW_EXTRA)
+    _openable = Any({str: {"path": str, Optional("config", default=dict): dict}}, {})
+
+    _channels = Any({str: {"plug": str, "source": str}}, {})
+
+    _logging = Schema({Optional("disable_existing_loggers", default=False): bool},
+                      extra=ALLOW_EXTRA)
 
     config = Schema({Optional("path", default=list): [str],
-                     "plugs": {str: {"path": str, Optional("config", default=dict): dict}},
-                     "channels": {str: {"plug": str, "source": object}},
-                     "groups": Any({str: dict}, {}),
-                     "hooks": {str: {"path": str, Optional("config", default=dict): dict}},
-                     Optional("logging", default=None): Any(logging, None)},
+                     Optional("plugs", default=dict): _openable,
+                     Optional("channels", default=dict): _channels,
+                     Optional("groups", default=dict): Any({str: dict}, {}),
+                     Optional("hooks", default=dict): _openable,
+                     Optional("logging", default=None): Any(_logging, None)},
                     extra=REMOVE_EXTRA, required=True)
 
 
