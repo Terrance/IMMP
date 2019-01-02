@@ -21,6 +21,7 @@
   <div class="columns">
     <div class="column">
       <h3 class="title"><i class="fas fa-plug"></i> Plugs</h3>
+      {%- if host.plugs %}
       <nav class="panel">
       {%- for name, plug in host.plugs.items() %}
         <a class="panel-block" href="{{ ctx.url_for("plug", name=name) }}">
@@ -32,7 +33,11 @@
         </a>
       {%- endfor %}
       </nav>
+      {%- else %}
+      <p class="content">None loaded.</p>
+      {%- endif %}
       <h3 class="title"><i class="fas fa-hashtag"></i> Channels</h3>
+      {%- if host.channels %}
       <nav class="panel">
       {%- for name, channel in host.channels.items() %}
         <a class="panel-block" href="{{ ctx.url_for("plug_channel", plug=channel.plug.name, source=channel.source) }}">
@@ -43,9 +48,13 @@
         </a>
       {%- endfor %}
       </nav>
+      {%- else %}
+      <p class="content">None defined.</p>
+      {%- endif %}
     </div>
     <div class="column">
       <h3 class="title"><i class="fas fa-boxes"></i> Resources</h3>
+      {%- if host.resources %}
       <nav class="panel">
       {%- for hook in host.resources.values() %}
         <a class="panel-block" href="{{ hook_url_for(hook, none) }}">
@@ -57,7 +66,11 @@
         </a>
       {%- endfor %}
       </nav>
+      {%- else %}
+      <p class="content">None loaded.</p>
+      {%- endif %}
       <h3 class="title"><i class="fas fa-paper-plane"></i> Hooks</h3>
+      {%- if host.hooks %}
       <nav class="panel">
       {%- for name, hook in host.hooks.items() %}
         <a class="panel-block" href="{{ hook_url_for(hook, none) }}">
@@ -69,6 +82,9 @@
         </a>
       {%- endfor %}
       </nav>
+      {%- else %}
+      <p class="content">None loaded.</p>
+      {%- endif %}
     </div>
   </div>
 </div>
