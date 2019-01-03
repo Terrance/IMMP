@@ -64,7 +64,7 @@ class Host:
         """
         if plug.name in self.plugs:
             raise ConfigError("Plug name '{}' already registered".format(plug.name))
-        log.debug("Adding plug: {} ({})".format(plug.name, plug.__class__.__name__))
+        log.info("Adding plug: {} ({})".format(plug.name, plug.__class__.__name__))
         self.plugs[plug.name] = plug
         if self._loaded:
             plug.on_load()
@@ -90,7 +90,7 @@ class Host:
         """
         if name not in self.plugs:
             raise RuntimeError("Plug '{}' not registered to host".format(name))
-        log.debug("Removing plug: {}".format(name))
+        log.info("Removing plug: {}".format(name))
         plug = self.plugs.pop(name)
         for name, channel in list(self.channels.items()):
             if channel.plug == plug:
@@ -111,8 +111,7 @@ class Host:
         """
         if name in self.channels:
             raise ConfigError("Channel name '{}' already registered".format(name))
-        log.debug("Adding channel: {} ({}/{})"
-                  .format(name, channel.plug.name, channel.source))
+        log.info("Adding channel: {} ({}/{})".format(name, channel.plug.name, channel.source))
         self.channels[name] = channel
 
     def remove_channel(self, name):
@@ -125,7 +124,7 @@ class Host:
         """
         if name not in self.channels:
             raise RuntimeError("Channel '{}' not registered to host".format(name))
-        log.debug("Removing channel: {}".format(name))
+        log.info("Removing channel: {}".format(name))
         return self.channels.pop(name)
 
     def add_group(self, group):
@@ -142,7 +141,7 @@ class Host:
         """
         if group.name in self.groups:
             raise ConfigError("Group name '{}' already registered".format(group.name))
-        log.debug("Adding group: {}".format(group.name))
+        log.info("Adding group: {}".format(group.name))
         self.groups[group.name] = group
         return group.name
 
@@ -164,7 +163,7 @@ class Host:
         """
         if name not in self.groups:
             raise RuntimeError("Group '{}' not registered to host".format(name))
-        log.debug("Removing group: {}".format(name))
+        log.info("Removing group: {}".format(name))
         return self.groups.pop(name)
 
     def add_hook(self, hook):
@@ -187,10 +186,10 @@ class Host:
             elif hook.__class__ == cls:
                 raise ConfigError("Resource class '{}' already registered".format(cls.__name__))
         if isinstance(hook, ResourceHook):
-            log.debug("Adding resource: {} ({})".format(hook.name, hook.__class__.__name__))
+            log.info("Adding resource: {} ({})".format(hook.name, hook.__class__.__name__))
             self.resources[hook.__class__] = hook
         else:
-            log.debug("Adding hook: {} ({})".format(hook.name, hook.__class__.__name__))
+            log.info("Adding hook: {} ({})".format(hook.name, hook.__class__.__name__))
             self.hooks[hook.name] = hook
         if self._loaded:
             hook.on_load()
@@ -213,11 +212,11 @@ class Host:
                 Removed hook instance.
         """
         if name in self.hooks:
-            log.debug("Removing hook: {}".format(name))
+            log.info("Removing hook: {}".format(name))
             return self.hooks.pop(name)
         for cls, hook in list(self.resources.items()):
             if hook.name == name:
-                log.debug("Removing resource: {} ({})".format(name, cls.__name__))
+                log.info("Removing resource: {} ({})".format(name, cls.__name__))
                 return self.resources.pop(cls)
         else:
             raise RuntimeError("Hook '{}' not registered to host".format(name))

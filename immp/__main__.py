@@ -73,8 +73,8 @@ def main(path, write=False):
     config = _Schema.config(anyconfig.load(path))
     init(config["logging"], config["path"])
     log = logging.getLogger(__name__)
-    host = config_to_host(config, path, write)
     log.info("Creating plugs and hooks")
+    host = config_to_host(config, path, write)
     loop = asyncio.get_event_loop()
     task = loop.create_task(host.run())
     try:
