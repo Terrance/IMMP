@@ -35,6 +35,17 @@ class RunnerHook(immp.ResourceHook):
         self.writeable = None
 
     def load(self, config, path, writeable):
+        """
+        Initialise the runner with a full config and the file path.
+
+        Args:
+            config (dict):
+                Complete parsed config file content.
+            path (str):
+                Target config file location.
+            writeable (bool):
+                ``True`` if changes to the live config may be written back to the file.
+        """
         self._config = config
         self._path = path
         self.writeable = writeable
@@ -61,12 +72,14 @@ class RunnerHook(immp.ResourceHook):
 
     @property
     def config_features(self):
-        config = {"plugs": {}, "channels": {}, "hooks": {}}
+        config = {"plugs": {}, "channels": {}, "groups": {}, "hooks": {}}
         for name, plug in self.host.plugs.items():
             self._config_feature(config["plugs"], name, plug)
         for name, channel in self.host.channels.items():
             if not channel.plug.virtual:
                 config["channels"][name] = {"plug": channel.plug.name, "source": channel.source}
+        for name, group in self.host.groups.items():
+            config["groups"][name] = group.config
         for hook in self.host.resources.values():
             self._config_feature(config["hooks"], hook.name, hook)
         for name, hook in self.host.hooks.items():
@@ -80,6 +93,9 @@ class RunnerHook(immp.ResourceHook):
         return config
 
     def write_config(self):
+        """
+        Write the live config out to the target config file, if writing is enabled.
+        """
         if not self.writeable:
             raise immp.PlugError("Writing not enabled")
         log.info("Writing config file")
