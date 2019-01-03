@@ -1,0 +1,43 @@
+{% extends ctx.module + "/base.j2" %}
+{% set title = "Group: " + group.name %}
+{% set subtitle = group_summary(group) %}
+
+{% block body -%}
+<div class="container">
+  <nav class="level">
+    <div class="level-left">
+      <div class="level-item">
+        <form method="post" action="{{ ctx.url_for("group_remove", name=group.name) }}">
+          <button type="submit" class="button is-danger">
+            <i class="fas fa-fw fa-trash-alt }}"></i> Remove
+          </button>
+        </form>
+      </div>
+    </div>
+  </nav>
+  <h3 class="title">Config</h3>
+  {%- if runner and not runner.writeable %}
+  <article class="message is-danger">
+    <div class="message-body">
+      <p>A config file is being used, but will not be written to.  Changes will only apply to the current session.</p>
+    </div>
+  </article>
+  {%- endif %}
+  <form action="{{ ctx.url_for("group_config", name=group.name) }}" method="post">
+    <div class="field">
+      <div class="control">
+        <div id="config-editor"></div>
+        <textarea name="config" class="textarea is-small json-editor" data-editor="config-editor">{{ group.config|json(indent=2) }}</textarea>
+      </div>
+    </div>
+    <div class="field is-grouped">
+      <div class="control">
+        <button class="button is-primary" type="submit"><i class="fas fa-fw fa-save"></i> Save</button>
+      </div>
+      <div class="control">
+        <button class="button" type="reset"><i class="fas fa-fw fa-undo"></i> Revert</button>
+      </div>
+    </div>
+  </form>
+</div>
+{%- endblock %}

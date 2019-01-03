@@ -51,6 +51,7 @@ class WebUIHook(immp.ResourceHook):
         runner = self.host.resources.get(RunnerHook)
         self.ctx = self.host.resources[WebHook].context(__name__, self.config["route"],
                                                         {"hook_url_for": self.hook_url_for,
+                                                         "group_summary": self.group_summary,
                                                          "runner": runner})
         # Home:
         self.ctx.route("GET", "", self.noop, "main.j2", "main")
@@ -69,6 +70,11 @@ class WebUIHook(immp.ResourceHook):
         self.ctx.route("POST", "channel", self.channel_add)
         self.ctx.route("POST", "channel/{name}/remove", self.channel_remove)
         self.ctx.route("GET", "plug/{plug}/channel/{source}", self.plug_channel, "channel.j2")
+        # Groups:
+        self.ctx.route("GET", "group/{name}", self.group, "group.j2")
+        self.ctx.route("POST", "group", self.group_add)
+        self.ctx.route("POST", "group/{name}/remove", self.group_remove)
+        self.ctx.route("POST", "group/{name}/config", self.group_config)
         # Hooks:
         self.ctx.route("GET", "resource/{cls}", self.hook, "hook.j2", "resource")
         self.ctx.route("POST", "resource/{cls}/stop", self.hook_stop, name="resource_stop")
@@ -210,6 +216,56 @@ class WebUIHook(immp.ResourceHook):
                 "title_": title,
                 "link": link,
                 "members": members}
+
+    def _resolve_group(self, request):
+        try:
+            return self.host.groups[request.match_info["name"]]
+        except KeyError:
+            raise web.HTTPNotFound
+
+    def group_summary(self, group):
+        summary = []
+        for key in ("anywhere", "private", "shared", "named", "channels"):
+            count = len(group.config[key])
+            if count:
+                summary.append("{} {}".format(count, key))
+        return ", ".join(summary) if summary else "Empty group"
+
+
+    async def group(self, request):
+        group = self._resolve_group(request)
+        return {"group": group}
+
+    async def group_add(self, request):
+        post = await request.post()
+        try:
+            name = post["name"]
+        except KeyError:
+            raise web.HTTPBadRequest
+        if not name:
+            raise web.HTTPBadRequest
+        if name in self.host.groups:
+            raise web.HTTPBadRequest
+        self.host.add_group(immp.Group(name, {}, self.host))
+        raise web.HTTPFound(self.ctx.url_for("group", name=name))
+
+    async def group_remove(self, request):
+        group = self._resolve_group(request)
+        self.host.remove_group(group.name)
+        raise web.HTTPFound(self.ctx.url_for("main"))
+
+    async def group_config(self, request):
+        group = self._resolve_group(request)
+        post = await request.post()
+        if "config" not in post:
+            raise web.HTTPBadRequest
+        try:
+            config = json.loads(post["config"])
+        except ValueError:
+            raise web.HTTPBadRequest
+        group.config.clear()
+        group.config.update(config)
+        raise web.HTTPFound(self.ctx.url_for("group", name=group.name))
 
     def _resolve_hook(self, request):
         if "name" in request.match_info:

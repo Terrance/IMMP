@@ -50,9 +50,10 @@
         <td>{{ name }}</td>
         <td>{{ channel.source }}</td>
         <td>
-         <div class="buttons">
+          <div class="buttons">
             <a class="button is-small" href="{{ ctx.url_for("plug_channel", plug=plug.name, source=channel.source) }}">
-              <i class="fas fa-fw fa-hashtag"></i> View</a>
+              <i class="fas fa-fw fa-hashtag"></i> View
+            </a>
             <form method="post" action="{{ ctx.url_for("channel_remove", name=name) }}">
               <button type="submit" class="button is-small is-danger">
                 <i class="fas fa-fw fa-trash-alt"></i> Remove
