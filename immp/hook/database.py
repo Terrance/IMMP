@@ -57,8 +57,15 @@ class DatabaseHook(immp.ResourceHook):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
+        self.db = None
 
     async def start(self):
         log.debug("Opening connection to database")
         self.db = connect(self.config["url"])
         BaseModel._meta.database.initialize(self.db)
+
+    async def stop(self):
+        if self.db:
+            log.debug("Closing connection to database")
+            self.db.close()
+            self.db = None
