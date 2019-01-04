@@ -90,7 +90,9 @@ class PlugStream:
             try:
                 await self._queue()
                 done, pending = await wait(self._tasks, return_when=FIRST_COMPLETED)
-            except GeneratorExit:
+            except (GeneratorExit, CancelledError):
+                for task in self._tasks:
+                    task.cancel()
                 for coro in self._agens.values():
                     await coro.aclose()
                 return
