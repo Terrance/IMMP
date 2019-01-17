@@ -9,32 +9,28 @@ Requirements
 This project uses the latest and greatest Python features (that is, native asyncio syntax and
 asynchronous generators), and therefore requires at least **Python 3.6**.
 
-The following extra modules are required:
-
-- `aiohttp <https://aiohttp.readthedocs.io>`_
-- `voluptuous <https://alecthomas.github.io/voluptuous/docs/_build/html/>`_
-
-Further modules may also be needed for certain features:
-
-- `aioconsole <https://aioconsole.readthedocs.io>`_ (async shell)
-- `anyconfig <https://python-anyconfig.readthedocs.io>`_ (running from command-line)
-- `discord.py <https://discordpy.readthedocs.io/en/rewrite/>`_ **1.0+** (Discord)
-- emoji (Discord, Slack)
-- `hangups <https://hangups.readthedocs.io>`_ (Hangouts)
-- `Jinja2 <http://jinja.pocoo.org>`_ (optional: sync)
-- `peewee <https://peewee.readthedocs.io/en/latest/>`_ (databases)
-- `ptpython <https://github.com/jonathanslenders/ptpython>`_ (optional: blocking shell)
-- `telethon <https://telethon.readthedocs.io/en/latest/>`_ (optional: Telegram)
+Additional modules are required for most plugs and hooks -- consult the docs for each module you
+want to use to check its own requirements, or use the included requirements list to install all
+possible dependencies for built-in modules.
 
 Terminology
 -----------
 
+Network
+    An external service that provides message-based communication.
+Message
+    A unit of data, which can include text, images, attachments, authorship, and so on.
+User
+    An individual or service which can author messages on a network.
 Plug
-    A class that handles all communication with an external network.
+    A handler for all communication with an external network, transforming the network’s content
+    to message objects and back again.
 Channel
-    A single room in an external network, containing messages and users.
+    A single room in an external network – a source of messages, and often a container of users.
+Group
+    A collection of plugs and channels.
 Hook
-    A class that processes a stream of messages, in whichever way it sees fit.
+    A worker that processes a stream of incoming messages, in whichever way it sees fit.
 
 Basic usage
 -----------
