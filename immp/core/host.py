@@ -2,13 +2,31 @@ from asyncio import CancelledError, ensure_future, gather, wait
 from itertools import chain
 import logging
 
+from .channel import Channel, Group
 from .error import ConfigError
-from .hook import ResourceHook
+from .hook import Hook, ResourceHook
+from .plug import Plug
 from .stream import PlugStream
 from .util import OpenState, pretty_str
 
 
 log = logging.getLogger(__name__)
+
+
+class HostGetter:
+    """
+    Filter property used to return a subset of objects by type.
+    """
+
+    def __init__(self, cls):
+        self._cls = cls
+
+    def __get__(self, instance, owner):
+        if instance:
+            return {name: obj for name, obj in instance._objects.items()
+                    if isinstance(obj, self._cls)}
+        else:
+            return self
 
 
 @pretty_str
@@ -26,7 +44,9 @@ class Host:
         plugs ((str, .Plug) dict):
             Collection of all registered plug instances, keyed by name.
         hooks ((str, .Hook) dict):
-            Collection of all registered message hooks, keyed by name.
+            Collection of all registered hooks, keyed by name.
+        plain_hooks ((str, .Hook) dict):
+            As above, but excluding resources.
         resources ((class, .ResourceHook) dict):
             Collection of all registered resource hooks, keyed by class.
         running (bool):
@@ -34,13 +54,28 @@ class Host:
     """
 
     def __init__(self):
-        self.plugs = {}
-        self.channels = {}
-        self.groups = {}
-        self.hooks = {}
+        self._objects = {}
         self.resources = {}
         self._loaded = False
         self._stream = self._process = None
+
+    plugs = HostGetter(Plug)
+    channels = HostGetter(Channel)
+    groups = HostGetter(Group)
+    hooks = HostGetter(Hook)
+
+    @property
+    def plain_hooks(self):
+        return {name: hook for name, hook in self.hooks.items()
+                if not isinstance(hook, ResourceHook)}
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            return self._objects[key]
+        elif isinstance(key, type) and issubclass(key, ResourceHook):
+            return self.resources[key]
+        else:
+            raise TypeError(key)
 
     @property
     def running(self):
@@ -62,10 +97,12 @@ class Host:
             str:
                 Name used to reference this plug.
         """
-        if plug.name in self.plugs:
+        if not isinstance(plug, Plug):
+            raise TypeError(plug)
+        elif plug.name in self._objects:
             raise ConfigError("Plug name '{}' already registered".format(plug.name))
         log.info("Adding plug: {} ({})".format(plug.name, plug.__class__.__name__))
-        self.plugs[plug.name] = plug
+        self._objects[plug.name] = plug
         if self._loaded:
             plug.on_load()
         if self._stream:
@@ -88,10 +125,10 @@ class Host:
             .Plug:
                 Removed plug instance.
         """
-        if name not in self.plugs:
+        if not isinstance(self._objects.get(name), Plug):
             raise RuntimeError("Plug '{}' not registered to host".format(name))
         log.info("Removing plug: {}".format(name))
-        plug = self.plugs.pop(name)
+        plug = self._objects.pop(name)
         for name, channel in list(self.channels.items()):
             if channel.plug == plug:
                 self.remove_channel(name)
@@ -109,10 +146,12 @@ class Host:
             channel (.Channel):
                 Existing channel instance to add.
         """
-        if name in self.channels:
+        if not isinstance(channel, Channel):
+            raise TypeError(channel)
+        elif name in self._objects:
             raise ConfigError("Channel name '{}' already registered".format(name))
         log.info("Adding channel: {} ({}/{})".format(name, channel.plug.name, channel.source))
-        self.channels[name] = channel
+        self._objects[name] = channel
 
     def remove_channel(self, name):
         """
@@ -122,10 +161,10 @@ class Host:
             name (str):
                 Name of a previously registered channel instance to remove.
         """
-        if name not in self.channels:
+        if not isinstance(self._objects.get(name), Channel):
             raise RuntimeError("Channel '{}' not registered to host".format(name))
         log.info("Removing channel: {}".format(name))
-        return self.channels.pop(name)
+        return self._objects.pop(name)
 
     def add_group(self, group):
         """
@@ -139,10 +178,12 @@ class Host:
             str:
                 Name used to reference this group.
         """
-        if group.name in self.groups:
+        if not isinstance(group, Group):
+            raise TypeError(group)
+        elif group.name in self._objects:
             raise ConfigError("Group name '{}' already registered".format(group.name))
         log.info("Adding group: {}".format(group.name))
-        self.groups[group.name] = group
+        self._objects[group.name] = group
         return group.name
 
     def remove_group(self, name):
@@ -161,10 +202,10 @@ class Host:
             .Group:
                 Removed group instance.
         """
-        if name not in self.groups:
+        if not isinstance(self._objects.get(name), Group):
             raise RuntimeError("Group '{}' not registered to host".format(name))
         log.info("Removing group: {}".format(name))
-        return self.groups.pop(name)
+        return self._objects.pop(name)
 
     def add_hook(self, hook):
         """
@@ -178,19 +219,18 @@ class Host:
             str:
                 Name used to reference this hook.
         """
-        if hook.name in self.hooks:
+        if not isinstance(hook, Hook):
+            raise TypeError(hook)
+        elif hook.name in self._objects:
             raise ConfigError("Hook name '{}' already registered".format(hook.name))
-        for cls, resource in self.resources.items():
-            if hook.name == resource.name:
-                raise ConfigError("Resource name '{}' already registered".format(hook.name))
-            elif hook.__class__ == cls:
-                raise ConfigError("Resource class '{}' already registered".format(cls.__name__))
+        elif hook.__class__ in self.resources:
+            raise ConfigError("Resource class '{}' already registered"
+                              .format(hook.__class__.__name__))
+        log.info("Adding hook: {} ({})".format(hook.name, hook.__class__.__name__))
+        self._objects[hook.name] = hook
         if isinstance(hook, ResourceHook):
             log.info("Adding resource: {} ({})".format(hook.name, hook.__class__.__name__))
             self.resources[hook.__class__] = hook
-        else:
-            log.info("Adding hook: {} ({})".format(hook.name, hook.__class__.__name__))
-            self.hooks[hook.name] = hook
         if self._loaded:
             hook.on_load()
         return hook.name
@@ -211,35 +251,14 @@ class Host:
             .Hook:
                 Removed hook instance.
         """
-        if name in self.hooks:
-            log.info("Removing hook: {}".format(name))
-            return self.hooks.pop(name)
-        for cls, hook in list(self.resources.items()):
-            if hook.name == name:
-                log.info("Removing resource: {} ({})".format(name, cls.__name__))
-                return self.resources.pop(cls)
-        else:
+        if not isinstance(self._objects.get(name), Hook):
             raise RuntimeError("Hook '{}' not registered to host".format(name))
-
-    def find_hook(self, name):
-        """
-        Retrieve a normal or resource hook by name.
-
-        Args:
-            name (str):
-                Target hook name.
-
-        Returns:
-            .Hook:
-                Corresponding hook registered to the host.
-        """
-        if name in self.hooks:
-            return self.hooks[name]
-        for hook in self.resources.values():
-            if hook.name == name:
-                return hook
-        else:
-            raise KeyError(name)
+        log.info("Removing hook: {}".format(name))
+        hook = self._objects.pop(name)
+        if isinstance(hook, ResourceHook):
+            log.info("Removing resource: {} ({})".format(name, hook.__class__.__name__))
+            del self.resources[hook.__class__]
+        return hook
 
     def loaded(self):
         """
@@ -249,7 +268,7 @@ class Host:
             hook.on_load()
         for plug in self.plugs.values():
             plug.on_load()
-        for hook in self.hooks.values():
+        for hook in self.plain_hooks.values():
             hook.on_load()
         self._loaded = True
 
@@ -263,15 +282,15 @@ class Host:
             await wait([hook.open() for hook in self.resources.values()])
         if self.plugs:
             await wait([plug.open() for plug in self.plugs.values()])
-        if self.hooks:
-            await wait([hook.open() for hook in self.hooks.values()])
+        if self.plain_hooks:
+            await wait([hook.open() for hook in self.plain_hooks.values()])
 
     async def close(self):
         """
         Disconnect all open plugs and stop all hooks.
         """
-        if self.hooks:
-            await wait([hook.close() for hook in self.hooks.values()])
+        if self.plain_hooks:
+            await wait([hook.close() for hook in self.plain_hooks.values()])
         if self.plugs:
             await wait([plug.close() for plug in self.plugs.values()])
         if self.resources:
