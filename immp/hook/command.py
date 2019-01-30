@@ -30,6 +30,7 @@ hook-specific config -- you can, for example, bind some commands to an admin-onl
 elsewhere.  Multiple groups can be used for fine-grained control.
 """
 
+from collections import defaultdict
 from copy import copy
 from enum import Enum
 import inspect
@@ -162,6 +163,13 @@ class BoundCommand:
         # Propagate other attribute access to the unbound Command object.
         return getattr(self.cmd, name)
 
+    def __eq__(self, other):
+        return (isinstance(other, self.__class__) and
+                (self.hook, self.cmd) == (other.hook, other.cmd))
+
+    def __hash__(self):
+        return hash((self.hook, self.cmd))
+
     def __repr__(self):
         return "<{}: {} {}>".format(self.__class__.__name__, repr(self.hook), repr(self.cmd))
 
@@ -270,6 +278,12 @@ class Command:
         if len(args) > len(params) and not varargs:
             raise ValueError("Expected at most {} args, got {}".format(len(params), len(args)))
 
+    def __eq__(self, other):
+        return isinstance(other, self.__class__) and (self.name, self.fn) == (other.name, other.fn)
+
+    def __hash__(self):
+        return hash((self.name, self.fn))
+
     def __repr__(self):
         return "<{}: {} @ {}, {} {}>".format(self.__class__.__name__, self.name, self.scope.name,
                                              self.role.name, self.fn)
@@ -309,15 +323,6 @@ class CommandHook(immp.Hook):
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
 
-    def _hook(self, name):
-        try:
-            return self.host.hooks[name]
-        except KeyError:
-            for hook in self.host.resources.values():
-                if hook.name == name:
-                    return hook
-            raise
-
     def discover(self, hook):
         """
         Inspect a :class:`.Hook` instance, scanning its attributes for commands.
@@ -330,6 +335,17 @@ class CommandHook(immp.Hook):
             return {}
         attrs = [getattr(hook, attr) for attr in dir(hook)]
         return {cmd.name: cmd for cmd in attrs if isinstance(cmd, BoundCommand)}
+
+    def _mapping_cmds(self, mapping, channel, user, private):
+        cmdgroup = set()
+        admin = user.plug and user.id in (mapping["admins"].get(user.plug.name) or [])
+        for name in mapping["hooks"]:
+            cmdgroup.update(set(self.discover(self.host.hooks[name]).values()))
+        for label in mapping["sets"]:
+            for name, cmdset in self.config["sets"][label].items():
+                discovered = self.discover(self.host.hooks[name])
+                cmdgroup.update(set(discovered[cmd] for cmd in cmdset))
+        return {cmd for cmd in cmdgroup if cmd.applicable(channel, user, private, admin)}
 
     async def commands(self, channel, user):
         """
@@ -346,24 +362,25 @@ class CommandHook(immp.Hook):
                 Commands provided by all hooks, in this channel for this user, keyed by name.
         """
         log.debug("Collecting commands for {} in {}".format(repr(channel), repr(user)))
-        private = await channel.is_private()
+        if isinstance(channel, immp.Plug):
+            # Look for commands for a generic channel.
+            plug = channel
+            channel = immp.Channel(plug, "")
+            private = False
+        else:
+            plug = None
+            private = await channel.is_private()
         mappings = []
         for mapping in self.config["mapping"].values():
             for label in mapping["groups"]:
                 group = self.host.groups[label]
-                if await group.has_channel(channel):
+                if plug and group.has_plug(plug, "anywhere", "named"):
+                    mappings.append(mapping)
+                elif await group.has_channel(channel):
                     mappings.append(mapping)
         cmds = set()
         for mapping in mappings:
-            cmdgroup = set()
-            admin = user.plug and user.id in (mapping["admins"].get(user.plug.name) or [])
-            for name in mapping["hooks"]:
-                cmdgroup.update(set(self.discover(self._hook(name)).values()))
-            for label in mapping["sets"]:
-                for name, cmdset in self.config["sets"][label].items():
-                    discovered = self.discover(self._hook(name))
-                    cmdgroup.update(set(discovered[cmd] for cmd in cmdset))
-            cmds.update(cmd for cmd in cmdgroup if cmd.applicable(channel, user, private, admin))
+            cmds.update(self._mapping_cmds(mapping, channel, user, private))
         mapped = {cmd.name: cmd for cmd in cmds}
         if len(cmds) > len(mapped):
             # Mapping by name silently overwrote at least one command with a duplicate name.
@@ -375,12 +392,31 @@ class CommandHook(immp.Hook):
         """
         List all available commands in this channel, or show help about a single command.
         """
-        cmds = await self.commands(msg.channel, msg.user)
-        if not cmds:
-            return
+        if await msg.channel.is_private():
+            current = None
+            private = msg.channel
+        else:
+            current = msg.channel
+            private = await msg.user.private_channel()
+        parts = defaultdict(dict)
+        if current:
+            parts[current] = await self.commands(current, msg.user)
+        if private:
+            parts[private] = await self.commands(private, msg.user)
+            for name in parts[private]:
+                parts[current].pop(name, None)
+        parts[None] = await self.commands(msg.channel.plug, msg.user)
+        for name in parts[None]:
+            if private:
+                parts[private].pop(name, None)
+            if current:
+                parts[current].pop(name, None)
+        full = dict(parts[None])
+        full.update(parts[current])
+        full.update(parts[private])
         if command:
             try:
-                cmd = cmds[command]
+                cmd = full[command]
             except KeyError:
                 text = "\N{CROSS MARK} No such command"
             else:
@@ -391,11 +427,23 @@ class CommandHook(immp.Hook):
                     text.append(immp.Segment(":", bold=True),
                                 immp.Segment("\n{}".format(cmd.doc)))
         else:
-            text = immp.RichText([immp.Segment("Available commands:", bold=True)])
-            for name, cmd in sorted(cmds.items()):
-                text.append(immp.Segment("\n- {}".format(name)))
-                if cmd.spec:
-                    text.append(immp.Segment(" {}".format(cmd.spec), italic=True))
+            titles = {None: [immp.Segment("Global commands", bold=True)]}
+            if private:
+                titles[private] = [immp.Segment("Private commands", bold=True)]
+            if current:
+                titles[current] = [immp.Segment("Commands for ", bold=True),
+                                   immp.Segment(await current.title(), bold=True, italic=True)]
+            text = immp.RichText()
+            for channel, cmds in parts.items():
+                if not cmds:
+                    continue
+                if text:
+                    text.append(immp.Segment("\n"))
+                text.append(*titles[channel])
+                for name, cmd in sorted(cmds.items()):
+                    text.append(immp.Segment("\n- {}".format(name)))
+                    if cmd.spec:
+                        text.append(immp.Segment(" {}".format(cmd.spec), italic=True))
         await msg.channel.send(immp.Message(text=text))
 
     async def on_receive(self, sent, source, primary):
