@@ -1,4 +1,3 @@
-from .error import ConfigError
 from .util import ConfigProperty, Openable, pretty_str
 
 
@@ -25,15 +24,6 @@ class Hook(Openable):
 
         def __init__(self):
             super().__init__("hook")
-
-        def __get__(self, instance, owner):
-            if not instance:
-                return self
-            try:
-                return tuple(instance.host.find_hook(label)
-                             for label in instance.config[self._key])
-            except KeyError as e:
-                raise ConfigError("No hook {} on host".format(repr(e.args[0]))) from None
 
     def __init__(self, name, config, host, virtual=False):
         super().__init__()

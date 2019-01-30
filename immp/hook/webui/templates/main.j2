@@ -98,7 +98,7 @@
       <h3 class="title"><i class="fas fa-paper-plane"></i> Hooks</h3>
       {%- if host.hooks %}
       <nav class="panel">
-      {%- for name, hook in host.hooks.items() %}
+      {%- for name, hook in host.plain_hooks.items() %}
         <a class="panel-block" href="{{ hook_url_for(hook, none) }}">
           {% set colour = open_colour(hook.state) %}
           <span class="panel-icon{% if colour %} has-text-{{ colour }}{% endif %}" title="{{ hook.state.name|title }}">
