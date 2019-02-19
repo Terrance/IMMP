@@ -41,7 +41,7 @@ class DummyPlug(immp.Plug):
         if msg.deleted:
             return
         # Make a clone of the message to echo back out of the generator.
-        clone = immp.Message(id=next(self.counter),
+        clone = immp.Message(id=self.counter(),
                              at=msg.at,
                              text=msg.text,
                              user=msg.user,
