@@ -134,6 +134,7 @@ class HangoutsSegment(immp.Segment):
 
     @classmethod
     def _make_segment(cls, text, segment):
+        text = re.sub("^ ", "\N{NBSP}", text).replace("  ", " \N{NBSP}")
         return hangups.ChatMessageSegment(text,
                                           (hangouts_pb2.SEGMENT_TYPE_LINK
                                            if segment.link else
