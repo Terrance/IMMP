@@ -39,6 +39,7 @@ from peewee import CharField, ForeignKeyField, IntegerField
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
+from immp.hook.access import AccessPredicate
 from immp.hook.command import CommandRole, CommandScope, command
 from immp.hook.database import BaseModel, DatabaseHook
 
@@ -134,7 +135,7 @@ class IdentityRole(BaseModel):
                                         repr(self.group))
 
 
-class IdentityHook(immp.Hook):
+class IdentityHook(immp.Hook, AccessPredicate):
     """
     Hook for managing physical users with multiple logical links across different plugs.
     """
@@ -178,6 +179,9 @@ class IdentityHook(immp.Hook):
                                         IdentityLink.user == user.id).get())
         except IdentityGroup.DoesNotExist:
             return None
+
+    async def channel_access(self, channel, user):
+        return bool(IdentityLink.get(network=user.plug.network_id, user=user.id))
 
     def _test(self, channel, user):
         return channel.plug in self.plugs
