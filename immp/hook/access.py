@@ -84,7 +84,7 @@ class ChannelAccessHook(immp.Hook, AccessPredicate):
         # Example predicate to block all access.
         return False
 
-    async def _verify(self, hook, channel, user):
+    async def _predicate(self, hook, channel, user):
         if not isinstance(hook, AccessPredicate):
             raise immp.HookError("Hook '{}' does not implement AccessPredicate".format(hook.name))
         allow = await hook.channel_access(channel, user)
@@ -94,10 +94,14 @@ class ChannelAccessHook(immp.Hook, AccessPredicate):
                 await channel.remove(user)
         return allow
 
-    async def start(self):
-        await super().start()
-        if self.config["startup"]:
-            asyncio.ensure_future(self._startup_check())
+    async def _verify(self, channel, user):
+        try:
+            hooks = self.channels[channel]
+        except KeyError:
+            return
+        for hook in hooks:
+            if not await self._predicate(hook, channel, user):
+                break
 
     async def _startup_check(self):
         log.debug("Running startup access checks")
@@ -106,19 +110,17 @@ class ChannelAccessHook(immp.Hook, AccessPredicate):
             if not members:
                 continue
             for user in members:
-                for hook in hooks:
-                    if not await self._verify(hook, channel, user):
-                        break
+                await self._verify(channel, user)
         log.debug("Finished startup access checks")
+
+    async def start(self):
+        await super().start()
+        if self.config["startup"]:
+            asyncio.ensure_future(self._startup_check())
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
         if not self.config["joins"] or not primary or sent != source or not source.joined:
             return
-        try:
-            hooks = self.channels[sent.channel]
-        except KeyError:
-            return
         for user in source.joined:
-            for hook in hooks:
-                await self._verify(hook, sent.channel, user)
+            await self._verify(sent.channel, user)
