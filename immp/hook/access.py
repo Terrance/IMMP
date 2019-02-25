@@ -95,6 +95,9 @@ class ChannelAccessHook(immp.Hook, AccessPredicate):
         return allow
 
     async def _verify(self, channel, user):
+        if await user.is_system():
+            log.debug("Skipping system user {} in channel {}".format(repr(user), repr(channel)))
+            return
         try:
             hooks = self.channels[channel]
         except KeyError:
