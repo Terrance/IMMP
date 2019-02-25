@@ -56,10 +56,6 @@ class _Schema:
                      extra=ALLOW_EXTRA, required=True)
 
 
-# https://github.com/Rapptz/discord.py/issues/1150
-discord.AsyncWebhookAdapter.http = None
-
-
 class DiscordAPIError(immp.PlugError):
     """
     Generic error from the Discord API.
