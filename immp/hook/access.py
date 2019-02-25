@@ -4,6 +4,8 @@ Channel join control, extended by other hooks.
 Config:
     hooks ((str, str list) dict):
         Mapping of controlling hooks to a list of channels they manage.
+    exclude ((str, str list) dict):
+        Mapping of plugs to user IDs who should be ignored during checks.
     joins (bool):
         ``True`` to check each join as it happens.
     startup (bool):
@@ -20,7 +22,7 @@ import asyncio
 from collections import defaultdict
 import logging
 
-from voluptuous import ALLOW_EXTRA, Optional, Schema
+from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
 
@@ -30,7 +32,8 @@ log = logging.getLogger(__name__)
 
 class _Schema:
 
-    config = Schema({"hooks": {str: [str]},
+    config = Schema({Optional("hooks", default=dict): Any({str: [str]}, {}),
+                     Optional("exclude", default=dict): Any({str: [str]}, {}),
                      Optional("joins", default=True): bool,
                      Optional("startup", default=False): bool,
                      Optional("passive", default=False): bool},
@@ -95,7 +98,10 @@ class ChannelAccessHook(immp.Hook, AccessPredicate):
         return allow
 
     async def _verify(self, channel, user):
-        if await user.is_system():
+        if user.id in self.config["exclude"].get(user.plug.name, []):
+            log.debug("Skipping excluded user {} in channel {}".format(repr(user), repr(channel)))
+            return
+        elif await user.is_system():
             log.debug("Skipping system user {} in channel {}".format(repr(user), repr(channel)))
             return
         try:
