@@ -472,6 +472,9 @@ class HangoutsPlug(immp.Plug):
         else:
             return None
 
+    async def user_is_system(self, user):
+        return user.id == self._bot_user
+
     async def channel_for_user(self, user):
         if not isinstance(user, HangoutsUser) or not isinstance(user.raw, hangups.user.User):
             return None

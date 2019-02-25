@@ -549,6 +549,9 @@ class TelegramPlug(immp.Plug):
         else:
             return TelegramUser.from_proto_user(self, data.users[0])
 
+    async def user_is_system(self, user):
+        return user.id == str(self._bot_user["id"])
+
     async def channel_for_user(self, user):
         if not isinstance(user, TelegramUser):
             return None

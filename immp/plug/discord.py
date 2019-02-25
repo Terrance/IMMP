@@ -416,6 +416,9 @@ class DiscordPlug(immp.Plug):
                 return DiscordUser.from_user(self, member)
         return None
 
+    async def user_is_system(self, user):
+        return user.id == str(self._client.user.id)
+
     def _get_channel(self, channel):
         return self._client.get_channel(int(channel.source))
 

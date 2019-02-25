@@ -104,6 +104,17 @@ class Plug(Openable):
         """
         return None
 
+    async def user_is_system(self, user):
+        """
+        Check if a given user is automated by the plug (for example a bot user from which the plug
+        operates).  Hooks may exclude system users from certain operations.
+
+        Returns:
+            bool:
+                ``True`` if the user relates to the plug itself.
+        """
+        return False
+
     async def channel_for_user(self, user):
         """
         Retrieve a :class:`.Channel` representing a private (one-to-one) conversation between a

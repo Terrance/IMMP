@@ -47,6 +47,16 @@ class User:
         self.suggested = suggested
         self.raw = raw
 
+    async def is_system(self):
+        """
+        Equivalent to :meth:`.Plug.user_is_system`.
+
+        Returns:
+            bool:
+                ``True`` if the user relates to the plug itself.
+        """
+        return await self.plug.user_is_system(self)
+
     async def private_channel(self):
         """
         Equivalent to :meth:`.Plug.channel_for_user`.

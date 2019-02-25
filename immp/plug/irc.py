@@ -358,6 +358,9 @@ class IRCPlug(immp.Plug):
                 return user
         return None
 
+    async def user_is_system(self, user):
+        return user.id == self._source
+
     async def channel_for_user(self, user):
         return immp.Channel(self, user.username)
 
