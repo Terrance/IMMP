@@ -186,7 +186,7 @@ class WebHook(immp.ResourceHook):
         return self.app.router.add_route(*args)
 
     async def start(self):
-        log.debug("Starting server on {}:{}".format(self.config["host"], self.config["port"]))
+        log.debug("Starting server on %s:%d", self.config["host"], self.config["port"])
         await self._runner.setup()
         self._site = web.TCPSite(self._runner, self.config["host"], self.config["port"])
         await self._site.start()

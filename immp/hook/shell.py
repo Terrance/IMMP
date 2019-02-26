@@ -112,7 +112,7 @@ class ShellHook(immp.ResourceHook):
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
         if sent.channel in self.host.channels or self.config["all"]:
-            log.debug("Entering console: {}".format(repr(sent)))
+            log.debug("Entering console: %r", sent)
             self.console(locals(), globals())
 
 
@@ -140,7 +140,7 @@ class AsyncShellHook(immp.ResourceHook):
 
     async def start(self):
         await super().start()
-        log.debug("Launching console on port {}".format(self.config["port"]))
+        log.debug("Launching console on port %d", self.config["port"])
         self._server = await aioconsole.start_interactive_server(factory=self._factory,
                                                                  host="localhost",
                                                                  port=self.config["port"])

@@ -92,17 +92,17 @@ class ChannelAccessHook(immp.Hook, AccessPredicate):
             raise immp.HookError("Hook '{}' does not implement AccessPredicate".format(hook.name))
         allow = await hook.channel_access(channel, user)
         if not allow:
-            log.debug("Hook '{}' disallows {} in {}".format(hook.name, repr(user), repr(channel)))
+            log.debug("Hook %r disallows %r in %r", hook.name, user, channel)
             if not self.config["passive"]:
                 await channel.remove(user)
         return allow
 
     async def _verify(self, channel, user):
         if user.id in self.config["exclude"].get(user.plug.name, []):
-            log.debug("Skipping excluded user {} in channel {}".format(repr(user), repr(channel)))
+            log.debug("Skipping excluded user %r in channel %r", user, channel)
             return
         elif await user.is_system():
-            log.debug("Skipping system user {} in channel {}".format(repr(user), repr(channel)))
+            log.debug("Skipping system user %r in channel %r", user, channel)
             return
         try:
             hooks = self.channels[channel]

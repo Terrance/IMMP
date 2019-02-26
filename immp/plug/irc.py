@@ -335,7 +335,7 @@ class IRCPlug(immp.Plug):
                 self._reader = self._writer = None
                 break
             line = Line.parse(raw.decode().rstrip("\r\n"))
-            log.debug("Received line: {}".format(repr(line)))
+            log.debug("Received line: %r", line)
             await self._handle(line)
         log.debug("Reconnecting in 3 seconds")
         await sleep(3)
@@ -383,7 +383,7 @@ class IRCPlug(immp.Plug):
     async def _handle(self, line):
         self._sync_wait()
         if self._current_wait and self._current_wait.add(line):
-            log.debug("Completing wait: {}".format(self._current_wait))
+            log.debug("Completing wait: %r", self._current_wait)
             self._current_wait = None
             self._sync_wait()
         if line.command == "PING":
@@ -403,14 +403,14 @@ class IRCPlug(immp.Plug):
 
     def wait(self, *lines, success=(), fail=(), collect=()):
         wait = Wait(lines, success, fail, collect)
-        log.debug("Adding wait: {}".format(wait))
+        log.debug("Adding wait: %r", wait)
         self._waits.put_nowait(wait)
         self._sync_wait()
         return wait
 
     def write(self, *lines):
         for line in lines:
-            log.debug("Sending line: {}".format(repr(line)))
+            log.debug("Sending line: %r", line)
             self._writer.write("{}\r\n".format(line).encode())
 
     def _lines(self, rich, user, action, edited):

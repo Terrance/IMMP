@@ -264,10 +264,10 @@ class Plug(Openable):
                 yield self._lookup(sent)
         except GeneratorExit:
             # Caused by gen.aclose(), in this state we can't yield any further messages.
-            log.debug("Immediate exit from plug '{}' getter".format(self.name))
+            log.debug("Immediate exit from plug %r getter", self.name)
         except Exception:
             if not self._queue.empty():
-                log.debug("Retrieving queued messages for '{}'".format(self.name))
+                log.debug("Retrieving queued messages for %r", self.name)
             while not self._queue.empty():
                 yield self._lookup(self._queue.get_nowait())
 
@@ -296,7 +296,7 @@ class Plug(Openable):
             try:
                 result = await hook.before_send(channel, msg)
             except Exception:
-                log.exception("Hook '{}' failed before-send event".format(hook.name))
+                log.exception("Hook %r failed before-send event", hook.name)
                 continue
             if result:
                 channel, msg = result
@@ -304,7 +304,7 @@ class Plug(Openable):
                 # Message has been suppressed by a hook.
                 return []
         if not original == channel:
-            log.debug("Redirecting message to new channel: {}".format(repr(channel)))
+            log.debug("Redirecting message to new channel: %r", channel)
             # Restart sending with the new channel, including a new round of before-send.
             return await channel.send(msg)
         # When sending messages asynchronously, the network will likely return the new message

@@ -428,10 +428,10 @@ class _SyncHookBase(immp.Hook):
 
     def _accept(self, msg):
         if not self.config["joins"] and (msg.joined or msg.left):
-            log.debug("Not syncing join/part message: {}".format(msg.id))
+            log.debug("Not syncing join/part message: %r", msg.id)
             return False
         if not self.config["renames"] and msg.title:
-            log.debug("Not syncing rename message: {}".format(msg.id))
+            log.debug("Not syncing rename message: %r", msg.id)
             return False
         return True
 
@@ -447,8 +447,7 @@ class _SyncHookBase(immp.Hook):
                     if link.network == channel.plug.network_id:
                         user = await channel.plug.user_from_id(link.user)
                         if user:
-                            log.debug("Replacing mention: {} -> {}"
-                                      .format(repr(segment.mention), repr(user)))
+                            log.debug("Replacing mention: %r -> %r", segment.mention, user)
                             segment.mention = user
                             break
 
@@ -478,10 +477,10 @@ class _SyncHookBase(immp.Hook):
     async def _send(self, channel, msg):
         try:
             ids = await channel.send(msg)
-            log.debug("Synced IDs in {}: {}".format(repr(channel), ids))
+            log.debug("Synced IDs in %r: %r", channel, ids)
             return (channel, ids)
         except Exception:
-            log.exception("Failed to relay message to channel: {}".format(repr(channel)))
+            log.exception("Failed to relay message to channel: %r", channel)
             return (channel, [])
 
 
@@ -503,7 +502,7 @@ class SyncHook(_SyncHookBase):
         self._lock = BoundedSemaphore()
         # Add a virtual plug to the host, for external subscribers.
         if self.config["plug"]:
-            log.debug("Creating virtual plug: {}".format(repr(self.config["plug"])))
+            log.debug("Creating virtual plug: %r", self.config["plug"])
             self.plug = SyncPlug(self.config["plug"], self, host)
             host.add_plug(self.plug)
             for label in self.config["channels"]:
@@ -639,7 +638,7 @@ class SyncHook(_SyncHookBase):
         except KeyError:
             # No match for this source, replace with an unqualified message.
             return immp.Message.from_sent(msg)
-        log.debug("Found reference to previously synced message: {}".format(repr(ref.key)))
+        log.debug("Found reference to previously synced message: %r", ref.key)
         if ref.ids.get(channel):
             # Return a reference to the transport-native copy of the message.
             at = ref.source.at if isinstance(ref.source, immp.SentMessage) else None
@@ -683,23 +682,23 @@ class SyncHook(_SyncHookBase):
             ref = self._cache[sent]
         except KeyError:
             if sent.deleted:
-                log.debug("Ignoring deleted message not in sync cache: {}".format(repr(sent)))
+                log.debug("Ignoring deleted message not in sync cache: %r", sent)
                 return
             else:
-                log.debug("Incoming message not in sync cache: {}".format(repr(sent)))
+                log.debug("Incoming message not in sync cache: %r", sent)
         else:
             if sent.deleted:
-                log.debug("Incoming message is a delete, needs sync: {}".format(repr(sent)))
+                log.debug("Incoming message is a delete, needs sync: %r", sent)
                 await self.delete(ref)
                 return
             elif ref.revision(sent):
-                log.debug("Incoming message is an update, needs sync: {}".format(repr(sent)))
+                log.debug("Incoming message is an update, needs sync: %r", sent)
             else:
-                log.debug("Incoming message already synced: {}".format(repr(sent)))
+                log.debug("Incoming message already synced: %r", sent)
                 return
         if not self._accept(source):
             return
-        log.debug("Sending message to synced channel {}: {}".format(repr(label), sent.id))
+        log.debug("Sending message to synced channel %r: %r", label, sent.id)
         ref = await self.send(label, source, sent)
         # Push a copy of the message to the sync channel, if running.
         if self.plug:

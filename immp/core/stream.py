@@ -59,7 +59,7 @@ class PlugStream:
     async def _queue(self):
         for plug, coro in self._agens.items():
             if plug not in self._tasks.values():
-                log.debug("Queueing receive task for plug '{}'".format(plug.name))
+                log.debug("Queueing receive task for plug %r", plug.name)
                 # Poor man's async iteration -- there's no async equivalent to next(gen).
                 self._tasks[ensure_future(coro.asend(None))] = plug
         for task, plug in list(self._tasks.items()):
@@ -68,7 +68,7 @@ class PlugStream:
                 self._close.add(plug)
                 del self._tasks[task]
         for plug in self._close:
-            log.debug("Cancelling receive task for plug '{}'".format(plug.name))
+            log.debug("Cancelling receive task for plug %r", plug.name)
             await self._agens[plug].aclose()
         self._close.clear()
         if self._sync not in self._tasks.values():
@@ -105,10 +105,10 @@ class PlugStream:
                 except CancelledError:
                     del self._agens[plug]
                 except Exception:
-                    log.exception("Generator for plug '{}' exited, recreating".format(plug.name))
+                    log.exception("Generator for plug %r exited, recreating", plug.name)
                     self._agens[plug] = plug.stream()
                 else:
-                    log.info("Received: {}".format(repr(sent)))
+                    log.info("Received: %r", sent)
                     yield (sent, source, primary)
 
     def __aiter__(self):

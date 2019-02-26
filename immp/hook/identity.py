@@ -153,7 +153,7 @@ class IdentityHook(immp.Hook, AccessPredicate):
             code = 1
             while code in codes:
                 code += 1
-            log.debug("Assigning instance code {} to hook '{}'".format(code, self.name))
+            log.debug("Assigning instance code %d to hook %r", code, self.name)
             self.config["instance"] = code
         self.db = self.host.resources[DatabaseHook].db
         self.db.create_tables([IdentityGroup, IdentityLink, IdentityRole], safe=True)

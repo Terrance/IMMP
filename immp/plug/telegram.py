@@ -480,7 +480,7 @@ class TelegramPlug(immp.Plug):
 
     async def _api(self, endpoint, schema=_Schema.api(), **kwargs):
         url = "https://api.telegram.org/bot{}/{}".format(self.config["token"], endpoint)
-        log.debug("Making API request to {}".format(endpoint))
+        log.debug("Making API request to %r", endpoint)
         try:
             async with self._session.post(url, **kwargs) as resp:
                 try:
@@ -686,7 +686,7 @@ class TelegramPlug(immp.Plug):
     async def put(self, channel, msg):
         chat = channel.source
         while chat in self._migrations:
-            log.debug("Following chat migration: {} -> {}".format(chat, self._migrations[chat]))
+            log.debug("Following chat migration: %r -> %r", chat, self._migrations[chat])
             chat = self._migrations[chat]
         requests = []
         for attach in msg.attachments:
@@ -731,23 +731,23 @@ class TelegramPlug(immp.Plug):
                 log.debug("Cancelling polling")
                 return
             except TelegramAPIError as e:
-                log.debug("Unexpected response or timeout: {}".format(e))
+                log.debug("Unexpected response or timeout: %r", e)
                 log.debug("Reconnecting in 3 seconds")
                 await sleep(3)
                 continue
             except Exception as e:
-                log.exception("Uncaught exception during long-poll: {}".format(e))
+                log.exception("Uncaught exception during long-poll: %r", e)
                 raise
             for update in result:
                 log.debug("Received a message")
                 if "message" in update and update["message"]["migrate_to_chat_id"]:
                     old = update["message"]["chat"]["id"]
                     new = update["message"]["migrate_to_chat_id"]
-                    log.warning("Chat has migrated: {} -> {}".format(old, new))
+                    log.warning("Chat has migrated: %r -> %r", old, new)
                     self._migrations[old] = new
                     for name, channel in self.host.channels.items():
                         if channel.plug is self and channel.source == old:
-                            log.debug("Updating named channel {} in place".format(repr(name)))
+                            log.debug("Updating named channel %r in place", name)
                             channel.source = new
                 if any(key in update or "edited_{}".format(key) in update
                        for key in ("message", "channel_post")):
@@ -756,7 +756,7 @@ class TelegramPlug(immp.Plug):
                     except NotImplementedError:
                         log.debug("Skipping message with no usable parts")
                     except CancelledError:
-                        log.debug("Cancel request for plug '{}' getter".format(self.name))
+                        log.debug("Cancel request for plug %r getter", self.name)
                         return
                     else:
                         self.queue(sent)

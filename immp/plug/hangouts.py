@@ -406,10 +406,10 @@ class HangoutsPlug(immp.Plug):
             try:
                 await self._client.connect()
             except CancelledError:
-                log.debug("Cancel request for plug '{}' loop".format(self.name))
+                log.debug("Cancel request for plug %r loop", self.name)
                 return
             except Exception as e:
-                log.debug("Unexpected client disconnect: {}".format(e))
+                log.debug("Unexpected client disconnect: %r", e)
             if self._closing:
                 return
             log.debug("Reconnecting in 3 seconds")
@@ -429,7 +429,7 @@ class HangoutsPlug(immp.Plug):
         try:
             sent = HangoutsMessage.from_event(self, event)
         except NotImplementedError:
-            log.warn("Skipping unimplemented '{}' event type".format(event.__class__.__name__))
+            log.warn("Skipping unimplemented %r event type", event.__class__.__name__)
         else:
             log.debug("Queueing new message event")
             self.queue(sent)

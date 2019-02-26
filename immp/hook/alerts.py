@@ -136,13 +136,13 @@ class _AlertHookBase(immp.Hook):
         # network-native channel.
         if isinstance(msg.channel.plug, SyncPlug):
             # We're in the sync channel, so we've already handled this event in native channels.
-            log.debug("Ignoring sync channel: {}".format(repr(msg.channel)))
+            log.debug("Ignoring sync channel: %r", msg.channel)
             raise _Skip
         channel = msg.channel
         synced = SyncPlug.any_sync(self.host, msg.channel)
         if synced:
             # We're in the native channel of a sync, use this channel for reading config.
-            log.debug("Translating sync channel: {} -> {}".format(repr(msg.channel), repr(synced)))
+            log.debug("Translating sync channel: %r -> %r", msg.channel, synced)
             channel = synced
         members = [user for user in (await msg.channel.members()) or []
                    if self.groups.has_plug(user.plug)]
@@ -213,14 +213,13 @@ class MentionsHook(_AlertHookBase):
         for mention in re.findall(r"@\S+", str(source.text)):
             matches = self.match(mention, members)
             if matches:
-                log.debug("Mention '{}' applies: {}".format(mention, matches))
+                log.debug("Mention %r applies: %r", mention, matches)
                 mentioned.update(matches)
             else:
-                log.debug("Mention '{}' doesn't apply".format(mention))
+                log.debug("Mention %r doesn't apply", mention)
         for segment in source.text:
             if segment.mention and segment.mention in members:
-                log.debug("Segment mention '{}' applies: {}"
-                          .format(segment.text, repr(segment.mention)))
+                log.debug("Segment mention %r applies: %r", segment.text, segment.mention)
                 mentioned.add(segment.mention)
         if not mentioned:
             return

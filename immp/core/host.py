@@ -101,7 +101,7 @@ class Host:
             raise TypeError(plug)
         elif plug.name in self._objects:
             raise ConfigError("Plug name '{}' already registered".format(plug.name))
-        log.info("Adding plug: {} ({})".format(plug.name, plug.__class__.__name__))
+        log.info("Adding plug: %r (%s)", plug.name, plug.__class__.__name__)
         self._objects[plug.name] = plug
         if self._loaded:
             plug.on_load()
@@ -127,7 +127,7 @@ class Host:
         """
         if not isinstance(self._objects.get(name), Plug):
             raise RuntimeError("Plug '{}' not registered to host".format(name))
-        log.info("Removing plug: {}".format(name))
+        log.info("Removing plug: %s", name)
         plug = self._objects.pop(name)
         for name, channel in list(self.channels.items()):
             if channel.plug == plug:
@@ -150,7 +150,7 @@ class Host:
             raise TypeError(channel)
         elif name in self._objects:
             raise ConfigError("Channel name '{}' already registered".format(name))
-        log.info("Adding channel: {} ({}/{})".format(name, channel.plug.name, channel.source))
+        log.info("Adding channel: %r (%s/%s)", name, channel.plug.name, channel.source)
         self._objects[name] = channel
 
     def remove_channel(self, name):
@@ -163,7 +163,7 @@ class Host:
         """
         if not isinstance(self._objects.get(name), Channel):
             raise RuntimeError("Channel '{}' not registered to host".format(name))
-        log.info("Removing channel: {}".format(name))
+        log.info("Removing channel: %s", name)
         return self._objects.pop(name)
 
     def add_group(self, group):
@@ -182,7 +182,7 @@ class Host:
             raise TypeError(group)
         elif group.name in self._objects:
             raise ConfigError("Group name '{}' already registered".format(group.name))
-        log.info("Adding group: {}".format(group.name))
+        log.info("Adding group: %s", group.name)
         self._objects[group.name] = group
         return group.name
 
@@ -204,7 +204,7 @@ class Host:
         """
         if not isinstance(self._objects.get(name), Group):
             raise RuntimeError("Group '{}' not registered to host".format(name))
-        log.info("Removing group: {}".format(name))
+        log.info("Removing group: %s", name)
         return self._objects.pop(name)
 
     def add_hook(self, hook):
@@ -226,10 +226,10 @@ class Host:
         elif hook.__class__ in self.resources:
             raise ConfigError("Resource class '{}' already registered"
                               .format(hook.__class__.__name__))
-        log.info("Adding hook: {} ({})".format(hook.name, hook.__class__.__name__))
+        log.info("Adding hook: %r (%s)", hook.name, hook.__class__.__name__)
         self._objects[hook.name] = hook
         if isinstance(hook, ResourceHook):
-            log.info("Adding resource: {} ({})".format(hook.name, hook.__class__.__name__))
+            log.info("Adding resource: %r (%s)", hook.name, hook.__class__.__name__)
             self.resources[hook.__class__] = hook
         if self._loaded:
             hook.on_load()
@@ -253,10 +253,10 @@ class Host:
         """
         if not isinstance(self._objects.get(name), Hook):
             raise RuntimeError("Hook '{}' not registered to host".format(name))
-        log.info("Removing hook: {}".format(name))
+        log.info("Removing hook: %s", name)
         hook = self._objects.pop(name)
         if isinstance(hook, ResourceHook):
-            log.info("Removing resource: {} ({})".format(name, hook.__class__.__name__))
+            log.info("Removing resource: %r (%s)", name, hook.__class__.__name__)
             del self.resources[hook.__class__]
         return hook
 
@@ -300,7 +300,7 @@ class Host:
         try:
             await hook.on_receive(sent, source, primary)
         except Exception:
-            log.exception("Hook '{}' failed on-receive event".format(hook.name))
+            log.exception("Hook %r failed on-receive event", hook.name)
 
     async def _callback(self, sent, source, primary):
         hooks = [hook for hook in chain(self.resources.values(), self.hooks.values())
@@ -309,7 +309,7 @@ class Host:
             try:
                 result = await hook.before_receive(sent, source, primary)
             except Exception:
-                log.exception("Hook '{}' failed before-receive event".format(hook.name))
+                log.exception("Hook %r failed before-receive event", hook.name)
                 continue
             if result:
                 sent = result

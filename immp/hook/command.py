@@ -361,7 +361,7 @@ class CommandHook(immp.Hook):
             (str, .BoundCommand) dict:
                 Commands provided by all hooks, in this channel for this user, keyed by name.
         """
-        log.debug("Collecting commands for {} in {}".format(repr(channel), repr(user)))
+        log.debug("Collecting commands for %r in %r", channel, user)
         if isinstance(channel, immp.Plug):
             # Look for commands for a generic channel.
             plug = channel
@@ -460,21 +460,21 @@ class CommandHook(immp.Hook):
             return
         # Sync integration: exclude native channels of syncs from command execution.
         if isinstance(sent.channel.plug, immp.hook.sync.SyncPlug):
-            log.debug("Suppressing command in virtual sync channel: {}".format(repr(sent.channel)))
+            log.debug("Suppressing command in virtual sync channel: %r", sent.channel)
             return
         synced = immp.hook.sync.SyncPlug.any_sync(self.host, sent.channel)
         if synced:
-            log.debug("Mapping command channel: {} -> {}".format(repr(sent.channel), repr(synced)))
+            log.debug("Mapping command channel: %r -> %r", sent.channel, synced)
         name = raw[0].lower()
         trailing = raw[1] if len(raw) == 2 else None
         cmds = await self.commands(sent.channel, sent.user)
         try:
             cmd = cmds[name]
         except KeyError:
-            log.debug("No matches for command name '{}' in {}".format(name, repr(sent.channel)))
+            log.debug("No matches for command name %r in %r", name, sent.channel)
             return
         else:
-            log.debug("Matched command in {}: {}".format(repr(sent.channel), repr(cmd)))
+            log.debug("Matched command in %r: %r", sent.channel, cmd)
         try:
             # TODO: Preserve formatting.
             args = cmd.parse(trailing)
@@ -489,12 +489,12 @@ class CommandHook(immp.Hook):
         else:
             msg = sent
         try:
-            log.debug("Executing command: {} {}".format(repr(sent.channel), sent.text))
+            log.debug("Executing command: %r %r", sent.channel, sent.text)
             await cmd(msg, *args)
         except BadUsage:
             await self.help(sent, name)
         except Exception as e:
-            log.exception("Exception whilst running command: {}".format(sent.text))
+            log.exception("Exception whilst running command: %r", sent.text)
             if self.config["return-errors"]:
                 text = ": ".join(filter(None, (e.__class__.__name__, str(e))))
                 await sent.channel.send(immp.Message(text="\N{WARNING SIGN} {}".format(text)))

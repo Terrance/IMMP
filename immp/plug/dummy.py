@@ -47,7 +47,7 @@ class DummyPlug(immp.Plug):
                              user=msg.user,
                              action=msg.action,
                              raw=msg.raw)
-        log.debug("Returning message: {}".format(repr(clone)))
+        log.debug("Returning message: %r", clone)
         self.queue(self.channel, clone)
         # Don't return the clone ID, let it be delivered as a new message.
         return []

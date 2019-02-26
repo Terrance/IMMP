@@ -630,7 +630,7 @@ class SlackPlug(immp.Plug):
     async def _api(self, endpoint, schema=_Schema.api, params=None, **kwargs):
         params = params or {}
         params["token"] = self.config["token"]
-        log.debug("Making API request to '{}'".format(endpoint))
+        log.debug("Making API request to %r", endpoint)
         async with self._session.post("https://slack.com/api/{}".format(endpoint),
                                       params=params, **kwargs) as resp:
             try:
@@ -664,13 +664,11 @@ class SlackPlug(immp.Plug):
         self._bot_user = rtm["self"]
         self._team = rtm["team"]
         self._users = {u["id"]: SlackUser.from_member(self, u) for u in rtm["users"]}
-        log.debug("Users ({}): {}".format(len(self._users), ", ".join(self._users.keys())))
         self._channels = {c["id"]: c for c in rtm["channels"] + rtm["groups"]}
-        log.debug("Channels ({}): {}".format(len(self._channels), ", ".join(self._channels.keys())))
         self._directs = {c["id"]: c for c in rtm["ims"]}
-        log.debug("Directs ({}): {}".format(len(self._directs), ", ".join(self._directs.keys())))
         self._bots = {b["id"]: b for b in rtm["bots"] if not b["deleted"]}
-        log.debug("Bots ({}): {}".format(len(self._bots), ", ".join(self._bots.keys())))
+        log.debug("Cached %d users, %d channels, %d IMs, %d bots",
+                  len(self._users), len(self._channels), len(self._directs), len(self._bots))
         self._members = {}
         # Create a map of bot IDs to users, as the bot cache doesn't contain references to them.
         self._bot_to_user = {user.bot_id: user.id for user in self._users.values() if user.bot_id}
@@ -765,15 +763,14 @@ class SlackPlug(immp.Plug):
         try:
             history = await self._api("conversations.history", _Schema.history, params=params)
         except SlackAPIError as e:
-            log.debug("Slack API error retrieving message '{}' in channel '{}': {}"
-                      .format(ts, channel_id, repr(e.args[0])))
+            log.debug("API error retrieving message %r from %r: %r", ts, channel_id, e.args[0])
             raise MessageNotFound from None
         if history["messages"]:
             msg = history["messages"][0]
             if msg["ts"] == ts:
                 msg["channel"] = channel_id
                 return await SlackMessage.from_event(self, msg)
-        log.debug("Failed to retrieve message '{}' in channel '{}'".format(ts, channel_id))
+        log.debug("Failed to find message %r in %r", ts, channel_id)
         raise MessageNotFound
 
     async def put(self, channel, msg):
@@ -808,7 +805,7 @@ class SlackPlug(immp.Plug):
                     if channel.source in shared:
                         ids += [share["ts"] for share in shared[channel.source]]
         if len(ids) < uploads:
-            log.warning("Missing some file shares: sent {}, got {}".format(uploads, len(ids)))
+            log.warning("Missing some file shares: sent %d, got %d", uploads, len(ids))
         data = {"channel": channel.source,
                 "as_user": msg.user is None,
                 "username": name,
@@ -870,7 +867,7 @@ class SlackPlug(immp.Plug):
             except TypeError as e:
                 if self._closing:
                     return
-                log.debug("Unexpected socket state: {}".format(e))
+                log.debug("Unexpected socket state: %r", e)
                 await self._socket.close()
                 self._socket = None
                 log.debug("Reconnecting in 3 seconds")
@@ -878,7 +875,7 @@ class SlackPlug(immp.Plug):
                 await self._rtm()
                 continue
             event = _Schema.event(json)
-            log.debug("Received a '{}' event".format(event["type"]))
+            log.debug("Received a %r event", event["type"])
             if event["type"] in ("team_join", "user_change"):
                 # A user appeared or changed, update our cache.
                 self._users[event["user"]["id"]] = SlackUser.from_member(self, event["user"])
@@ -901,6 +898,6 @@ class SlackPlug(immp.Plug):
                 try:
                     sent = await SlackMessage.from_event(self, event)
                 except NotImplementedError:
-                    log.debug("Ignoring message with ts: {}".format(event.get("ts")))
+                    log.debug("Ignoring message with ts %r", event.get("ts"))
                 else:
                     self.queue(sent)
