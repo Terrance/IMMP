@@ -508,7 +508,7 @@ class Message(Attachment):
             raise ValueError("Message text must be RichText or plain str")
 
     def render(self, *, real_name=True, link_name=True, edit=False, delimiter="\n",
-               quote_reply=False, trim=None):
+               quote_reply=False, strip_links=False, trim=None):
         """
         Add the sender's name (if present) to the start of the message text, suitable for sending
         as-is on plugs that need all the textual message content in the body.
@@ -527,6 +527,8 @@ class Message(Attachment):
             quote_reply (bool):
                 ``True`` to quote the parent message before the current one, prefixed with a
                 box-drawing vertical line (not quoted by default).
+            strip_links (bool):
+                ``True`` to skip over links in the message text (links left intact by default).
             trim (int):
                 Show an ellipsed snippet if the text exceeds this length, or ``None`` (default) for
                 no trimming.
@@ -548,6 +550,10 @@ class Message(Attachment):
         if self.text:
             if isinstance(self.text, RichText):
                 text = self.text
+                if strip_links:
+                    text = text.clone()
+                    for segment in text:
+                        segment.link = None
             else:
                 text = RichText([Segment(self.text)])
             if trim:
@@ -575,7 +581,7 @@ class Message(Attachment):
         if quote_reply and self.reply_to:
             if not (isinstance(self.reply_to, SentMessage) and self.reply_to.empty):
                 quoted = self.reply_to.render(real_name=real_name, link_name=link_name,
-                                              delimiter=delimiter, trim=32)
+                                              delimiter=delimiter, strip_links=True, trim=32)
                 output.prepend(*(quoted.indent("\N{BOX DRAWINGS LIGHT VERTICAL} ")), Segment("\n"))
         return output
 
