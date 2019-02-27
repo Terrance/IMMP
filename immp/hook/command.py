@@ -257,7 +257,7 @@ class Command:
             return args.split()
         elif self.parser == CommandParser.shlex:
             return shlex.split(args)
-        elif self.parser == CommandParser.none:
+        else:
             return [args]
 
     def valid(self, *args):

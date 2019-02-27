@@ -114,7 +114,7 @@ class ChannelAccessHook(immp.Hook, AccessPredicate):
 
     async def _startup_check(self):
         log.debug("Running startup access checks")
-        for channel, hooks in self.channels.items():
+        for channel in self.channels:
             members = await channel.members()
             if not members:
                 continue

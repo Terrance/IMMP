@@ -184,7 +184,7 @@ class SyncBackRef(BaseModel):
         mapped = defaultdict(list)
         for backref in backrefs:
             mapped[(backref.network, backref.channel)].append(backref)
-        return backref.key, mapped
+        return key, mapped
 
     def __repr__(self):
         return "<{}: #{} {} {} @ {}/{}>".format(self.__class__.__name__, self.id, self.key,

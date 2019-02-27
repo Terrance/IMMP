@@ -41,6 +41,8 @@ class Plug(Openable):
         def __init__(self):
             super().__init__("plug")
 
+    network_name = network_id = None
+
     def __init__(self, name, config, host, virtual=False):
         super().__init__()
         self.name = name

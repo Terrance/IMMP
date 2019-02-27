@@ -45,6 +45,7 @@ class WebUIHook(immp.ResourceHook):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
+        self.ctx = None
 
     def on_load(self):
         log.debug("Registering routes")
@@ -80,8 +81,10 @@ class WebUIHook(immp.ResourceHook):
         self.ctx.route("POST", "resource/{cls}/stop", self.hook_stop, name="resource_stop")
         self.ctx.route("POST", "resource/{cls}/start", self.hook_start, name="resource_start")
         self.ctx.route("POST", "resource/{cls}/config", self.hook_config, name="resource_config")
-        self.ctx.route("GET", "resource/{cls}/remove", self.hook, "hook_remove.j2", "resource_remove")
-        self.ctx.route("POST", "resource/{cls}/remove", self.hook_remove, name="resource_remove:post")
+        self.ctx.route("GET", "resource/{cls}/remove", self.hook,
+                       "hook_remove.j2", "resource_remove")
+        self.ctx.route("POST", "resource/{cls}/remove", self.hook_remove,
+                       name="resource_remove:post")
         self.ctx.route("GET", "hook/{name}", self.hook, "hook.j2")
         self.ctx.route("POST", "hook/{name}/stop", self.hook_stop)
         self.ctx.route("POST", "hook/{name}/start", self.hook_start)
@@ -174,6 +177,8 @@ class WebUIHook(immp.ResourceHook):
             elif "plug" in request.match_info:
                 plug = self.host.plugs[request.match_info["plug"]]
                 return None, immp.Channel(plug, request.match_info["source"])
+            else:
+                raise web.HTTPBadRequest
         except KeyError:
             raise web.HTTPNotFound
 
@@ -223,14 +228,14 @@ class WebUIHook(immp.ResourceHook):
         except KeyError:
             raise web.HTTPNotFound
 
-    def group_summary(self, group):
+    @staticmethod
+    def group_summary(group):
         summary = []
         for key in ("anywhere", "private", "shared", "named", "channels"):
             count = len(group.config[key])
             if count:
                 summary.append("{} {}".format(count, key))
         return ", ".join(summary) if summary else "Empty group"
-
 
     async def group(self, request):
         group = self._resolve_group(request)

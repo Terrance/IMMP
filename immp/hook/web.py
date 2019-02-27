@@ -121,6 +121,9 @@ class WebContext:
         """
         return self._routes[name_].url_for(**kwargs)
 
+    def __repr__(self):
+        return "<{}: {}>".format(self.__class__.__name__, self.prefix)
+
 
 class WebHook(immp.ResourceHook):
     """

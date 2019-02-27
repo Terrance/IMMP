@@ -596,7 +596,7 @@ class Message(Attachment):
                                    ("+{}".format(len(self.attachments))
                                     if self.attachments else None))))
         return "<{}{}>".format(self.__class__.__name__,
-                               ": {}".format(" ".join(parts)) if len(parts) else "")
+                               ": {}".format(" ".join(parts)) if parts else "")
 
 
 class SentMessage(Message):

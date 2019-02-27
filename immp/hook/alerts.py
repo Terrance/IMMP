@@ -160,7 +160,7 @@ class MentionsHook(_AlertHookBase):
         super().__init__(name, _Schema.config_mentions(config), host)
 
     @staticmethod
-    def clean(text):
+    def _clean(text):
         return re.sub(r"\W", "", text).lower() if text else None
 
     def match(self, mention, members):
@@ -177,15 +177,15 @@ class MentionsHook(_AlertHookBase):
             .User set:
                 All applicable members to be notified.
         """
-        name = self.clean(mention)
+        name = self._clean(mention)
         real_matches = set()
         real_partials = set()
         for member in members:
-            if self.config["usernames"] and self.clean(member.username) == name:
+            if self.config["usernames"] and self._clean(member.username) == name:
                 # Assume usernames are unique, only match the corresponding user.
                 return {member}
             if self.config["real-names"]:
-                real = self.clean(member.real_name)
+                real = self._clean(member.real_name)
                 if real == name:
                     real_matches.add(member)
                 if real.startswith(name):
@@ -206,7 +206,7 @@ class MentionsHook(_AlertHookBase):
         if not primary or not source.text or await sent.channel.is_private():
             return
         try:
-            lookup, members = await self._get_members(sent)
+            _, members = await self._get_members(sent)
         except _Skip:
             return
         mentioned = set()
@@ -260,9 +260,10 @@ class SubscriptionsHook(_AlertHookBase):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
+        self.db = None
 
     @classmethod
-    def clean(cls, text):
+    def _clean(cls, text):
         return re.sub(r"[^\w ]", "", text).lower()
 
     async def start(self):
@@ -278,8 +279,8 @@ class SubscriptionsHook(_AlertHookBase):
         Add a subscription to your trigger list.
         """
         text = re.sub(r"[^\w ]", "", " ".join(words)).lower()
-        sub, created = SubTrigger.get_or_create(network=msg.channel.plug.network_id,
-                                                user=msg.user.id, text=text)
+        _, created = SubTrigger.get_or_create(network=msg.channel.plug.network_id,
+                                              user=msg.user.id, text=text)
         resp = "{} {}".format(TICK, "Subscribed" if created else "Already subscribed")
         await msg.channel.send(immp.Message(text=resp))
 
@@ -330,7 +331,8 @@ class SubscriptionsHook(_AlertHookBase):
             resp = "{} {}".format(TICK, "Excluded" if created else "No longer excluded")
         await msg.channel.send(immp.Message(text=resp))
 
-    def match(self, text, channel, present):
+    @staticmethod
+    def match(text, channel, present):
         """
         Identify users subscribed to text snippets in a message.
 
@@ -368,7 +370,7 @@ class SubscriptionsHook(_AlertHookBase):
         except _Skip:
             return
         present = {(member.plug.network_id, str(member.id)): member for member in members}
-        triggered = self.match(self.clean(str(source.text)), lookup, present)
+        triggered = self.match(self._clean(str(source.text)), lookup, present)
         if not triggered:
             return
         tasks = []

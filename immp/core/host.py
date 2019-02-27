@@ -129,9 +129,9 @@ class Host:
             raise RuntimeError("Plug '{}' not registered to host".format(name))
         log.info("Removing plug: %s", name)
         plug = self._objects.pop(name)
-        for name, channel in list(self.channels.items()):
+        for label, channel in list(self.channels.items()):
             if channel.plug == plug:
-                self.remove_channel(name)
+                self.remove_channel(label)
         if self._stream:
             self._stream.remove(plug)
         return plug

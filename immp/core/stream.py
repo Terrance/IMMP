@@ -89,7 +89,7 @@ class PlugStream:
             log.debug("Waiting for next message")
             try:
                 await self._queue()
-                done, pending = await wait(self._tasks, return_when=FIRST_COMPLETED)
+                done, _ = await wait(self._tasks, return_when=FIRST_COMPLETED)
             except (GeneratorExit, CancelledError):
                 for task in self._tasks:
                     task.cancel()

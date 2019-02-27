@@ -103,17 +103,19 @@ class ShellHook(immp.ResourceHook):
             log.debug("Using native console")
             self.console = self._code
 
-    def _ptpython(self, loc, glob):
-        ptpython.repl.embed(glob, loc)
+    @staticmethod
+    def _ptpython(local):
+        ptpython.repl.embed(globals(), local)
 
-    def _code(self, loc, glob):
-        code.interact(local=dict(glob, **loc))
+    @staticmethod
+    def _code(local):
+        code.interact(local=dict(globals(), **local))
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
         if sent.channel in self.host.channels or self.config["all"]:
             log.debug("Entering console: %r", sent)
-            self.console(locals(), globals())
+            self.console(locals())
 
 
 class AsyncShellHook(immp.ResourceHook):

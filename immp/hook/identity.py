@@ -144,6 +144,7 @@ class IdentityHook(immp.Hook, AccessPredicate):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
+        self.db = None
 
     async def start(self):
         if not self.config["instance"]:
