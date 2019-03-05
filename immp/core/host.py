@@ -303,7 +303,7 @@ class Host:
             log.exception("Hook %r failed on-receive event", hook.name)
 
     async def _callback(self, sent, source, primary):
-        hooks = [hook for hook in chain(self.resources.values(), self.hooks.values())
+        hooks = [hook for hook in chain(self.resources.values(), self.plain_hooks.values())
                  if hook.state == OpenState.active]
         for hook in hooks:
             try:
