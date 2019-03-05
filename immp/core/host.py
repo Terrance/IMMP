@@ -359,3 +359,9 @@ class Host:
         """
         if self._process:
             self._process.cancel()
+
+    def __repr__(self):
+        return "<{}: {}P {}C {}G {}R {}H{}>".format(self.__class__.__name__, len(self.plugs),
+                                                    len(self.channels), len(self.groups),
+                                                    len(self.resources), len(self.plain_hooks),
+                                                    " running" if self.running else "")
