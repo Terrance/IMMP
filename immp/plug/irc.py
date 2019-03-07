@@ -41,6 +41,18 @@ class _Schema():
                     extra=ALLOW_EXTRA, required=True)
 
 
+class IRCError(immp.PlugError):
+    """
+    Generic error from the IRC server.
+    """
+
+
+class IRCTryAgain(IRCError):
+    """
+    Rate-limited response to an IRC command (RPL_TRYAGAIN, 263).
+    """
+
+
 class Line:
     """
     Low-level representation of an IRC message, either sent or received.  Calling :func:`str` on a
@@ -241,13 +253,16 @@ class Wait:
         self._result = Future()
 
     def add(self, line):
+        if line.command == "263":
+            self._result.set_exception(IRCTryAgain(line))
+            return True
         if line.command in self._collect:
             self._data.append(line)
         if line.command in self._success:
             self._result.set_result(self._data)
             return True
         elif line.command in self._fail:
-            self._result.set_exception(ValueError("Received failure: {}".format(repr(line))))
+            self._result.set_exception(IRCError(line))
             return True
         else:
             return False
