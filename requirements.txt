@@ -1,6 +1,6 @@
 aiohttp>=3.0.0
 aiohttp_jinja2>=1.0.0
-aioconsole>=0.1.9
+aioconsole>=0.1.14
 anyconfig>=0.9.5
 git+https://github.com/Rapptz/discord.py@rewrite  # Via GitHub until a stable release
 emoji>=0.5.0

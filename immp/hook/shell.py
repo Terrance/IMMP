@@ -81,7 +81,7 @@ class _Schema:
                            Optional("console", default=None): Any("ptpython", None)},
                           extra=ALLOW_EXTRA, required=True)
 
-    config_async = Schema({"port": int,
+    config_async = Schema({"bind": Any(str, int),
                            Optional("buffer", default=None): Any(int, None)},
                           extra=ALLOW_EXTRA, required=True)
 
@@ -142,10 +142,13 @@ class AsyncShellHook(immp.ResourceHook):
 
     async def start(self):
         await super().start()
-        log.debug("Launching console on port %d", self.config["port"])
-        self._server = await aioconsole.start_interactive_server(factory=self._factory,
-                                                                 host="localhost",
-                                                                 port=self.config["port"])
+        if isinstance(self.config["bind"], str):
+            log.debug("Launching console on socket %s", self.config["bind"])
+            bind = {"path": self.config["bind"]}
+        else:
+            log.debug("Launching console on port %d", self.config["bind"])
+            bind = {"port": self.config["bind"]}
+        self._server = await aioconsole.start_interactive_server(factory=self._factory, **bind)
 
     async def stop(self):
         await super().stop()
