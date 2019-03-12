@@ -64,6 +64,12 @@ class _Schema:
                    Optional("last_name", default=None): Any(str, None)},
                   extra=ALLOW_EXTRA, required=True)
 
+    channel = Schema({"id": int,
+                      "title": str,
+                      "type": "channel",
+                      Optional("username", default=None): Any(str, None)},
+                     extra=ALLOW_EXTRA, required=True)
+
     entity = Schema({"type": str,
                      "offset": int,
                      "length": int},
@@ -76,6 +82,8 @@ class _Schema:
                       Optional("from", default=None): Any(user, None),
                       Optional("forward_from", default=None): Any(user, None),
                       Optional("forward_date", default=None): Any(int, None),
+                      Optional("forward_from_chat", default=None): Any(channel, None),
+                      Optional("forward_from_message_id", default=None): Any(int, None),
                       Optional("text", default=None): Any(str, None),
                       Optional("caption", default=None): Any(str, None),
                       Optional("entities", default=[]): [entity],
@@ -161,6 +169,28 @@ class TelegramUser(immp.User):
                    real_name=real_name,
                    avatar=avatar,
                    raw=user)
+
+    @classmethod
+    def from_bot_channel(cls, telegram, json):
+        """
+        Convert a chat :class:`dict` (attached to a message) to a :class:`.User`.
+
+        Args:
+            telegram (.TelegramPlug):
+                Related plug instance that provides the user.
+            json (dict):
+                Telegram API `Chat <https://core.telegram.org/bots/api#chat>`_ object.
+
+        Returns:
+            .TelegramUser:
+                Parsed user object.
+        """
+        chat = _Schema.channel(json)
+        return cls(id=chat["id"],
+                   plug=telegram,
+                   username=chat["username"],
+                   real_name=chat["title"],
+                   raw=chat)
 
     @classmethod
     def from_proto_user(cls, telegram, user):
@@ -390,45 +420,51 @@ class TelegramMessage(immp.Message):
         else:
             # No support for this message type.
             raise NotImplementedError
+        common = dict(id=id,
+                      revision=revision,
+                      at=at,
+                      channel=channel,
+                      edited=edited,
+                      user=user,
+                      raw=message)
         if message["forward_date"]:
             # Event is a message containing another message.  Forwarded messages have no ID, so we
-            # use a Message instead of a SentMessage here.
-            forward_user = None
+            # use a Message instead of a SentMessage here, unless they come from a channel.
+            forward_id = forward_channel = forward_user = None
             if message["forward_from"]:
                 forward_user = TelegramUser.from_bot_user(telegram, message["forward_from"])
-            forward = immp.Message(text=text,
-                                   user=forward_user,
-                                   action=action,
-                                   reply_to=reply_to,
-                                   joined=joined,
-                                   left=left,
-                                   title=title,
-                                   attachments=attachments,
-                                   raw=message)
-            return immp.SentMessage(id=id,
-                                    revision=revision,
-                                    at=at,
-                                    channel=channel,
-                                    edited=edited,
-                                    user=user,
-                                    # Embed the inner message as an attachment.
-                                    attachments=[forward],
-                                    raw=message)
+            elif message["forward_from_chat"]:
+                forward_channel = immp.Channel(telegram, message["forward_from_chat"]["id"])
+                forward_user = TelegramUser.from_bot_channel(telegram, message["forward_from_chat"])
+                if message["forward_from_message_id"]:
+                    forward_id = "{}:{}".format(message["forward_from_chat"]["id"],
+                                                message["forward_from_message_id"])
+            forward_common = dict(text=text,
+                                  user=forward_user,
+                                  action=action,
+                                  reply_to=reply_to,
+                                  joined=joined,
+                                  left=left,
+                                  title=title,
+                                  attachments=attachments,
+                                  raw=message)
+            if forward_id:
+                forward = immp.SentMessage(id=forward_id,
+                                           channel=forward_channel,
+                                           **forward_common)
+            else:
+                forward = immp.Message(**forward_common)
+            # Embed the inner message as an attachment.
+            return immp.SentMessage(attachments=[forward], **common)
         else:
-            return immp.SentMessage(id=id,
-                                    revision=revision,
-                                    at=at,
-                                    channel=channel,
-                                    edited=edited,
-                                    text=text,
-                                    user=user,
+            return immp.SentMessage(text=text,
                                     action=action,
                                     reply_to=reply_to,
                                     joined=joined,
                                     left=left,
                                     title=title,
                                     attachments=attachments,
-                                    raw=message)
+                                    **common)
 
     @classmethod
     async def from_update(cls, telegram, update):
