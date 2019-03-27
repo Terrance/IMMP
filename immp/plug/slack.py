@@ -710,6 +710,12 @@ class SlackPlug(immp.Plug):
     async def user_is_system(self, user):
         return user.id == self._bot_user["id"]
 
+    async def public_channels(self):
+        return [immp.Channel(self, id) for id in self._channels]
+
+    async def private_channels(self):
+        return [immp.Channel(self, id) for id in self._directs]
+
     async def channel_for_user(self, user):
         if not isinstance(user, SlackUser):
             return
@@ -889,6 +895,9 @@ class SlackPlug(immp.Plug):
             elif event["type"] == "im_created":
                 # A DM appeared, add to our cache.
                 self._directs[event["channel"]["id"]] = event["channel"]
+            elif (event["type"] in ("channel_deleted", "group_deleted") and
+                  event["channel"] in self._channels):
+                del self._channels[event["channel"]]
             elif event["type"] == "member_joined_channel" and event["channel"] in self._members:
                 self._members[event["channel"]].append(event["user"])
             elif event["type"] == "member_left_channel" and event["channel"] in self._members:

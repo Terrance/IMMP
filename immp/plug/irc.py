@@ -290,6 +290,7 @@ class IRCPlug(immp.Plug):
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
         self._reader = self._writer = None
+        self._prefixes = ""
         # Bot's own identifier as seen by the IRC server.
         self._source = None
         # Tracking fields for storing requested data by type.
@@ -297,6 +298,8 @@ class IRCPlug(immp.Plug):
         self._current_wait = None
         # Don't yield messages for initial self-joins.
         self._joins = set()
+        # Cache responses that may be rate-limited by the server.
+        self._channels = self._names = None
 
     @property
     def network_name(self):
@@ -363,6 +366,9 @@ class IRCPlug(immp.Plug):
             users.append(immp.User(id=id, plug=self, username=line.args[5], raw=line))
         return users
 
+    def _strip_prefix(self, name):
+        return re.sub("^[{}]+".format(self._prefixes), "", name) if self._prefixes else name
+
     async def user_from_id(self, id):
         nick = id.split("!", 1)[0]
         return immp.User(id=id, plug=self, username=nick)
@@ -375,6 +381,31 @@ class IRCPlug(immp.Plug):
 
     async def user_is_system(self, user):
         return user.id == self._source
+
+    async def public_channels(self):
+        try:
+            self._channels = await self.wait(Line("LIST"), success=("323",), collect=("322",))
+        except IRCTryAgain:
+            pass
+        if self._channels:
+            return [immp.Channel(self, line.args[1]) for line in self._channels]
+        else:
+            return None
+
+    async def private_channels(self):
+        try:
+            raw = await self.wait(Line("NAMES"), success=("366",), fail=("401",), collect=("353",))
+        except IRCTryAgain:
+            pass
+        else:
+            self._names = set()
+            for line in raw:
+                self._names.update(self._strip_prefix(name) for name in line.args[3].split())
+        if self._names:
+            return [immp.Channel(self, name) for name in self._names
+                    if name != self.config["user"]["nick"]]
+        else:
+            return None
 
     async def channel_for_user(self, user):
         return immp.Channel(self, user.username)
@@ -410,6 +441,10 @@ class IRCPlug(immp.Plug):
                     self._joins.remove(sent.channel.source)
                     return
             self.queue(sent)
+        elif line.command == "005":
+            for param in line.args[1:]:
+                if param.startswith("PREFIX="):
+                    self._prefixes = param.split(")", 1)[1]
         elif line.command == "433":
             # Nickname in use, try another.
             self.config["user"]["nick"] += "_"

@@ -475,13 +475,20 @@ class HangoutsPlug(immp.Plug):
     async def user_is_system(self, user):
         return user.id == self._bot_user
 
+    def _filter_channels(self, type):
+        convs = self._convs.get_all(include_archived=True)
+        return (immp.Channel(self, conv.id_) for conv in convs if conv._conversation.type == type)
+
+    async def public_channels(self):
+        return list(self._filter_channels(hangouts_pb2.CONVERSATION_TYPE_GROUP))
+
+    async def private_channels(self):
+        return list(self._filter_channels(hangouts_pb2.CONVERSATION_TYPE_ONE_TO_ONE))
+
     async def channel_for_user(self, user):
-        if not isinstance(user, HangoutsUser) or not isinstance(user.raw, hangups.user.User):
-            return None
-        for conv in self._convs.get_all(include_archived=True):
-            if conv._conversation.type == hangouts_pb2.CONVERSATION_TYPE_ONE_TO_ONE:
-                if any(part.id_.chat_id == user.id for part in conv.users):
-                    return immp.Channel(self, conv.id_)
+        for channel in self._filter_channels(hangouts_pb2.CONVERSATION_TYPE_ONE_TO_ONE):
+            if any(part.id == user.id for part in await channel.members()):
+                return channel
         request = hangouts_pb2.CreateConversationRequest(
             request_header=self._client.get_request_header(),
             type=hangouts_pb2.CONVERSATION_TYPE_ONE_TO_ONE,

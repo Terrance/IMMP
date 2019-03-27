@@ -117,6 +117,28 @@ class Plug(Openable):
         """
         return False
 
+    async def public_channels(self):
+        """
+        Retrieve all shared channels known to this plug, either public or otherwise accessible.
+        May return ``None`` if the network doesn't support channel discovery.
+
+        Returns:
+            .Channel list:
+                All available non-private channels.
+        """
+        return None
+
+    async def private_channels(self):
+        """
+        Retrieve all private (one-to-one) channels known to this plug.  May return ``None`` if the
+        network doesn't support channel discovery.
+
+        Returns:
+            .Channel list:
+                All available private channels.
+        """
+        return None
+
     async def channel_for_user(self, user):
         """
         Retrieve a :class:`.Channel` representing a private (one-to-one) conversation between a

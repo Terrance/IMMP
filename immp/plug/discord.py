@@ -415,6 +415,13 @@ class DiscordPlug(immp.Plug):
     async def user_is_system(self, user):
         return user.id == str(self._client.user.id)
 
+    async def public_channels(self):
+        return [immp.Channel(self, channel.id) for channel in self._client.get_all_channels()]
+
+    async def private_channels(self):
+        return [immp.Channel(self, user.dm_channel.id)
+                for user in self._client.users if user.dm_channel]
+
     def _get_channel(self, channel):
         return self._client.get_channel(int(channel.source))
 
