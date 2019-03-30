@@ -300,19 +300,22 @@ class TelegramRichText(immp.RichText):
             entity = _Schema.entity(json)
             if entity["type"] not in ("bold", "italic", "code", "pre"):
                 continue
-            start = entity["offset"]
-            end = start + entity["length"]
+            start = entity["offset"] * 2
+            end = start + (entity["length"] * 2)
             changes[start][entity["type"]] = True
+            changes[end][entity["type"]] = False
         segments = []
         points = list(sorted(changes.keys()))
         formatting = {}
+        # Telegram entities assume the text is UTF-16.
+        encoded = text.encode("utf-16-le")
         # Iterate through text in change start/end pairs.
-        for start, end in zip([0] + points, points + [len(text)]):
+        for start, end in zip([0] + points, points + [len(encoded)]):
             formatting.update(changes[start])
             if start == end:
                 # Zero-length segment at the start or end, ignore it.
                 continue
-            segments.append(TelegramSegment(text[start:end], **formatting))
+            segments.append(TelegramSegment(encoded[start:end].decode("utf-16-le"), **formatting))
         return cls(segments)
 
 
