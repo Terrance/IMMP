@@ -23,6 +23,7 @@ If multiple Slack workspaces are involved, you will need a separate bot and plug
 """
 
 from asyncio import CancelledError, ensure_future, sleep
+from copy import copy
 from collections import defaultdict
 from datetime import datetime
 from functools import partial
@@ -547,49 +548,6 @@ class SlackMessage(immp.Message):
                                 attachments=attachments,
                                 raw=json)
 
-    @classmethod
-    def to_attachment(cls, slack, msg, reply=False):
-        """
-        Convert a :class:`.Message` to a message attachment structure, suitable for embedding
-        within an outgoing message.
-
-        Args:
-            slack (.SlackPlug):
-                Target plug instance for this attachment.
-            msg (.Message):
-                Original message from another plug or hook.
-            reply (bool):
-                Whether to show a reply icon instead of a quote icon.
-
-        Returns.
-            dict:
-                Slack API `attachment <https://api.slack.com/docs/message-attachments>`_ object.
-        """
-        icon = ":arrow_right_hook:" if reply else ":speech_balloon:"
-        quote = {"footer": icon}
-        if isinstance(msg, immp.SentMessage):
-            quote["ts"] = msg.at.timestamp()
-        if msg.user:
-            quote["author_name"] = msg.user.real_name or msg.user.username
-            quote["author_icon"] = msg.user.avatar
-        quoted_rich = None
-        quoted_action = False
-        if msg.text:
-            quoted_rich = msg.text.clone()
-            quoted_action = msg.action
-        elif msg.attachments:
-            count = len(msg.attachments)
-            what = "{} files".format(count) if count > 1 else "this file"
-            quoted_rich = immp.RichText([immp.Segment("sent {}".format(what))])
-            quoted_action = True
-        if quoted_rich:
-            if quoted_action:
-                for segment in quoted_rich:
-                    segment.italic = True
-            quote["text"] = SlackRichText.to_mrkdwn(slack, quoted_rich)
-            quote["mrkdwn_in"] = ["text"]
-        return quote
-
 
 class SlackPlug(immp.Plug):
     """
@@ -779,7 +737,7 @@ class SlackPlug(immp.Plug):
         log.debug("Failed to find message %r in %r", ts, channel_id)
         raise MessageNotFound
 
-    async def put(self, channel, msg):
+    async def _post(self, channel, parent, msg):
         ids = []
         uploads = 0
         if msg.user:
@@ -793,7 +751,7 @@ class SlackPlug(immp.Plug):
                 # Upload each file to Slack.
                 data = FormData({"channels": channel.source,
                                  "filename": attach.title or ""})
-                if isinstance(msg.reply_to, immp.SentMessage):
+                if isinstance(parent.reply_to, immp.SentMessage):
                     # Reply directly to the corresponding thread.  Note that thread_ts can be any
                     # message in the thread, it need not be resolved to the parent.
                     data.add_field("thread_ts", msg.reply_to.id)
@@ -825,7 +783,7 @@ class SlackPlug(immp.Plug):
         if isinstance(msg, immp.SentMessage) and msg.edited:
             rich.append(immp.Segment(" (edited)", italic=True))
         attachments = []
-        if isinstance(msg.reply_to, immp.SentMessage):
+        if isinstance(parent.reply_to, immp.SentMessage):
             data["thread_ts"] = msg.reply_to.id
             if self.config["thread-broadcast"]:
                 data["reply_broadcast"] = "true"
@@ -840,16 +798,6 @@ class SlackPlug(immp.Plug):
                                     "title_link": attach.google_map_url,
                                     "text": attach.address,
                                     "footer": "{}, {}".format(attach.latitude, attach.longitude)})
-            elif isinstance(attach, immp.SentMessage):
-                # No public API to share a message, rely on archive link unfurling instead.
-                link = ("https://{}.slack.com/archives/{}/p{}"
-                        .format(self._team["domain"], channel.source, attach.id.replace(".", "")))
-                if rich:
-                    rich.append(immp.Segment("\n{}".format(link)))
-                else:
-                    rich = immp.RichText([immp.Segment(link)])
-            elif isinstance(attach, immp.Message):
-                attachments.append(SlackMessage.to_attachment(self, attach))
         if rich or attachments:
             if rich:
                 data["text"] = SlackRichText.to_mrkdwn(self, rich)
@@ -858,6 +806,29 @@ class SlackPlug(immp.Plug):
             post = await self._api("chat.postMessage", _Schema.post, data=data)
             ids.append(post["ts"])
         return ids
+
+    async def put(self, channel, msg):
+        clone = copy(msg)
+        if clone.text:
+            clone.text = msg.text.clone()
+        forward_ids = []
+        for attach in msg.attachments:
+            if isinstance(attach, immp.SentMessage):
+                # No public API to share a message, rely on archive link unfurling instead.
+                link = ("https://{}.slack.com/archives/{}/p{}"
+                        .format(self._team["domain"], channel.source, attach.id.replace(".", "")))
+                if clone.text:
+                    clone.text.append(immp.Segment("\n{}".format(link)))
+                else:
+                    clone.text = immp.RichText([immp.Segment(link)])
+            elif isinstance(attach, immp.Message):
+                forward_ids += await self._post(channel, msg, attach)
+        own_ids = await self._post(channel, msg, msg)
+        if forward_ids and not own_ids:
+            # Forwarding a message but no content to show who forwarded it.
+            info = immp.Message(user=msg.user, action=True, text="forwarded a message")
+            own_ids += await self._post(channel, msg, info)
+        return forward_ids + own_ids
 
     async def delete(self, sent):
         await self._api("chat.delete", params={"channel": sent.channel.source, "ts": sent.id})
