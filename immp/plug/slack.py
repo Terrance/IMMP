@@ -452,7 +452,7 @@ class SlackMessage(immp.Message):
                 if event["username"]:
                     user = immp.User(real_name=event["username"])
             text = event["text"]
-        elif event["subtype"] in ("file_comment", "thread_broadcast"):
+        elif event["subtype"] == "file_comment":
             raise NotImplementedError
         elif event["subtype"] == "message_changed":
             if event["message"]["text"] == event["previous_message"]["text"]:
