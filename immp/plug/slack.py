@@ -94,14 +94,13 @@ class _Schema:
                         Optional("is_ephemeral", default=False): bool},
                        extra=ALLOW_EXTRA, required=True)
 
-    _plain_msg = _base_msg.extend({"user": str, "text": str})
+    _plain_msg = _base_msg.extend({Optional("user", default=None): Any(str, None),
+                                   Optional("bot_id", default=None): Any(str, None),
+                                   Optional("username", default=None): Any(str, None),
+                                   Optional("icons", default=dict): Any(dict, None),
+                                   "text": str})
 
-    message = Schema(Any(_base_msg.extend({"subtype": "bot_message",
-                                           "text": str,
-                                           Optional("bot_id", default=None): Any(str, None),
-                                           Optional("username", default=None): Any(str, None),
-                                           Optional("icons", default=dict): Any(dict, None)}),
-                         _base_msg.extend({"subtype": Any("file_comment", "thread_broadcast")}),
+    message = Schema(Any(_base_msg.extend({"subtype": "file_comment"}),
                          _base_msg.extend({"subtype": "message_changed",
                                            "message": lambda v: _Schema.message(v),
                                            "previous_message": lambda v: _Schema.message(v)}),
@@ -442,17 +441,7 @@ class SlackMessage(immp.Message):
         left = None
         title = None
         attachments = []
-        if event["subtype"] == "bot_message":
-            # Event has the bot's app ID, not user ID.
-            try:
-                author = slack._bot_to_user[event["bot_id"]]
-            except KeyError:
-                # Bot has no associated user, create a dummy user with the username.
-                author = None
-                if event["username"]:
-                    user = immp.User(real_name=event["username"])
-            text = event["text"]
-        elif event["subtype"] == "file_comment":
+        if event["subtype"] == "file_comment":
             raise NotImplementedError
         elif event["subtype"] == "message_changed":
             if event["message"]["text"] == event["previous_message"]["text"]:
@@ -473,7 +462,17 @@ class SlackMessage(immp.Message):
             author = None
             text = None
         else:
-            author = event["user"]
+            if event["user"]:
+                author = event["user"]
+            if event["bot_id"]:
+                # Event has the bot's app ID, not user ID.
+                try:
+                    author = slack._bot_to_user[event["bot_id"]]
+                except KeyError:
+                    # Bot has no associated user, create a dummy user with the username if present.
+                    author = None
+                    if event["username"]:
+                        user = immp.User(real_name=event["username"])
             text = event["text"]
         if author:
             user = slack._users.get(author, SlackUser(id=author, plug=slack))
