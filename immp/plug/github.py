@@ -78,6 +78,30 @@ class GitHubMessage(immp.Message):
             desc = "{} ({}#{})".format(pull["title"], repo, pull["number"])
             text = immp.RichText([immp.Segment("{} pull request ".format(event["action"])),
                                   immp.Segment(desc, link=pull["html_url"])])
+        elif type == "project":
+            project = event["project"]
+            desc = "{} ({}#{})".format(project["name"], repo, project["number"])
+            text = immp.RichText([immp.Segment("{} project ".format(event["action"])),
+                                  immp.Segment(desc, link=project["html_url"])])
+        elif type == "project_card":
+            card = event["project_card"]
+            text = immp.RichText([immp.Segment("{} ".format(event["action"])),
+                                  immp.Segment("card", link=card["html_url"]),
+                                  immp.Segment(" in project:\n"),
+                                  immp.Segment(card["note"])])
+        elif type == "gollum":
+            text = immp.RichText()
+            for i, page in enumerate(event["pages"]):
+                if i:
+                    text.append(immp.Segment(", "))
+                text.append(immp.Segment("{} {} wiki page ".format(page["action"], repo)),
+                            immp.Segment(page["title"], link=page["html_url"]))
+        elif type == "fork":
+            fork = event["forkee"]
+            text = immp.RichText([immp.Segment("forked {} to ".format(repo)),
+                                  immp.Segment(fork["full_name"], link=fork["html_url"])])
+        elif type == "watch":
+            text = immp.RichText([immp.Segment("starred {}".format(repo))])
         if text:
             return immp.SentMessage(id=id,
                                     channel=channel,
