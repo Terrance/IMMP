@@ -89,6 +89,7 @@ class _Schema:
                         Optional("edited", default={"user": None}):
                             {Optional("user", default=None): Any(str, None)},
                         Optional("thread_ts", default=None): Any(str, None),
+                        Optional("replies", default=list): [{"ts": str}],
                         Optional("files", default=list): [file],
                         Optional("attachments", default=list): [attachment],
                         Optional("is_ephemeral", default=False): bool},
@@ -412,7 +413,7 @@ class SlackMessage(immp.Message):
     """
 
     @classmethod
-    async def from_event(cls, slack, json):
+    async def from_event(cls, slack, json, parent=True):
         """
         Convert an API event :class:`dict` to a :class:`.Message`.
 
@@ -421,6 +422,8 @@ class SlackMessage(immp.Message):
                 Related plug instance that provides the event.
             json (dict):
                 Slack API `message <https://api.slack.com/events/message>`_ event data.
+            parent (bool):
+                ``True`` (default) to retrieve the thread parent if one exists.
 
         Returns:
             .SlackMessage:
@@ -491,12 +494,31 @@ class SlackMessage(immp.Message):
             title = event["name"]
         elif event["subtype"] == "me_message":
             action = True
-        if event["thread_ts"] and event["thread_ts"] != event["ts"]:
+        if event["thread_ts"] and event["thread_ts"] != event["ts"] and parent:
             # We have the parent ID, fetch the rest of the message to embed it.
             try:
                 reply_to = await slack.get_message(event["channel"], event["thread_ts"])
             except MessageNotFound:
+                # Failed to retrieve, just provide a reference by ID instead.
+                reply_to = immp.SentMessage(id=event["thread_ts"],
+                                            channel=immp.Channel(slack, event["channel"]),
+                                            empty=True)
+            try:
+                recent = next(reply for reply in reply_to.raw["replies"][::-1]
+                              if reply["ts"] != event["ts"])
+            except StopIteration:
                 pass
+            else:
+                # Other replies between parent and latest, prefer the most recent.
+                parent = reply_to
+                try:
+                    reply_to = await slack.get_reply(event["channel"], event["thread_ts"],
+                                                     recent["ts"])
+                except MessageNotFound:
+                    pass
+                else:
+                    # Don't walk the whole thread, just link to the parent after one step.
+                    reply_to.reply_to = parent
         for file in event["files"]:
             attachments.append(SlackFile.from_file(slack, file))
         for attach in event["attachments"]:
@@ -734,6 +756,26 @@ class SlackPlug(immp.Plug):
                 msg["channel"] = channel_id
                 return await SlackMessage.from_event(self, msg)
         log.debug("Failed to find message %r in %r", ts, channel_id)
+        raise MessageNotFound
+
+    async def get_reply(self, channel_id, thread_ts, reply_ts):
+        params = {"channel": channel_id,
+                  "ts": thread_ts,
+                  "latest": reply_ts,
+                  "inclusive": "true",
+                  "limit": 1}
+        try:
+            replies = await self._api("conversations.replies", _Schema.history, params=params)
+        except SlackAPIError as e:
+            log.debug("API error retrieving reply %r -> %r from %r: %r",
+                      thread_ts, reply_ts, channel_id, e.args[0])
+            raise MessageNotFound from None
+        if replies["messages"]:
+            msg = replies["messages"][-1]
+            if msg["ts"] == reply_ts:
+                msg["channel"] = channel_id
+                return await SlackMessage.from_event(self, msg, parent=False)
+        log.debug("Failed to find reply %r -> %r in %r", thread_ts, reply_ts, channel_id)
         raise MessageNotFound
 
     async def _post(self, channel, parent, msg):
