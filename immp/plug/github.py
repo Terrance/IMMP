@@ -1,7 +1,24 @@
+"""
+Listen for incoming GitHub webhooks.
+
+Config:
+    route (str):
+        Path to expose the webhook request handler.
+    secret (str):
+        Shared string between the plug and GitHub's servers.  Optional but recommended, must be
+        configured to match the webhook on GitHub.
+
+Go to your repository > Settings > Webhooks > Add webhook, set the URL to match the configured
+route, and choose the events you wish to handle.  Message summaries for each event will be emitted
+on channels matching the full name of each repository (e.g. ``user/repo``).
+
+.. note::
+    This plug requires an active :class:`.WebHook` to receive incoming messages.
+"""
+
 import hashlib
 import hmac
 import logging
-import re
 
 from aiohttp import web
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
@@ -30,14 +47,30 @@ class _Schema:
 
 
 class GitHubMessage(immp.Message):
-
-    @classmethod
-    def _url_to_source(self, url):
-        match = re.match("https://api.github.com/repos/([^/]+)/([^/]+)", url)
-        return match.group(1) if match else None
+    """
+    Repository event originating from GitHub.
+    """
 
     @classmethod
     def from_event(cls, github, type, id, event):
+        """
+        Convert a `GitHub webhook <https://developer.github.com/webhooks/>`_ payload to a
+        :class:`.Message`.
+
+        Args:
+            github (.GitHubPlug):
+                Related plug instance that provides the event.
+            type (str):
+                Event type name from the ``X-GitHub-Event`` header.
+            id (str):
+                GUID of the event delivery from the ``X-GitHub-Delivery`` header.
+            event (dict):
+                GitHub webhook payload.
+
+        Returns:
+            .GitHubMessage:
+                Parsed message object.
+        """
         repo = event["repository"]["full_name"]
         channel = immp.Channel(github, repo)
         sender = event["sender"]
@@ -114,6 +147,9 @@ class GitHubMessage(immp.Message):
 
 
 class GitHubPlug(immp.Plug):
+    """
+    Plug for incoming `GitHub <https://github.com>`_ notifications.
+    """
 
     network_name = "GitHub"
     network_id = "github"
@@ -155,5 +191,4 @@ class GitHubPlug(immp.Plug):
                 self.queue(GitHubMessage.from_event(self, type, id, event))
             except NotImplementedError:
                 log.debug("Ignoring unrecognised event type %r", type)
-                log.debug("%r", event)
         return web.Response()
