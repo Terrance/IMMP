@@ -494,31 +494,37 @@ class SlackMessage(immp.Message):
             title = event["name"]
         elif event["subtype"] == "me_message":
             action = True
-        if event["thread_ts"] and event["thread_ts"] != event["ts"] and parent:
-            # We have the parent ID, fetch the rest of the message to embed it.
+        thread = recent = None
+        if event["thread_ts"]:
+            thread = immp.SentMessage(id=event["thread_ts"],
+                                      channel=immp.Channel(slack, event["channel"]),
+                                      empty=True)
+        if thread and parent:
             try:
-                reply_to = await slack.get_message(event["channel"], event["thread_ts"])
+                thread = await slack.get_message(event["channel"], thread.id, False)
             except MessageNotFound:
-                # Failed to retrieve, just provide a reference by ID instead.
-                reply_to = immp.SentMessage(id=event["thread_ts"],
-                                            channel=immp.Channel(slack, event["channel"]),
-                                            empty=True)
-            try:
-                recent = next(reply for reply in reply_to.raw["replies"][::-1]
-                              if reply["ts"] != event["ts"])
-            except StopIteration:
                 pass
-            else:
-                # Other replies between parent and latest, prefer the most recent.
-                parent = reply_to
-                try:
-                    reply_to = await slack.get_reply(event["channel"], event["thread_ts"],
-                                                     recent["ts"])
-                except MessageNotFound:
-                    pass
-                else:
-                    # Don't walk the whole thread, just link to the parent after one step.
-                    reply_to.reply_to = parent
+        if thread and not thread.empty:
+            for reply in thread.raw["replies"][::-1]:
+                if reply["ts"] not in (event["ts"], event["thread_ts"]):
+                    # Reply to a thread with at least one other message, use the next most
+                    # recent rather than the parent.
+                    recent = immp.SentMessage(id=reply["ts"],
+                                              channel=immp.Channel(slack, event["channel"]),
+                                              empty=True)
+                    break
+        if recent and parent:
+            try:
+                recent = await slack.get_reply(event["channel"], event["thread_ts"],
+                                               recent.id, False)
+            except MessageNotFound:
+                pass
+        if thread and recent:
+            # Don't walk the whole thread, just link to the parent after one step.
+            recent.reply_to = thread
+            reply_to = recent
+        else:
+            reply_to = recent or thread
         for file in event["files"]:
             attachments.append(SlackFile.from_file(slack, file))
         for attach in event["attachments"]:
@@ -740,7 +746,7 @@ class SlackPlug(immp.Plug):
             await self._api("conversations.kick", params={"channel": channel.source,
                                                           "user": user.id})
 
-    async def get_message(self, channel_id, ts):
+    async def get_message(self, channel_id, ts, parent=True):
         params = {"channel": channel_id,
                   "latest": ts,
                   "inclusive": "true",
@@ -754,11 +760,11 @@ class SlackPlug(immp.Plug):
             msg = history["messages"][0]
             if msg["ts"] == ts:
                 msg["channel"] = channel_id
-                return await SlackMessage.from_event(self, msg)
+                return await SlackMessage.from_event(self, msg, parent)
         log.debug("Failed to find message %r in %r", ts, channel_id)
         raise MessageNotFound
 
-    async def get_reply(self, channel_id, thread_ts, reply_ts):
+    async def get_reply(self, channel_id, thread_ts, reply_ts, parent=True):
         params = {"channel": channel_id,
                   "ts": thread_ts,
                   "latest": reply_ts,
@@ -774,7 +780,7 @@ class SlackPlug(immp.Plug):
             msg = replies["messages"][-1]
             if msg["ts"] == reply_ts:
                 msg["channel"] = channel_id
-                return await SlackMessage.from_event(self, msg, parent=False)
+                return await SlackMessage.from_event(self, msg, parent)
         log.debug("Failed to find reply %r -> %r in %r", thread_ts, reply_ts, channel_id)
         raise MessageNotFound
 
