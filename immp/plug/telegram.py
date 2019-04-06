@@ -84,6 +84,7 @@ class _Schema:
                       Optional("forward_date", default=None): Any(int, None),
                       Optional("forward_from_chat", default=None): Any(channel, None),
                       Optional("forward_from_message_id", default=None): Any(int, None),
+                      Optional("forward_signature", default=None): Any(str, None),
                       Optional("text", default=None): Any(str, None),
                       Optional("caption", default=None): Any(str, None),
                       Optional("entities", default=[]): [entity],
@@ -136,6 +137,10 @@ class TelegramAPIError(immp.PlugError):
     """
 
 
+class _HiddenSender(Exception):
+    pass
+
+
 class TelegramUser(immp.User):
     """
     User present in Telegram.
@@ -186,6 +191,8 @@ class TelegramUser(immp.User):
                 Parsed user object.
         """
         chat = _Schema.channel(json)
+        if chat["id"] == -1001228946795:
+            raise _HiddenSender
         return cls(id=chat["id"],
                    plug=telegram,
                    username=chat["username"],
@@ -438,7 +445,12 @@ class TelegramMessage(immp.Message):
                 forward_user = TelegramUser.from_bot_user(telegram, message["forward_from"])
             elif message["forward_from_chat"]:
                 forward_channel = immp.Channel(telegram, message["forward_from_chat"]["id"])
-                forward_user = TelegramUser.from_bot_channel(telegram, message["forward_from_chat"])
+                try:
+                    forward_user = TelegramUser.from_bot_channel(telegram,
+                                                                 message["forward_from_chat"])
+                except _HiddenSender:
+                    if message["forward_signature"]:
+                        forward_user = immp.User(real_name=message["forward_signature"])
                 if message["forward_from_message_id"]:
                     forward_id = "{}:{}".format(message["forward_from_chat"]["id"],
                                                 message["forward_from_message_id"])
