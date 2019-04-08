@@ -156,11 +156,30 @@ class BoundCommand:
         else:
             return True
 
+    def complete(self, name, *args):
+        """
+        Fully-qualify an underlying base command.
+
+        Args:
+            name (str):
+                Command name, used to access the command when directly following the prefix.
+            fixed_args (tuple):
+                Additional arguments to pass to the underlying method.
+
+        Returns:
+            .BoundCommand:
+                Wrapper around the now-fully-qualified instance of the base command.
+        """
+        return BoundCommand(self.hook, self.cmd.complete(name, *args))
+
     async def __call__(self, msg, *args):
-        return await self.cmd.fn(self.hook, msg, *args)
+        if isinstance(self.cmd, BaseCommand) and not isinstance(self.cmd, FullCommand):
+            raise ValueError("Command is dynamic")
+        else:
+            return await self.cmd.fn(self.hook, *self.cmd.fixed_args, msg, *args)
 
     def __getattr__(self, name):
-        # Propagate other attribute access to the unbound Command object.
+        # Propagate other attribute access to the unbound command object.
         return getattr(self.cmd, name)
 
     def __eq__(self, other):
@@ -175,19 +194,18 @@ class BoundCommand:
 
 
 @immp.pretty_str
-class Command:
+class BaseCommand:
     """
     Container of a command function.  Use the :meth:`command` decorator to wrap a class method and
-    convert it into an instance of this class.
+    convert it into an instance of this class.  Unless dynamic, command objects will be an instance
+    of the :class:`.FullCommand` subclass.
 
     Accessing an instance of this class via the attribute of a containing class will create a new
     :class:`BoundCommand` allowing invocation of the method.
 
     Attributes:
-        name (str):
-            Command name, used to access the command when directly following the prefix.
         fn (method):
-            Callback function to process the command usage.
+            Callback method from a hook to process the command usage.
         parser (.CommandParser):
             Parse mode for the command arguments.
         scope (.CommandScope):
@@ -198,11 +216,16 @@ class Command:
             Additional predicate that can enable or disable a command based on hook state.
         sync_aware (bool):
             ``True`` if the hook is aware of synced channels provided by a :class:`.SyncPlug`.
+        fixed (int):
+            Number of fixed arguments the underlying method requires.
+        doc (str):
+            Help for the command, taken from the callback method's docstring if present.
+        spec (str):
+            Human-readable summary of the arguments required by the method.
     """
 
-    def __init__(self, name, fn, parser=CommandParser.spaces, scope=CommandScope.anywhere,
+    def __init__(self, fn, parser=CommandParser.spaces, scope=CommandScope.anywhere,
                  role=CommandRole.anyone, test=None, sync_aware=False):
-        self.name = name.lower()
         self.fn = fn
         self.parser = parser
         self.scope = scope
@@ -211,17 +234,23 @@ class Command:
         self.sync_aware = sync_aware
         # Only positional arguments are produced by splitting the input, there are no keywords.
         if any(param.kind in (inspect.Parameter.KEYWORD_ONLY,
-                              inspect.Parameter.VAR_KEYWORD) for param in self._args):
+                              inspect.Parameter.VAR_KEYWORD) for param in self._args[1]):
             raise ValueError("Keyword-only command parameters are not supported: {}".format(fn))
-
-    def __get__(self, instance, owner):
-        return BoundCommand(instance, self) if instance else self
 
     @property
     def _args(self):
-        sig = inspect.signature(self.fn)
-        # Skip self and msg arguments.
-        return tuple(sig.parameters.values())[2:]
+        # Skip `self` argument.
+        params = tuple(inspect.signature(self.fn).parameters.values())[1:]
+        # Split on `msg` argument into fixed and called arguments.
+        for i, param in enumerate(params):
+            if param.name == "msg":
+                return (params[:i], params[i + 1:])
+        else:
+            raise ValueError("Command method doesn't accept a `msg` parameter")
+
+    @property
+    def fixed(self):
+        return len(self._args[0])
 
     @property
     def doc(self):
@@ -230,7 +259,7 @@ class Command:
     @property
     def spec(self):
         parts = []
-        for param in self._args:
+        for param in self._args[1]:
             if param.kind in (inspect.Parameter.POSITIONAL_ONLY,
                               inspect.Parameter.POSITIONAL_OR_KEYWORD):
                 parts.append(("<{}>" if param.default is inspect.Parameter.empty else "[{}]")
@@ -269,7 +298,7 @@ class Command:
             args (str list):
                 Parsed arguments.
         """
-        params = self._args
+        params = self._args[1]
         required = len([arg for arg in params if arg.default is inspect.Parameter.empty])
         varargs = len([arg for arg in params if arg.kind is inspect.Parameter.VAR_POSITIONAL])
         required -= varargs
@@ -278,23 +307,84 @@ class Command:
         if len(args) > len(params) and not varargs:
             raise ValueError("Expected at most {} args, got {}".format(len(params), len(args)))
 
+    def complete(self, name, *args):
+        """
+        Fully-qualify a base command.
+
+        Args:
+            name (str):
+                Command name, used to access the command when directly following the prefix.
+            fixed_args (tuple):
+                Additional arguments to pass to the underlying method.
+
+        Returns:
+            .FullCommand:
+                Fully-qualified instance of this base command.
+        """
+        return FullCommand(name, self.fn, self.parser, self.scope, self.role, self.test,
+                           self.sync_aware, args)
+
+    def __get__(self, instance, owner):
+        return BoundCommand(instance, self) if instance else self
+
     def __eq__(self, other):
-        return isinstance(other, self.__class__) and (self.name, self.fn) == (other.name, other.fn)
+        return isinstance(other, self.__class__) and self.fn == other.fn
 
     def __hash__(self):
-        return hash((self.name, self.fn))
+        return hash(self.fn)
+
+    def __repr__(self):
+        return "<{}: {}, {} {}>".format(self.__class__.__name__, self.scope.name,
+                                        self.role.name, self.fn)
+
+
+class FullCommand(BaseCommand):
+    """
+    Fully-qualified and named command, an extension of :class:`.BaseCommand` to make it callable.
+
+    Attributes:
+        name (str):
+            Command name, used to access the command when directly following the prefix.
+        fixed_args (tuple):
+            Additional arguments to pass to the underlying method.
+    """
+
+    def __init__(self, name, fn, parser=CommandParser.spaces, scope=CommandScope.anywhere,
+                 role=CommandRole.anyone, test=None, sync_aware=False, fixed_args=()):
+        super().__init__(fn, parser, scope, role, test, sync_aware)
+        self.name = name.lower()
+        self.fixed_args = fixed_args
+        if len(self.fixed_args) != self.fixed:
+            raise ValueError("Expecting {} fixed arguments, got {}"
+                             .format(self.fixed, len(self.fixed_args)))
+
+    def complete(self, name, *args):
+        raise ValueError("Already a full command")
+
+    def __eq__(self, other):
+        return super().__eq__(other) and self.name == other.name
+
+    def __hash__(self):
+        return hash((super().__hash__(), self.name))
 
     def __repr__(self):
         return "<{}: {} @ {}, {} {}>".format(self.__class__.__name__, self.name, self.scope.name,
                                              self.role.name, self.fn)
 
 
-def command(name, parser=CommandParser.spaces, scope=CommandScope.anywhere,
+def command(name=None, parser=CommandParser.spaces, scope=CommandScope.anywhere,
             role=CommandRole.anyone, test=None, sync_aware=False):
     """
-    Decorator: mark up the method as a command.
+    Decorator: mark up a hook method as a command.
 
-    This doesn't return the original function, rather a :class:`.Command` object.
+    This doesn't return the original function, rather a :class:`.BaseCommand` object.
+
+    The method's accepted arguments must start with ``self``, and must accept one called ``msg``,
+    which will be set to the :class:`.Message` instance that triggered this command.
+
+    A *dynamic* command is an unnamed instance that can be used to create multiple commands with
+    the same underlying method call.  These commands are not collected automatically -- the parent
+    hook must implement :class:`.DynamicCommands`.
 
     Arguments:
         name (str):
@@ -312,7 +402,28 @@ def command(name, parser=CommandParser.spaces, scope=CommandScope.anywhere,
             this case, the command handler will receive the native channel rather than the virtual
             sync channel.  See :meth:`.SyncPlug.sync_for` for resolving this to a virtual channel.
     """
-    return lambda fn: Command(name, fn, parser, scope, role, test, sync_aware)
+    def wrap(fn):
+        args = (fn, parser, scope, role, test, sync_aware)
+        return FullCommand(name, *args) if name else BaseCommand(*args)
+    return wrap
+
+
+class DynamicCommands:
+    """
+    Interface for commands generated at runtime.  Typically combined with additional arguments in a
+    command method's signature.
+    """
+
+    def commands(self):
+        """
+        Provide additional commands dependent on state or config.  Dynamic commands must be filled
+        in using :meth:`.BaseCommand.complete` to provide their name and any fixed arguments.
+
+        Returns:
+            .BoundCommand set:
+                Set of available commands.
+        """
+        raise NotImplementedError
 
 
 class CommandHook(immp.Hook):
@@ -334,7 +445,11 @@ class CommandHook(immp.Hook):
         if hook.state != immp.OpenState.active:
             return {}
         attrs = [getattr(hook, attr) for attr in dir(hook)]
-        return {cmd.name: cmd for cmd in attrs if isinstance(cmd, BoundCommand)}
+        cmds = {cmd.name: cmd for cmd in attrs if isinstance(cmd, BoundCommand)
+                and isinstance(cmd.cmd, FullCommand)}
+        if isinstance(hook, DynamicCommands):
+            cmds.update({cmd.name: cmd for cmd in hook.commands()})
+        return cmds
 
     def _mapping_cmds(self, mapping, channel, user, private):
         cmdgroup = set()
