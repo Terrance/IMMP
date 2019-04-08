@@ -95,6 +95,10 @@ class GitHubMessage(immp.Message):
             text = immp.RichText([immp.Segment("{} ".format(action)),
                                   immp.Segment(desc, link=event["compare"]),
                                   immp.Segment(" {} {} {}".format(join, repo, target))])
+            for commit in event["commits"]:
+                text.append(immp.Segment("\n* "),
+                            immp.Segment(commit["id"][:7], code=True),
+                            immp.Segment(" - {}".format(commit["message"])))
         elif type == "release":
             release = event["release"]
             desc = ("{} ({} {})".format(release["name"], repo, release["tag_name"])
