@@ -23,8 +23,7 @@ UI via Edit Channel > Webhooks.  A fallback style incorporating the user's name 
 will be used in lieu of a webhook, e.g. with direct messages.
 
 .. note::
-    This plug requires the **new 1.0 release** of the `discord.py
-    <https://discordpy.readthedocs.io/en/rewrite/>`_ Python module, which is currently in alpha.
+    This plug requires the `discord.py <https://discordpy.readthedocs.io>`_ Python module.
 """
 
 from asyncio import Condition, ensure_future
