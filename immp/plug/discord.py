@@ -29,6 +29,7 @@ will be used in lieu of a webhook, e.g. with direct messages.
 from asyncio import Condition, ensure_future
 from collections import defaultdict
 from functools import partial
+from io import BytesIO
 import logging
 import re
 
@@ -487,9 +488,11 @@ class DiscordPlug(immp.Plug):
             image = msg.user.avatar
         for i, attach in enumerate(msg.attachments or []):
             if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
-                img_resp = await attach.get_content(self._session)
-                filename = attach.title or "image_{}.png".format(i)
-                files.append(discord.File(img_resp.content, filename))
+                async with (await attach.get_content(self._session)) as img_content:
+                    # discord.py expects a file-like object with a synchronous read() method.
+                    # NB. The whole file is read into memory by discord.py anyway.
+                    files.append(discord.File(BytesIO(await img_content.read()),
+                                              attach.title or "image_{}.png".format(i)))
             elif isinstance(attach, immp.Location):
                 embed = discord.Embed()
                 embed.title = attach.name or "Location"
