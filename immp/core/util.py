@@ -114,6 +114,35 @@ class ConfigProperty:
         return "<{}: {}>".format(self.__class__.__name__, repr(self._name))
 
 
+class SingleConfigProperty:
+    """
+    Data descriptor to retrieve a single object based on a config key.
+    """
+
+    def __init__(self, key, cls=None):
+        self._key = key
+        self._cls = cls
+
+    def __get__(self, instance, owner):
+        if not instance:
+            return self
+        if not instance.config.get(self._key):
+            return None
+        try:
+            obj = instance.host[instance.config[self._key]]
+        except KeyError:
+            raise ConfigError("No object {} on host".format(repr(self._key))) from None
+        if self._cls and not isinstance(obj, self._cls):
+            raise ConfigError("Reference {} not instance of {}"
+                              .format(repr(self._key), self._cls.__name__))
+        else:
+            return obj
+
+    def __repr__(self):
+        return "<{}: {}{}>".format(self.__class__.__name__, repr(self._key),
+                                   " {}".format(self._cls.__name__) if self._cls else "")
+
+
 class OpenState(Enum):
     """
     Readiness status for instances of :class:`Openable`.

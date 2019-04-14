@@ -412,19 +412,7 @@ class SyncPlug(immp.Plug):
 
 class _SyncHookBase(immp.Hook):
 
-    @property
-    def _identities(self):
-        if self.config["identities"] is None:
-            return None
-        try:
-            identities = self.host.hooks[self.config["identities"]]
-            if not isinstance(identities, IdentityHook):
-                raise KeyError
-        except KeyError:
-            raise immp.ConfigError("Hook reference '{}' ids not an IdentityHook"
-                                   .format(self.config["identities"])) from None
-        else:
-            return identities
+    _identities = immp.SingleConfigProperty("identities", IdentityHook)
 
     def _accept(self, msg):
         if not self.config["joins"] and (msg.joined or msg.left):
