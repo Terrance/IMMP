@@ -429,7 +429,14 @@ class _SyncHookBase(immp.Hook):
             return
         msg.text = msg.text.clone()
         for segment in msg.text:
-            identity = await self._identities.identity_from_user(segment.mention)
+            if not segment.mention:
+                continue
+            try:
+                identity = await self._identities.identity_from_user(segment.mention)
+            except Exception as e:
+                log.warning("Failed to retrieve identity information for {}"
+                            .format(repr(segment.mention)), exc_info=e)
+                continue
             if identity:
                 for user in identity.links:
                     if user.plug.network_id == channel.plug.network_id:
@@ -443,7 +450,11 @@ class _SyncHookBase(immp.Hook):
             return
         name = identity = None
         if self._identities:
-            identity = await self._identities.identity_from_user(msg.user)
+            try:
+                identity = await self._identities.identity_from_user(msg.user)
+            except Exception as e:
+                log.warning("Failed to retrieve identity information for {}"
+                            .format(repr(msg.user)), exc_info=e)
         if self.config["name-format"]:
             if not Template:
                 raise immp.PlugError("'jinja2' module not installed")
