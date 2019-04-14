@@ -279,7 +279,7 @@ class Data:
                                   "config": {"token": self.config["telesync"]["api_key"]}}
         for i, (ho, tg) in enumerate(self.memory["telesync"]["ho2tg"].items()):
             hname = self.add_channel("hangouts", ho, "hangouts-tlsy-{}".format(i))
-            tname = self.add_channel("telegram", int(tg), "telegram-tlsy-{}".format(i))
+            tname = self.add_channel("telegram", tg, "telegram-tlsy-{}".format(i))
             log.debug("Adding Telegram sync: {} <-> {}".format(hname, tname))
             self.add_sync("telegram-{}".format(i), hname, tname)
 
@@ -351,7 +351,7 @@ class Data:
 
     def compile_syncs(self):
         self.hooks["sync"] = {"path": "immp.hook.sync.SyncHook",
-                              "config": {"plug": "sync", "channels": self.syncs.inverse,
+                              "config": {"plug": "sync-migrated", "channels": self.syncs.inverse,
                                          "identities": "identity" if self.identities else None}}
 
     def compile_commands(self):
