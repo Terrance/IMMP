@@ -15,7 +15,7 @@ Config:
     renames (bool):
         Whether to sync channel title changes across the bridge.
     identities (str):
-        Name of a registered :class:`.IdentityHook` to provide unified names across networks.
+        Name of a registered :class:`.IdentityProvider` to provide unified names across networks.
 
         If enabled, this will rewrite mentions for users identified in both the source and any sync
         target channels, to use their platform-native identity.
@@ -53,7 +53,7 @@ Config:
     renames (bool):
         Whether to forward channel title changes.
     identities (str):
-        Name of a registered :class:`.IdentityHook` to provide unified names across networks.
+        Name of a registered :class:`.IdentityProvider` to provide unified names across networks.
 
         If enabled, this will rewrite mentions for users identified in both the source and any sync
         target channels, to use their platform-native identity.
@@ -86,7 +86,7 @@ from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 import immp
 from immp.hook.command import command
 from immp.hook.database import BaseModel, DatabaseHook
-from immp.hook.identity import IdentityHook
+from immp.hook.identity import IdentityProvider
 
 
 try:
@@ -412,7 +412,7 @@ class SyncPlug(immp.Plug):
 
 class _SyncHookBase(immp.Hook):
 
-    _identities = immp.SingleConfigProperty("identities", IdentityHook)
+    _identities = immp.SingleConfigProperty("identities", IdentityProvider)
 
     def _accept(self, msg):
         if not self.config["joins"] and (msg.joined or msg.left):
@@ -429,23 +429,21 @@ class _SyncHookBase(immp.Hook):
             return
         msg.text = msg.text.clone()
         for segment in msg.text:
-            identity = self._identities.find(segment.mention)
+            identity = await self._identities.identity_from_user(segment.mention)
             if identity:
-                for link in identity.links:
-                    if link.network == channel.plug.network_id:
-                        user = await channel.plug.user_from_id(link.user)
-                        if user:
-                            log.debug("Replacing mention: %r -> %r", segment.mention, user)
-                            segment.mention = user
-                            break
+                for user in identity.links:
+                    if user.plug.network_id == channel.plug.network_id:
+                        log.debug("Replacing mention: %r -> %r", segment.mention, user)
+                        segment.mention = user
+                        break
 
-    def _replace_name(self, msg):
+    async def _replace_name(self, msg):
         # Use name-format or identities to render a suitable author real name.
         if not msg.user:
             return
         name = identity = None
         if self._identities:
-            identity = self._identities.find(msg.user)
+            identity = await self._identities.identity_from_user(msg.user)
         if self.config["name-format"]:
             if not Template:
                 raise immp.PlugError("'jinja2' module not installed")
@@ -601,7 +599,7 @@ class SyncHook(_SyncHookBase):
                 if origin and synced == origin.channel:
                     continue
                 clone = copy(msg)
-                self._replace_name(clone)
+                await self._replace_name(clone)
                 await self._replace_identity_mentions(clone, synced)
                 queue.append(self._send(synced, clone))
             # Send all the messages in parallel, and match the resulting IDs up by channel.
@@ -729,7 +727,7 @@ class ForwardHook(_SyncHookBase):
         queue = []
         for synced in self._channels[channel]:
             clone = copy(msg)
-            self._replace_name(clone)
+            await self._replace_name(clone)
             await self._replace_identity_mentions(clone, synced)
             queue.append(self._send(synced, clone))
         # Send all the messages in parallel.
