@@ -32,6 +32,7 @@ yourself, so that identities remained assigned to the correct instance.
     This hook requires an active :class:`.DatabaseHook` to store data.
 """
 
+from asyncio import gather
 from hashlib import sha256
 import logging
 
@@ -57,6 +58,64 @@ class _Schema:
                      "plugs": [str],
                      Optional("multiple", default=True): bool},
                     extra=ALLOW_EXTRA, required=True)
+
+
+@immp.pretty_str
+class Identity:
+    """
+    Basic representation of an external identity.
+
+    Attributes:
+        name (str):
+            Common name used across any linked platforms.
+        links (User list):
+            Physical platform users assigned to this identity.
+        roles (str list):
+            Optional set of role names, if applicable to the backend.
+    """
+
+    def __init__(self, name, links=(), roles=()):
+        self.name = name
+        self.links = links
+        self.roles = roles
+
+    def __repr__(self):
+        return "<{}: {} x{}{}>".format(self.__class__.__name__, repr(self.name), len(self.links),
+                                       " ({})".format(" ".join(self.roles)) if self.roles else "")
+
+
+class IdentityProvider:
+    """
+    Interface for hooks to provide identity information from a backing source.
+    """
+
+    async def identity_from_name(self, name):
+        """
+        Look up an identity by the external provider's username for them.
+
+        Args:
+            name (str):
+                External name to query.
+
+        Returns:
+            .Identity:
+                Matching identity from the provider, or ``None`` if not found.
+        """
+        raise NotImplementedError
+
+    async def identity_from_user(self, user):
+        """
+        Look up an identity by a linked network user.
+
+        Args:
+            user (.User):
+                Plug user referenced by the identity.
+
+        Returns:
+            .Identity:
+                Matching identity from the provider, or ``None`` if not found.
+        """
+        raise NotImplementedError
 
 
 class IdentityGroup(BaseModel):
@@ -89,6 +148,15 @@ class IdentityGroup(BaseModel):
     @classmethod
     def select_links(cls):
         return cls.select(cls, IdentityLink).join(IdentityLink)
+
+    async def to_identity(self, host):
+        tasks = []
+        plugs = {plug.network_id: plug for plug in host.plugs.values()}
+        for link in self.links:
+            tasks.append(plugs[link.network].user_from_id(link.user))
+        users = await gather(*tasks)
+        roles = [role.role for role in self.roles]
+        return Identity(self.name, users, roles)
 
     def __repr__(self):
         return "<{}: #{} {}>".format(self.__class__.__name__, self.id, repr(self.name))
@@ -135,9 +203,10 @@ class IdentityRole(BaseModel):
                                         repr(self.group))
 
 
-class IdentityHook(immp.Hook, AccessPredicate):
+class IdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
     """
-    Hook for managing physical users with multiple logical links across different plugs.
+    Hook for managing physical users with multiple logical links across different plugs.  This
+    effectively provides self-service identities, as opposed to being provided externally.
     """
 
     plugs = immp.Plug.Property()
@@ -158,6 +227,23 @@ class IdentityHook(immp.Hook, AccessPredicate):
             self.config["instance"] = code
         self.db = self.host.resources[DatabaseHook].db
         self.db.create_tables([IdentityGroup, IdentityLink, IdentityRole], safe=True)
+
+    def get(self, name):
+        """
+        Retrieve the identity group using the given name.
+
+        Args:
+            name (str):
+                Existing name to query.
+
+        Returns:
+            .IdentityGroup:
+                Linked identity, or ``None`` if not linked.
+        """
+        try:
+            return IdentityGroup.select_links().where(IdentityGroup.name == name).get()
+        except IdentityGroup.DoesNotExist:
+            return None
 
     def find(self, user):
         """
@@ -183,6 +269,14 @@ class IdentityHook(immp.Hook, AccessPredicate):
 
     async def channel_access(self, channel, user):
         return bool(IdentityLink.get(network=user.plug.network_id, user=user.id))
+
+    async def identity_from_name(self, name):
+        group = self.get(name)
+        return await group.to_identity(self.host) if group else None
+
+    async def identity_from_user(self, user):
+        group = self.find(user)
+        return await group.to_identity(self.host) if group else None
 
     def _test(self, channel, user):
         return channel.plug in self.plugs
