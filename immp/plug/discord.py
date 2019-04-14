@@ -402,7 +402,7 @@ class DiscordPlug(immp.Plug):
             self._session = None
 
     async def user_from_id(self, id):
-        user = await self._client.get_user_info(id)
+        user = await self._client.fetch_user(id)
         return DiscordUser.from_user(self, user) if user else None
 
     async def user_from_username(self, username):
