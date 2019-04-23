@@ -650,7 +650,7 @@ class SentMessage(Message):
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
             return False
-        return (self.id, self.revision) == (other.id, other.revision)
+        return (self.id, self.revision, self.channel) == (other.id, other.revision, other.channel)
 
     def __hash__(self):
         return hash((self.id, self.revision, self.channel))
