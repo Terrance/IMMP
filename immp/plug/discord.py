@@ -474,7 +474,7 @@ class DiscordPlug(immp.Plug):
         if isinstance(msg, immp.SentMessage):
             # Discord offers no reply mechanism, so instead we just fetch the referenced message
             # and render it manually.
-            message = await dc_channel.get_message(msg.id)
+            message = await dc_channel.fetch_message(msg.id)
             return DiscordMessage.from_message(self, message)
         elif isinstance(msg, immp.Message):
             return msg
@@ -552,6 +552,6 @@ class DiscordPlug(immp.Plug):
         dc_channel, webhook = self._resolve_channel(sent.channel)
         if not dc_channel:
             raise DiscordAPIError("No access to channel {}".format(sent.channel.source))
-        message = await dc_channel.get_message(sent.id)
+        message = await dc_channel.fetch_message(sent.id)
         # If not self-posted (including webhooks), the Manage Messages permission is required.
         await message.delete()
