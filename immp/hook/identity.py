@@ -68,16 +68,26 @@ class Identity:
     Attributes:
         name (str):
             Common name used across any linked platforms.
+        provider (.IdentityProvider):
+            Service hook where the identity information was acquired from.
         links (User list):
             Physical platform users assigned to this identity.
         roles (str list):
             Optional set of role names, if applicable to the backend.
     """
 
-    def __init__(self, name, links=(), roles=()):
+    def __init__(self, name, provider=None, links=(), roles=()):
         self.name = name
+        self.provider = provider
         self.links = links
         self.roles = roles
+
+    def __eq__(self, other):
+        return (isinstance(other, self.__class__) and
+                (self.name, self.provider) == (other.name, other.provider))
+
+    def __hash__(self):
+        return hash(self.name, self.provider)
 
     def __repr__(self):
         return "<{}: {} x{}{}>".format(self.__class__.__name__, repr(self.name), len(self.links),
