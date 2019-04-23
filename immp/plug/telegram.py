@@ -100,6 +100,8 @@ class _Schema:
                       Optional("group_chat_created", default=False): bool,
                       Optional("new_chat_members", default=[]): [user],
                       Optional("left_chat_member", default=None): Any(user, None),
+                      Optional("pinned_message", default=None):
+                          Any(lambda v: _Schema.message(v), None),
                       Optional("new_chat_title", default=None): Any(str, None),
                       Optional("migrate_to_chat_id", default=None): Any(int, None)},
                      extra=ALLOW_EXTRA, required=True)
@@ -402,6 +404,10 @@ class TelegramMessage(immp.Message):
                 text = TelegramRichText([TelegramSegment("removed "),
                                          TelegramSegment(part.real_name,
                                                          bold=(not link), link=link)])
+        elif message["pinned_message"]:
+            action = True
+            text = "pinned a message"
+            attachments.append(await cls.from_message(telegram, message["pinned_message"]))
         elif message["photo"]:
             # This is a list of resolutions, find the original sized one to return.
             photo = max(message["photo"], key=lambda photo: photo["height"])
