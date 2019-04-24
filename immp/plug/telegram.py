@@ -75,6 +75,10 @@ class _Schema:
                      "length": int},
                     extra=ALLOW_EXTRA, required=True)
 
+    _file = {"file_id": str, Optional("file_name", default=None): Any(str, None)}
+
+    _location = {"latitude": float, "longitude": float}
+
     message = Schema({"message_id": int,
                       "chat": {"id": int},
                       "date": int,
@@ -91,12 +95,21 @@ class _Schema:
                       Optional("caption_entities", default=[]): [entity],
                       Optional("reply_to_message", default=None):
                           Any(lambda v: _Schema.message(v), None),
-                      Optional("photo", default=[]): [{"file_id": str}],
+                      Optional("photo", default=[]): [_file],
                       Optional("sticker", default=None):
                           Any({Optional("emoji", default=None): Any(str, None),
                                "file_id": str}, None),
-                      Optional("location", default=None):
-                          Any({"latitude": float, "longitude": float}, None),
+                      Optional("animation", default=None): Any(_file, None),
+                      Optional("video", default=None): Any(_file, None),
+                      Optional("video_note", default=None): Any(_file, None),
+                      Optional("audio", default=None): Any(_file, None),
+                      Optional("voice", default=None): Any(_file, None),
+                      Optional("document", default=None): Any(_file, None),
+                      Optional("location", default=None): Any(_location, None),
+                      Optional("venue", default=None):
+                          Any({"location": _location, "title": str, "address": str}, None),
+                      Optional("poll", default=None):
+                          Any({"question": str, "is_closed": bool}, None),
                       Optional("group_chat_created", default=False): bool,
                       Optional("new_chat_members", default=[]): [user],
                       Optional("left_chat_member", default=None): Any(user, None),
@@ -324,7 +337,7 @@ class TelegramRichText(immp.RichText):
             if start == end:
                 # Zero-length segment at the start or end, ignore it.
                 continue
-            segments.append(TelegramSegment(encoded[start:end].decode("utf-16-le"), **formatting))
+            segments.append(immp.Segment(encoded[start:end].decode("utf-16-le"), **formatting))
         return cls(segments)
 
 
@@ -332,6 +345,8 @@ class TelegramMessage(immp.Message):
     """
     Message originating from Telegram.
     """
+
+    _file_types = ("animation", "video", "video_note", "audio", "voice", "document")
 
     @classmethod
     async def from_message(cls, telegram, json):
@@ -373,37 +388,33 @@ class TelegramMessage(immp.Message):
             text = TelegramRichText.from_entities(message["text"], message["entities"])
         elif message["group_chat_created"]:
             action = True
-            text = TelegramRichText([TelegramSegment("created the group "),
-                                     TelegramSegment(message["chat"]["title"], bold=True)])
+            text = immp.RichText([immp.Segment("created the group "),
+                                  immp.Segment(message["chat"]["title"], bold=True)])
         elif message["new_chat_title"]:
             title = message["new_chat_title"]
             action = True
-            text = TelegramRichText([TelegramSegment("changed group name to "),
-                                     TelegramSegment(message["new_chat_title"], bold=True)])
+            text = immp.RichText([immp.Segment("changed group name to "),
+                                  immp.Segment(message["new_chat_title"], bold=True)])
         elif message["new_chat_members"]:
             joined = [(TelegramUser.from_bot_user(telegram, member))
                       for member in message["new_chat_members"]]
             action = True
             if joined == [user]:
-                text = TelegramRichText([TelegramSegment("joined group via invite link")])
+                text = immp.RichText([immp.Segment("joined group via invite link")])
             else:
-                text = TelegramRichText([TelegramSegment("invited ")])
+                text = immp.RichText()
                 for join in joined:
-                    link = "https://t.me/{}".format(join.username) if join.username else None
-                    text.append(TelegramSegment(join.real_name, bold=(not link), link=link),
-                                TelegramSegment(", "))
-                text = text[:-1]
+                    text.append(immp.Segment(", " if text else "invited "),
+                                immp.Segment(join.real_name, bold=True, link=join.link))
         elif message["left_chat_member"]:
             left = [TelegramUser.from_bot_user(telegram, message["left_chat_member"])]
             action = True
             if left == [user]:
-                text = TelegramRichText([TelegramSegment("left group")])
+                text = immp.RichText([immp.Segment("left group")])
             else:
                 part = left[0]
-                link = "https://t.me/{}".format(part.username) if part.username else None
-                text = TelegramRichText([TelegramSegment("removed "),
-                                         TelegramSegment(part.real_name,
-                                                         bold=(not link), link=link)])
+                text = immp.RichText([immp.Segment("removed "),
+                                      immp.Segment(part.real_name, bold=True, link=part.link)])
         elif message["pinned_message"]:
             action = True
             text = "pinned a message"
@@ -430,9 +441,30 @@ class TelegramMessage(immp.Message):
             if not text and message["sticker"]["emoji"]:
                 action = True
                 text = "sent {} sticker".format(message["sticker"]["emoji"])
+        elif any(message[key] for key in cls._file_types):
+            for key in cls._file_types:
+                if message[key]:
+                    obj = message[key]
+                    break
+            params = {"file_id": obj["file_id"]}
+            file = await telegram._api("getFile", _Schema.file, params=params)
+            url = ("https://api.telegram.org/file/bot{}/{}"
+                   .format(telegram.config["token"], file["file_path"]))
+            type = immp.File.Type.image if key == "animation" else immp.File.Type.unknown
+            attachments.append(immp.File(obj["file_name"], type, url))
+        elif message["venue"]:
+            attachments.append(immp.Location(latitude=message["venue"]["location"]["latitude"],
+                                             longitude=message["venue"]["location"]["longitude"],
+                                             name=message["venue"]["title"],
+                                             address=message["venue"]["address"]))
         elif message["location"]:
             attachments.append(immp.Location(latitude=message["location"]["latitude"],
                                              longitude=message["location"]["longitude"]))
+        elif message["poll"]:
+            action = True
+            prefix = "closed the" if message["poll"]["is_closed"] else "opened a"
+            text = immp.RichText([immp.Segment("{} poll: ".format(prefix)),
+                                  immp.Segment(message["poll"]["question"], bold=True)])
         else:
             # No support for this message type.
             raise NotImplementedError
