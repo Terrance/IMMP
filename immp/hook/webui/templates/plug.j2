@@ -74,16 +74,19 @@
         <input name="plug" type="hidden" value="{{ plug.name }}">
         <tr>
           <td>
-            <input name="name" type="text" class="input" placeholder="Name" required>
+            <input name="name" type="text" class="input" placeholder="Name"{% if add_name %} value="{{ add_name }}"{% endif %}{% if add_source %} autofocus{% endif %} required>
           </td>
           <td>
-            <input name="source" type="text" class="input" placeholder="Source" required>
+            <input name="source" type="text" class="input" placeholder="Source"{% if add_source %}" value="{{ add_source }}"{% endif %} required>
           </td>
           <td>
            <div class="buttons">
-             <button type="submit" class="button is-primary">
+             <button type="submit" class="button is-success">
                <i class="fas fa-fw fa-plus"></i> Add
              </button>
+             <a href="{{ ctx.url_for("plug_channels", name=plug.name) }}" class="button">
+               <i class="fas fa-fw fa-search"></i> Choose
+             </a>
            </div>
           </td>
         </tr>

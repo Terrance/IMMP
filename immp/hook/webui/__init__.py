@@ -17,8 +17,11 @@ This is a simple control panel to add or update plugs and hooks in a running sys
     HTTP authentication, or use a service layer like oauth2_proxy.
 """
 
+from asyncio import gather
+from collections import defaultdict
 from functools import wraps
 import json
+import re
 import logging
 
 from aiohttp import web
@@ -53,7 +56,9 @@ class WebUIHook(immp.ResourceHook):
         self.ctx = self.host.resources[WebHook].context(__name__, self.config["route"],
                                                         {"hook_url_for": self.hook_url_for,
                                                          "group_summary": self.group_summary,
-                                                         "runner": runner})
+                                                         "runner": runner,
+                                                         # Calling it `zip` doesn't seem to work.
+                                                         "zipped": zip})
         # Home:
         self.ctx.route("GET", "", self.noop, "main.j2", "main")
         # Add:
@@ -64,6 +69,7 @@ class WebUIHook(immp.ResourceHook):
         self.ctx.route("POST", "plug/{name}/stop", self.plug_stop)
         self.ctx.route("POST", "plug/{name}/start", self.plug_start)
         self.ctx.route("POST", "plug/{name}/config", self.plug_config)
+        self.ctx.route("GET", "plug/{name}/channels", self.plug_channels, "plug_channels.j2")
         self.ctx.route("GET", "plug/{name}/remove", self.plug, "plug_remove.j2", "plug_remove")
         self.ctx.route("POST", "plug/{name}/remove", self.plug_remove, name="plug_remove:post")
         # Channels:
@@ -136,7 +142,14 @@ class WebUIHook(immp.ResourceHook):
 
     async def plug(self, request):
         plug = self._resolve_plug(request)
+        name = None
+        source = request.query.get("source")
+        if source:
+            title = await immp.Channel(plug, source).title()
+            name = re.sub(r"[^a-z0-9]+", "-", title, flags=re.I).strip("-") if title else ""
         return {"plug": plug,
+                "add_name": name,
+                "add_source": source,
                 "channels": {name: channel for name, channel in self.host.channels.items()
                              if channel.plug == plug}}
 
@@ -162,6 +175,26 @@ class WebUIHook(immp.ResourceHook):
         plug.config.clear()
         plug.config.update(config)
         raise web.HTTPFound(self.ctx.url_for("plug", name=plug.name))
+
+    async def plug_channels(self, request):
+        plug = self._resolve_plug(request)
+        public, private = await gather(plug.public_channels(), plug.private_channels())
+        titles = await gather(*(channel.title() for channel in public)) if public else []
+        all_members = await gather(*(channel.members() for channel in private)) if private else []
+        users = []
+        for members in all_members:
+            systems = await gather(*(member.is_system() for member in members)) if members else []
+            users.append([member for member, system in zip(members, systems) if not system])
+        channels = defaultdict(list)
+        for name, channel in self.host.channels.items():
+            if channel.plug == plug:
+                channels[channel].append(name)
+        return {"plug": plug,
+                "channels": channels,
+                "public": public,
+                "titles": titles,
+                "private": private,
+                "users": users}
 
     async def plug_remove(self, request):
         plug = self._resolve_plug(request)
