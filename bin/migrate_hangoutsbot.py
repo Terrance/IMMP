@@ -51,7 +51,10 @@ class _Schema:
         }, None),
         Optional("telesync", default=None): Any({
             "api_key": str
-        }, None)
+        }, None),
+        Optional("forwarding", default=dict): Any({str: {
+            "targets": [str]
+        }}, {})
     }, extra=REMOVE_EXTRA, required=True)
 
     memory = Schema({
@@ -148,6 +151,7 @@ class Data:
                              "config": {"url": db_url}}}
         self.identities = MultiRevDict()
         self.syncs = MultiRevDict()
+        self.forwards = defaultdict(list)
         # Internal counters for unique name generation.
         self.user_count = 0
         self.session = Session()
@@ -229,6 +233,10 @@ class Data:
             return ("sync", self.syncs[name])
         else:
             return (plug, source)
+
+    def add_forward(self, source, *targets):
+        log.debug("Adding channels to forwards: {} -> {}".format(source, ", ".join(targets)))
+        self.forwards[source].extend(targets)
 
     # Migrate Hangouts identities for anyone with a nickname set.
 
@@ -343,6 +351,23 @@ class Data:
                 log.debug("Adding Telegram identity: {} -> {}, {}".format(nick, ho, tg))
                 self.identities[(self.network_id, ho)] = self.identities[(network, tg)] = nick
 
+    # Migrate Hangouts forwarding.
+
+    def forwarding(self):
+        for i, (source, forward) in enumerate(self.config["forwarding"].items()):
+            hname = self.add_channel("hangouts", source, self.hangout_title,
+                                     "HO:forward:{}-source".format(i))
+            hangouts = [self.add_channel("hangouts", target, self.hangout_title,
+                                         "HO:forward:{}-{}".format(i, j))
+                        for j, target in enumerate(forward["targets"])]
+            channels = []
+            for ho in hangouts:
+                channel = self.syncs.get(ho, ho)
+                if channel not in channels:
+                    channels.append(channel)
+            log.debug("Adding forward: {} -> {} channel(s)".format(hname, len(channels)))
+            self.add_forward(hname, *channels)
+
     # Migrate tldrs, assign to synced conversations if relevant.
 
     def tldr(self):
@@ -384,6 +409,8 @@ class Data:
             self.telesync_syncs()
         if self.memory["profilesync"]["ho2tg"]:
             self.telesync_identities()
+        if self.config["forwarding"]:
+            self.forwarding()
         if self.memory["tldr"]:
             self.tldr()
 
@@ -401,9 +428,16 @@ class Data:
                     IdentityLink.create(group=group, network=network, user=user)
 
     def compile_syncs(self):
-        self.hooks["sync"] = {"path": "immp.hook.sync.SyncHook",
-                              "config": {"plug": "sync-migrated", "channels": self.syncs.inverse,
-                                         "identities": "identity" if self.identities else None}}
+        identities = "identity" if self.identities else None
+        if self.syncs:
+            self.hooks["sync"] = {"path": "immp.hook.sync.SyncHook",
+                                  "config": {"plug": "sync-migrated",
+                                             "channels": self.syncs.inverse,
+                                             "identities": identities}}
+        if self.forwards:
+            self.hooks["forward"] = {"path": "immp.hook.sync.ForwardHook",
+                                     "config": {"channels": dict(self.forwards),
+                                                "identities": identities}}
 
     def compile_commands(self):
         commands = {"groups": ["migrated"],
@@ -415,7 +449,7 @@ class Data:
     def make_config(self):
         if self.identities:
             self.compile_identities()
-        if self.syncs:
+        if self.syncs or self.forwards:
             self.compile_syncs()
         self.compile_commands()
         return {"plugs": self.plugs,
