@@ -14,6 +14,7 @@ Transfers and converts data for:
 """
 
 from argparse import ArgumentParser, FileType
+from collections import defaultdict
 import json
 import logging
 import os.path
@@ -89,7 +90,7 @@ class RevDict(dict):
             self.inverse[value] = key
 
     def __setitem__(self, key, value):
-        if value in self.inverse and not self.inverse[value] == key:
+        if value in self.inverse and self.inverse[value] != key:
             raise KeyError(value)
         if key in self:
             del self.inverse[self[key]]
@@ -105,20 +106,21 @@ class MultiRevDict(dict):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.inverse = {}
+        self.inverse = defaultdict(list)
         for key, value in self.items():
-            self.inverse.setdefault(value, []).append(key)
+            self.inverse[value].append(key)
 
     def __setitem__(self, key, value):
         if key in self:
             self.inverse[self[key]].remove(key)
         super().__setitem__(key, value)
-        self.inverse.setdefault(value, []).append(key)
+        self.inverse[value].append(key)
 
     def __delitem__(self, key):
-        self.inverse.setdefault(self[key], []).remove(key)
-        if self[key] in self.inverse and not self.inverse[self[key]]:
-            del self.inverse[self[key]]
+        value = self[key]
+        self.inverse[value].remove(key)
+        if value in self.inverse and not self.inverse[value]:
+            del self.inverse[value]
         super().__delitem__(key)
 
 
@@ -146,7 +148,7 @@ class Data:
         self.identities = MultiRevDict()
         self.syncs = MultiRevDict()
         # Internal counters for unique name generation.
-        self._count = 0
+        self.user_count = 0
 
     # Assorted utility methods used during the migration.
 
@@ -161,8 +163,8 @@ class Data:
             log.debug("Got existing nickname: {} -> {}".format(uid, nick))
         else:
             while True:
-                self._count += 1
-                nick = "no-name-{}".format(self._count)
+                self.user_count += 1
+                nick = "no-name-{}".format(self.user_count)
                 if not any(user.get("nickname") and user["nickname"] == nick
                            for user in self.memory["user_data"].values()):
                     break
