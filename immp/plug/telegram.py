@@ -43,8 +43,9 @@ import immp
 try:
     from telethon import TelegramClient, tl
     from telethon.errors import BadRequestError
+    from telethon.sessions import SQLiteSession
 except ImportError:
-    TelegramClient = tl = BadRequestError = None
+    TelegramClient = tl = BadRequestError = SQLiteSession = None
 
 
 log = logging.getLogger(__name__)
@@ -146,7 +147,13 @@ class _Schema:
     updates = api([update])
 
 
-class TelegramAPIError(immp.PlugError):
+class TelegramAPIConnectError(immp.PlugError):
+    """
+    Generic error whilst attempting to call the Telegram API.
+    """
+
+
+class TelegramAPIRequestError(immp.PlugError):
     """
     Generic error from the Telegram API.
     """
@@ -349,7 +356,7 @@ class TelegramMessage(immp.Message):
     _file_types = ("animation", "video", "video_note", "audio", "voice", "document")
 
     @classmethod
-    async def from_message(cls, telegram, json):
+    async def from_bot_message(cls, telegram, json):
         """
         Convert an API message :class:`dict` to a :class:`.Message`.
 
@@ -382,7 +389,7 @@ class TelegramMessage(immp.Message):
         if message["from"]:
             user = TelegramUser.from_bot_user(telegram, message["from"])
         if message["reply_to_message"]:
-            reply_to = await cls.from_message(telegram, message["reply_to_message"])
+            reply_to = await cls.from_bot_message(telegram, message["reply_to_message"])
         # At most one of these fields will be set.
         if message["text"]:
             text = TelegramRichText.from_entities(message["text"], message["entities"])
@@ -418,7 +425,7 @@ class TelegramMessage(immp.Message):
         elif message["pinned_message"]:
             action = True
             text = "pinned a message"
-            attachments.append(await cls.from_message(telegram, message["pinned_message"]))
+            attachments.append(await cls.from_bot_message(telegram, message["pinned_message"]))
         elif message["photo"]:
             # This is a list of resolutions, find the original sized one to return.
             photo = max(message["photo"], key=lambda photo: photo["height"])
@@ -520,7 +527,7 @@ class TelegramMessage(immp.Message):
                                     **common)
 
     @classmethod
-    async def from_update(cls, telegram, update):
+    async def from_bot_update(cls, telegram, update):
         """
         Convert an API update :class:`dict` to a :class:`.Message`.
 
@@ -536,9 +543,30 @@ class TelegramMessage(immp.Message):
         """
         for key in ("message", "channel_post"):
             if update.get(key):
-                return await cls.from_message(telegram, update[key])
+                return await cls.from_bot_message(telegram, update[key])
             elif update.get("edited_{}".format(key)):
-                return await cls.from_message(telegram, update["edited_{}".format(key)])
+                return await cls.from_bot_message(telegram, update["edited_{}".format(key)])
+
+
+if SQLiteSession:
+
+    class Session(SQLiteSession):
+
+        def _execute_multi(self, statement, *values):
+            cursor = self._cursor()
+            try:
+                return cursor.execute(statement, values).fetchall()
+            finally:
+                cursor.close()
+
+        def get_user_entities(self):
+            return self._execute_multi("SELECT id, username, name FROM entities WHERE id > 0")
+
+        def get_chat_entities(self):
+            return self._execute_multi("SELECT id, username, name FROM entities WHERE id < 0")
+
+        def get_entity(self, id):
+            return self._execute("SELECT id, username, name FROM entities WHERE id = ?", id)
 
 
 class TelegramPlug(immp.Plug):
@@ -554,10 +582,7 @@ class TelegramPlug(immp.Plug):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
-        if self.config["api-id"] and self.config["api-hash"]:
-            if not TelegramClient:
-                raise immp.ConfigError("API ID/hash specified but Telethon is not installed")
-        elif self.config["api-id"] or self.config["api-hash"]:
+        if bool(self.config["api-id"]) != bool(self.config["api-hash"]):
             raise immp.ConfigError("Both of API ID and hash must be given")
         # Connection objects that need to be closed on disconnect.
         self._session = self._bot_user = self._receive = self._client = None
@@ -576,13 +601,14 @@ class TelegramPlug(immp.Plug):
                     json = await resp.json()
                     data = schema(json)
                 except ClientResponseError as e:
-                    raise TelegramAPIError("Bad response with code: {}".format(resp.status)) from e
+                    raise TelegramAPIConnectError("Bad response with code: {}"
+                                                  .format(resp.status)) from e
         except ClientError as e:
-            raise TelegramAPIError("Request failed") from e
+            raise TelegramAPIConnectError("Request failed") from e
         except TimeoutError as e:
-            raise TelegramAPIError("Request timed out") from e
+            raise TelegramAPIConnectError("Request timed out") from e
         if not data["ok"]:
-            raise TelegramAPIError(data["error_code"], data["description"])
+            raise TelegramAPIRequestError(data["error_code"], data["description"])
         return data["result"]
 
     async def start(self):
@@ -591,10 +617,12 @@ class TelegramPlug(immp.Plug):
         self._session = ClientSession()
         self._bot_user = await self._api("getMe", _Schema.me)
         self._receive = ensure_future(self._poll())
-        if self.config["api-id"]:
+        if self.config["api-id"] and self.config["api-hash"]:
+            if not TelegramClient:
+                raise immp.ConfigError("API ID/hash specified but Telethon is not installed")
             log.debug("Starting client")
-            self._client = TelegramClient(self.config["session"], self.config["api-id"],
-                                          self.config["api-hash"])
+            self._client = TelegramClient(Session(self.config["session"]),
+                                          self.config["api-id"], self.config["api-hash"])
             await self._client.start(bot_token=self.config["token"])
 
     async def stop(self):
@@ -641,29 +669,39 @@ class TelegramPlug(immp.Plug):
     async def user_is_system(self, user):
         return user.id == str(self._bot_user["id"])
 
+    async def public_channels(self):
+        if not self._client:
+            log.debug("Client auth required to look up channels")
+            return None
+        # Use the session cache to find all "seen" chats -- not guaranteed to be a complete list.
+        return [immp.Channel(self, chat[0]) for chat in self._client.session.get_chat_entities()]
+
     async def channel_for_user(self, user):
         if not isinstance(user, TelegramUser):
             return None
         try:
             await self._api("getChat", params={"chat_id": user.id})
-        except TelegramAPIError:
+        except TelegramAPIRequestError as e:
+            log.warning("Failed to retrieve user %s channel", user.id, exc_info=e)
             # Can't create private channels, users must initiate conversations with bots.
             return None
         else:
             return immp.Channel(self, user.id)
 
     async def channel_is_private(self, channel):
-        try:
-            data = await self._api("getChat", _Schema.chat, params={"chat_id": channel.source})
-        except TelegramAPIError:
-            return None
-        else:
-            return data["type"] == "private"
+        return int(channel.source) > 0
 
     async def channel_title(self, channel):
+        if await channel.is_private():
+            return None
+        if self._client:
+            row = self._client.session.get_entity(channel.source)
+            if row and row[2]:
+                return row[2]
         try:
             data = await self._api("getChat", _Schema.chat, params={"chat_id": channel.source})
-        except TelegramAPIError:
+        except TelegramAPIRequestError as e:
+            log.warning("Failed to retrieve channel %s title", channel.source, exc_info=e)
             return None
         else:
             return data["title"]
@@ -727,13 +765,13 @@ class TelegramPlug(immp.Plug):
             data = await self._form_data(base, "photo", attach)
             try:
                 return await self._api("sendPhoto", _Schema.send, data=data)
-            except TelegramAPIError:
+            except (TelegramAPIConnectError, TelegramAPIRequestError):
                 log.debug("Failed to upload image, falling back to document upload")
         data = await self._form_data(base, "document", attach)
         try:
             return await self._api("sendDocument", _Schema.send, data=data)
-        except TelegramAPIError:
-            log.exception("Failed to upload file")
+        except TelegramAPIConnectError as e:
+            log.warning("Failed to upload file", exc_info=e)
             return None
 
     def _requests(self, chat, msg):
@@ -800,7 +838,7 @@ class TelegramPlug(immp.Plug):
             result = await request
             if not result:
                 continue
-            sent = await TelegramMessage.from_message(self, result)
+            sent = await TelegramMessage.from_bot_message(self, result)
             self.queue(sent)
             ids.append(sent.id)
         return ids
@@ -819,7 +857,7 @@ class TelegramPlug(immp.Plug):
             except CancelledError:
                 log.debug("Cancelling polling")
                 return
-            except TelegramAPIError as e:
+            except TelegramAPIConnectError as e:
                 log.debug("Unexpected response or timeout: %r", e)
                 log.debug("Reconnecting in 3 seconds")
                 await sleep(3)
@@ -828,7 +866,7 @@ class TelegramPlug(immp.Plug):
                 log.exception("Uncaught exception during long-poll: %r", e)
                 raise
             for update in result:
-                log.debug("Received a message")
+                log.debug("Received an update")
                 if "message" in update and update["message"]["migrate_to_chat_id"]:
                     old = update["message"]["chat"]["id"]
                     new = update["message"]["migrate_to_chat_id"]
@@ -841,7 +879,7 @@ class TelegramPlug(immp.Plug):
                 if any(key in update or "edited_{}".format(key) in update
                        for key in ("message", "channel_post")):
                     try:
-                        sent = await TelegramMessage.from_update(self, update)
+                        sent = await TelegramMessage.from_bot_update(self, update)
                     except NotImplementedError:
                         log.debug("Skipping message with no usable parts")
                     except CancelledError:
