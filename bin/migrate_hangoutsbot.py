@@ -15,6 +15,7 @@ Transfers and converts data for:
 
 from argparse import ArgumentParser, FileType
 from collections import defaultdict
+from functools import partial
 import json
 import logging
 import os.path
@@ -22,7 +23,7 @@ import re
 
 import anyconfig
 from playhouse.db_url import connect
-import requests
+from requests import Session
 from voluptuous import REMOVE_EXTRA, Any, Optional, Schema
 
 from immp.hook.database import BaseModel
@@ -149,6 +150,7 @@ class Data:
         self.syncs = MultiRevDict()
         # Internal counters for unique name generation.
         self.user_count = 0
+        self.session = Session()
 
     # Assorted utility methods used during the migration.
 
@@ -173,16 +175,24 @@ class Data:
             log.debug("Assigned new nickname: {} -> {}".format(uid, nick))
         return nick
 
-    def add_channel(self, plug, source, name=None):
+    def format_title(self, prefix, title):
+        if not title:
+            return None
+        formatted = re.sub(r"[^a-z0-9]+", "-", title.replace("'", ""), flags=re.I).strip("-")
+        return "{}:{}".format(prefix, formatted)
+
+    def hangout_title(self, chat):
+        # Prefer a name based on the current conv title.
+        return (self.format_title("HO", self.memory["convmem"][chat]["title"])
+                if chat in self.memory["convmem"] else None)
+
+    def add_channel(self, plug, source, name_getter=None, name_fallback=None):
         if (plug, source) in self.channels.inverse:
             # Already exists under another name.
             name = self.channels.inverse[(plug, source)]
             log.debug("Preferring existing channel: {} -> {}/{}".format(name, plug, source))
         else:
-            if plug == "hangouts" and source in self.memory["convmem"]:
-                # Prefer a name based on the current conv title.
-                title = self.memory["convmem"][source]["title"]
-                name = re.sub(r"[^a-z0-9]+", "-", title, flags=re.I).strip("-")
+            name = (name_getter(source) if name_getter else None) or name_fallback
             unique = name
             count = 0
             while name in self.channels:
@@ -231,20 +241,35 @@ class Data:
 
     def syncrooms_syncs(self):
         for i, synced in enumerate(self.config["sync_rooms"]):
-            channels = [self.add_channel("hangouts", ho, "hangouts-syrm-{}-{}".format(i, j))
+            channels = [self.add_channel("hangouts", ho, self.hangout_title,
+                                         "HO:syncrooms:{}-{}".format(i, j))
                         for j, ho in enumerate(synced)]
             log.debug("Adding Hangouts sync: {}".format(", ".join(channels)))
             self.add_sync("syncrooms-{}".format(i), *channels)
 
     # Migrate SlackRTM syncs and identities.
 
-    def _slackrtm_network_id(self, name):
-        token = self.config["slackrtm"]["teams"][name]["token"]
-        url = "https://slack.com/api/auth.test?token={}".format(token)
-        data = requests.get(url).json()
+    def slackrtm_api(self, name, endpoint, **kwargs):
+        kwargs["token"] = self.config["slackrtm"]["teams"][name]["token"]
+        data = self.session.get("https://slack.com/api/{}".format(endpoint), params=kwargs).json()
+        if data["ok"]:
+            return data
+        else:
+            raise ValueError(data)
+
+    def slackrtm_network_id(self, name):
+        data = self.slackrtm_api(name, "auth.test")
         id = "slack:{}:{}".format(data["team_id"], data["user_id"])
         log.debug("Generated Slack network ID: {}".format(id))
         return id
+
+    def slackrtm_title(self, name, channel):
+        try:
+            data = self.slackrtm_api(name, "conversations.info", channel=channel)
+        except ValueError:
+            return None
+        else:
+            return self.format_title("Slack", data["channel"].get("name"))
 
     def slackrtm_syncs(self):
         for name, team in self.config["slackrtm"]["teams"].items():
@@ -254,14 +279,16 @@ class Data:
             # IMMP requires channel names, but we don't have much to go on.
             for i, sync in enumerate(self.config["slackrtm"]["syncs"]):
                 team, channel = sync["channel"]
-                hname = self.add_channel("hangouts", sync["hangout"], "hangouts-srtm-{}".format(i))
-                sname = self.add_channel(plug, channel, "slack-srtm-{}".format(i))
+                hname = self.add_channel("hangouts", sync["hangout"], self.hangout_title,
+                                         "HO:SlackRTM:{}".format(i))
+                sname = self.add_channel(plug, channel, partial(self.slackrtm_title, name),
+                                         "Slack:SlackRTM:{}".format(i))
                 log.debug("Adding Slack sync: {} <-> {}".format(hname, sname))
-                self.add_sync("slack-{}-{}".format(name, i), hname, sname)
+                self.add_sync("Sync:{}".format(hname.replace("HO:", "")), hname, sname)
 
     def slackrtm_identities(self):
         for name, data in self.memory["slackrtm"].items():
-            network = self._slackrtm_network_id(name)
+            network = self.slackrtm_network_id(name)
             for ho, sk in data["identities"]["hangouts"].items():
                 if data["identities"]["slack"].get(sk) == ho:
                     nick = self.get_nickname(ho)
@@ -270,23 +297,45 @@ class Data:
 
     # Migrate telesync syncs and identities.
 
-    def _telegram_network_id(self):
-        url = "https://api.telegram.org/bot{}/getMe".format(self.config["telesync"]["api_key"])
-        id = "telegram:{}".format(requests.get(url).json()["result"]["id"])
+    def telegram_api(self, endpoint, **kwargs):
+        # Calls may be rate-limited and hang for 10-15 seconds after a large number of requests.
+        data = self.session.get("https://api.telegram.org/bot{}/{}"
+                                .format(self.config["telesync"]["api_key"], endpoint),
+                                params=kwargs).json()
+        if data["ok"]:
+            return data
+        else:
+            raise ValueError(data)
+
+    def telegram_network_id(self):
+        data = self.telegram_api("getMe")
+        id = "telegram:{}".format(data["result"]["id"])
         log.debug("Generated Telegram network ID: {}".format(id))
         return id
+
+    def telegram_title(self, chat):
+        if int(chat) > 0:
+            return None  # Private chat, no title.
+        try:
+            data = self.telegram_api("getChat", chat_id=chat)
+        except ValueError:
+            return None
+        else:
+            return self.format_title("TG", data["result"].get("title"))
 
     def telesync_syncs(self):
         self.plugs["telegram"] = {"path": "immp.plug.telegram.TelegramPlug",
                                   "config": {"token": self.config["telesync"]["api_key"]}}
         for i, (ho, tg) in enumerate(self.memory["telesync"]["ho2tg"].items()):
-            hname = self.add_channel("hangouts", ho, "hangouts-tlsy-{}".format(i))
-            tname = self.add_channel("telegram", tg, "telegram-tlsy-{}".format(i))
+            hname = self.add_channel("hangouts", ho, self.hangout_title,
+                                     "HO:telesync:{}".format(i))
+            tname = self.add_channel("telegram", tg, self.telegram_title,
+                                     "TG:telesync:{}".format(i))
             log.debug("Adding Telegram sync: {} <-> {}".format(hname, tname))
-            self.add_sync("telegram-{}".format(i), hname, tname)
+            self.add_sync("Sync:{}".format(hname.replace("HO:", "")), hname, tname)
 
     def telesync_identities(self):
-        network = self._telegram_network_id()
+        network = self.telegram_network_id()
         for ho, tg in self.memory["profilesync"]["ho2tg"].items():
             # Ignore incomplete profile syncs.
             if not (ho.startswith("VERIFY") or tg.startswith("VERIFY")):
