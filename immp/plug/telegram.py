@@ -765,12 +765,14 @@ class TelegramPlug(immp.Plug):
             try:
                 data = await self._client(tl.functions.messages.GetFullChatRequest(chat))
             except BadRequestError:
-                if int(channel.source) > 0:
-                    # Private channels should just contain the bot and the corresponding user.
+                # Private channels should just contain the bot and the corresponding user.
+                if channel.source == str(self._bot_user["id"]):
+                    return [TelegramUser.from_bot_user(self, self._bot_user)]
+                elif int(channel.source) > 0:
                     entity = self._client.session.get_entity(channel.source)
                     if entity:
                         return [TelegramUser.from_bot_user(self, self._bot_user),
-                                TelegramUser.from_entity(self, entity)]
+                                await self.user_from_id(channel.source)]
                     else:
                         return None
             else:
