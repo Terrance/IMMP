@@ -183,6 +183,9 @@ class WebUIHook(immp.ResourceHook):
         all_members = await gather(*(channel.members() for channel in private)) if private else []
         users = []
         for members in all_members:
+            if not members:
+                users.append([])
+                continue
             systems = await gather(*(member.is_system() for member in members)) if members else []
             users.append([member for member, system in zip(members, systems) if not system])
         channels = defaultdict(list)
