@@ -249,6 +249,28 @@ class TelegramUser(immp.User):
                    avatar=avatar,
                    raw=user)
 
+    @classmethod
+    def from_entity(cls, telegram, entity):
+        """
+        Convert a client entity row into a :class:`.User`.
+
+        Args:
+            telegram (.TelegramPlug):
+                Related plug instance that provides the user.
+            entity ((str, str, str) tuple):
+                ID, username and real name of a cached Telegram user.
+
+        Returns:
+            .TelegramUser:
+                Parsed user object.
+        """
+        id, username, name = entity
+        return cls(id=id,
+                   plug=telegram,
+                   username=username,
+                   real_name=name,
+                   raw=entity)
+
     @property
     def link(self):
         if self.username:
@@ -651,7 +673,8 @@ class TelegramPlug(immp.Plug):
         try:
             data = await self._client(tl.functions.users.GetFullUserRequest(int(id)))
         except BadRequestError:
-            return None
+            entity = self._client.session.get_entity(id)
+            return TelegramUser.from_entity(self, entity) if entity else None
         else:
             return TelegramUser.from_proto_user(self, data.user)
 
@@ -675,6 +698,14 @@ class TelegramPlug(immp.Plug):
             return None
         # Use the session cache to find all "seen" chats -- not guaranteed to be a complete list.
         return [immp.Channel(self, chat[0]) for chat in self._client.session.get_chat_entities()]
+
+    async def private_channels(self):
+        if not self._client:
+            log.debug("Client auth required to look up channels")
+            return None
+        # Private channels just use user IDs, so return all users we know about.  Note that these
+        # channels aren't usable unless the user has messaged the bot first.
+        return [immp.Channel(self, chat[0]) for chat in self._client.session.get_user_entities()]
 
     async def channel_for_user(self, user):
         if not isinstance(user, TelegramUser):
@@ -734,7 +765,14 @@ class TelegramPlug(immp.Plug):
             try:
                 data = await self._client(tl.functions.messages.GetFullChatRequest(chat))
             except BadRequestError:
-                return None
+                if int(channel.source) > 0:
+                    # Private channels should just contain the bot and the corresponding user.
+                    entity = self._client.session.get_entity(channel.source)
+                    if entity:
+                        return [TelegramUser.from_bot_user(self, self._bot_user),
+                                TelegramUser.from_entity(self, entity)]
+                    else:
+                        return None
             else:
                 return [TelegramUser.from_proto_user(self, user) for user in data.users]
 
