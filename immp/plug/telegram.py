@@ -73,7 +73,9 @@ class _Schema:
 
     entity = Schema({"type": str,
                      "offset": int,
-                     "length": int},
+                     "length": int,
+                     Optional("url", default=None): Any(str, None),
+                     Optional("user", default=None): Any(user, None)},
                     extra=ALLOW_EXTRA, required=True)
 
     _file = {"file_id": str, Optional("file_name", default=None): Any(str, None)}
@@ -329,11 +331,27 @@ class TelegramRichText(immp.RichText):
     """
 
     @classmethod
-    def from_entities(cls, text, entities):
+    def _from_changes(cls, text, changes):
+        segments = []
+        points = list(sorted(changes.keys()))
+        formatting = {}
+        # Iterate through text in change start/end pairs.
+        for start, end in zip([0] + points, points + [len(text)]):
+            formatting.update(changes[start])
+            if start == end:
+                # Zero-length segment at the start or end, ignore it.
+                continue
+            segments.append(immp.Segment(text[start:end], **formatting))
+        return cls(segments)
+
+    @classmethod
+    async def from_bot_entities(cls, telegram, text, entities):
         """
         Convert a string annotated by Telegram's entities to :class:`.RichText`.
 
         Args:
+            telegram (.TelegramPlug):
+                Related plug instance that provides the text.
             text (str):
                 Plain text without formatting.
             entities (dict list):
@@ -344,30 +362,71 @@ class TelegramRichText(immp.RichText):
             .TelegramRichText:
                 Parsed rich text container.
         """
-        if text is None:
+        if not text:
             return None
+        elif not entities:
+            return immp.RichText([immp.Segment(text)])
+        # Telegram entities assume the text is UTF-16.
+        encoded = text.encode("utf-16-le")
         changes = defaultdict(dict)
         for json in entities:
             entity = _Schema.entity(json)
-            if entity["type"] not in ("bold", "italic", "code", "pre"):
-                continue
             start = entity["offset"] * 2
             end = start + (entity["length"] * 2)
-            changes[start][entity["type"]] = True
-            changes[end][entity["type"]] = False
-        segments = []
-        points = list(sorted(changes.keys()))
-        formatting = {}
-        # Telegram entities assume the text is UTF-16.
-        encoded = text.encode("utf-16-le")
-        # Iterate through text in change start/end pairs.
-        for start, end in zip([0] + points, points + [len(encoded)]):
-            formatting.update(changes[start])
-            if start == end:
-                # Zero-length segment at the start or end, ignore it.
+            if entity["type"] in ("bold", "italic", "code", "pre"):
+                key = entity["type"]
+                value, clear = True, False
+            elif entity["type"] in ("url", "email"):
+                key = "link"
+                value, clear = encoded[start:end], None
+            elif entity["type"] == "text_url":
+                key = "link"
+                value, clear = entity["url"], None
+            elif entity["type"] == "mention":
+                key = "mention"
+                username = encoded[start + 2:end].decode("utf-16-le")
+                value, clear = await telegram.user_from_username(username), None
+            elif entity["type"] == "text_mention":
+                key = "mention"
+                value, clear = TelegramUser.from_bot_user(telegram, entity["user"]), None
+            else:
                 continue
-            segments.append(immp.Segment(encoded[start:end].decode("utf-16-le"), **formatting))
-        return cls(segments)
+            changes[start][key] = value
+            changes[end][key] = clear
+        rich = cls._from_changes(encoded, changes)
+        for segment in rich:
+            segment.text = segment.text.decode("utf-16-le")
+        return rich
+
+
+class TelegramFile(immp.File):
+    """
+    File attachment originating from Telegram.
+    """
+
+    @classmethod
+    async def from_id(cls, telegram, id, type=immp.File.Type.unknown, name=None):
+        """
+        Generate a file using the bot API URL for a Telegram file.
+
+        Args:
+            telegram (.TelegramPlug):
+                Related plug instance that provides the file.
+            id (str):
+                File ID as provided in the bot API, or constructed from a raw MTProto file.
+            type (.File.Type):
+                Corresponding file type.
+            name (str):
+                Original filename, if available for the file format.
+
+        Returns:
+            .TelegramFile:
+                Parsed file object.
+        """
+        file = await telegram._api("getFile", _Schema.file, params={"file_id": id})
+        url = ("https://api.telegram.org/file/bot{}/{}"
+               .format(telegram.config["token"], file["file_path"]))
+        return immp.File(name, type, url)
 
 
 class TelegramMessage(immp.Message):
@@ -400,7 +459,8 @@ class TelegramMessage(immp.Message):
         at = datetime.fromtimestamp(message["date"])
         channel = immp.Channel(telegram, message["chat"]["id"])
         edited = bool(message["edit_date"])
-        text = None
+        text = await TelegramRichText.from_bot_entities(telegram, message["text"],
+                                                        message["entities"])
         user = None
         action = False
         reply_to = None
@@ -413,9 +473,7 @@ class TelegramMessage(immp.Message):
         if message["reply_to_message"]:
             reply_to = await cls.from_bot_message(telegram, message["reply_to_message"])
         # At most one of these fields will be set.
-        if message["text"]:
-            text = TelegramRichText.from_entities(message["text"], message["entities"])
-        elif message["group_chat_created"]:
+        if message["group_chat_created"]:
             action = True
             text = immp.RichText([immp.Segment("created the group "),
                                   immp.Segment(message["chat"]["title"], bold=True)])
@@ -451,20 +509,14 @@ class TelegramMessage(immp.Message):
         elif message["photo"]:
             # This is a list of resolutions, find the original sized one to return.
             photo = max(message["photo"], key=lambda photo: photo["height"])
-            params = {"file_id": photo["file_id"]}
-            file = await telegram._api("getFile", _Schema.file, params=params)
-            url = ("https://api.telegram.org/file/bot{}/{}"
-                   .format(telegram.config["token"], file["file_path"]))
-            attachments.append(immp.File(type=immp.File.Type.image, source=url))
+            attachments.append(await TelegramFile.from_id(telegram, photo["file_id"],
+                                                          immp.File.Type.image))
             if message["caption"]:
-                text = TelegramRichText.from_entities(message["caption"],
-                                                      message["caption_entities"])
+                text = await TelegramRichText.from_bot_entities(telegram, message["caption"],
+                                                                message["caption_entities"])
         elif message["sticker"]:
-            params = {"file_id": message["sticker"]["file_id"]}
-            file = await telegram._api("getFile", _Schema.file, params=params)
-            url = ("https://api.telegram.org/file/bot{}/{}"
-                   .format(telegram.config["token"], file["file_path"]))
-            attachments.append(immp.File(type=immp.File.Type.image, source=url))
+            attachments.append(await TelegramFile.from_id(telegram, message["sticker"]["file_id"],
+                                                          immp.File.Type.image))
             # All real stickers should have an emoji, but webp images uploaded as photos are
             # incorrectly categorised as stickers in the API response.
             if not text and message["sticker"]["emoji"]:
@@ -475,12 +527,9 @@ class TelegramMessage(immp.Message):
                 if message[key]:
                     obj = message[key]
                     break
-            params = {"file_id": obj["file_id"]}
-            file = await telegram._api("getFile", _Schema.file, params=params)
-            url = ("https://api.telegram.org/file/bot{}/{}"
-                   .format(telegram.config["token"], file["file_path"]))
             type = immp.File.Type.image if key == "animation" else immp.File.Type.unknown
-            attachments.append(immp.File(obj["file_name"], type, url))
+            attachments.append(await TelegramFile.from_id(telegram, obj["file_id"], type,
+                                                          obj["file_name"]))
         elif message["venue"]:
             attachments.append(immp.Location(latitude=message["venue"]["location"]["latitude"],
                                              longitude=message["venue"]["location"]["longitude"],
@@ -494,7 +543,7 @@ class TelegramMessage(immp.Message):
             prefix = "closed the" if message["poll"]["is_closed"] else "opened a"
             text = immp.RichText([immp.Segment("{} poll: ".format(prefix)),
                                   immp.Segment(message["poll"]["question"], bold=True)])
-        else:
+        elif not text:
             # No support for this message type.
             raise NotImplementedError
         common = dict(id=id,
@@ -897,7 +946,7 @@ class TelegramPlug(immp.Plug):
             except CancelledError:
                 log.debug("Cancelling polling")
                 return
-            except TelegramAPIConnectError as e:
+            except (TelegramAPIConnectError, TelegramAPIRequestError) as e:
                 log.debug("Unexpected response or timeout: %r", e)
                 log.debug("Reconnecting in 3 seconds")
                 await sleep(3)
