@@ -29,7 +29,7 @@ methods.  With a session file, you need only do this once, after which the refer
     Python module.
 """
 
-from asyncio import CancelledError, TimeoutError, ensure_future, sleep
+from asyncio import CancelledError, TimeoutError, ensure_future, gather, sleep
 from collections import defaultdict
 from datetime import datetime
 import logging
@@ -44,8 +44,9 @@ try:
     from telethon import TelegramClient, tl
     from telethon.errors import BadRequestError
     from telethon.sessions import SQLiteSession
+    from telethon.utils import pack_bot_file_id
 except ImportError:
-    TelegramClient = tl = BadRequestError = SQLiteSession = None
+    TelegramClient = SQLiteSession = None
 
 
 log = logging.getLogger(__name__)
@@ -398,6 +399,57 @@ class TelegramRichText(immp.RichText):
             segment.text = segment.text.decode("utf-16-le")
         return rich
 
+    @classmethod
+    async def from_proto_entities(cls, telegram, text, entities):
+        """
+        Convert a string annotated by Telegram's entities to :class:`.RichText`.
+
+        Args:
+            telegram (.TelegramPlug):
+                Related plug instance that provides the text.
+            text (str):
+                Plain text without formatting.
+            entities (telethon.types.TypeMessageEntity list):
+                List of Telegram entity objects.
+
+        Returns:
+            .TelegramRichText:
+                Parsed rich text container.
+        """
+        if not text:
+            return None
+        elif not entities:
+            return immp.RichText([immp.Segment(text)])
+        changes = defaultdict(dict)
+        for entity in entities:
+            value, clear = True, False
+            if isinstance(entity, tl.types.MessageEntityBold):
+                key = "bold"
+            elif isinstance(entity, tl.types.MessageEntityItalic):
+                key = "italic"
+            elif isinstance(entity, tl.types.MessageEntityCode):
+                key = "code"
+            elif isinstance(entity, tl.types.MessageEntityPre):
+                key = "pre"
+            elif isinstance(entity, (tl.types.MessageEntityEmail, tl.types.MessageEntityUrl)):
+                key = "link"
+                value, clear = text[entity.offset:entity.offset + entity.length], None
+            elif isinstance(entity, tl.types.MessageEntityTextUrl):
+                key = "link"
+                value, clear = entity.url, None
+            elif isinstance(entity, tl.types.MessageEntityMention):
+                key = "mention"
+                username = text[entity.offset + 1:entity.offset + entity.length]
+                value, clear = await telegram.user_from_username(username), None
+            elif isinstance(entity, tl.types.MessageEntityMentionName):
+                key = "mention"
+                value, clear = await telegram.user_from_id(entity.user_id), None
+            else:
+                continue
+            changes[entity.offset][key] = value
+            changes[entity.offset + entity.length][key] = clear
+        return cls._from_changes(text, changes)
+
 
 class TelegramFile(immp.File):
     """
@@ -477,17 +529,12 @@ class TelegramMessage(immp.Message):
             action = True
             text = immp.RichText([immp.Segment("created the group "),
                                   immp.Segment(message["chat"]["title"], bold=True)])
-        elif message["new_chat_title"]:
-            title = message["new_chat_title"]
-            action = True
-            text = immp.RichText([immp.Segment("changed group name to "),
-                                  immp.Segment(message["new_chat_title"], bold=True)])
         elif message["new_chat_members"]:
             joined = [(TelegramUser.from_bot_user(telegram, member))
                       for member in message["new_chat_members"]]
             action = True
             if joined == [user]:
-                text = immp.RichText([immp.Segment("joined group via invite link")])
+                text = "joined group via invite link"
             else:
                 text = immp.RichText()
                 for join in joined:
@@ -497,11 +544,16 @@ class TelegramMessage(immp.Message):
             left = [TelegramUser.from_bot_user(telegram, message["left_chat_member"])]
             action = True
             if left == [user]:
-                text = immp.RichText([immp.Segment("left group")])
+                text = "left group"
             else:
                 part = left[0]
                 text = immp.RichText([immp.Segment("removed "),
                                       immp.Segment(part.real_name, bold=True, link=part.link)])
+        elif message["new_chat_title"]:
+            title = message["new_chat_title"]
+            action = True
+            text = immp.RichText([immp.Segment("changed group name to "),
+                                  immp.Segment(title, bold=True)])
         elif message["pinned_message"]:
             action = True
             text = "pinned a message"
@@ -618,6 +670,117 @@ class TelegramMessage(immp.Message):
             elif update.get("edited_{}".format(key)):
                 return await cls.from_bot_message(telegram, update["edited_{}".format(key)])
 
+    @classmethod
+    async def from_proto_message(cls, telegram, message):
+        """
+        Convert a Telegram message event to a :class:`.Message`.
+
+        Args:
+            telegram (.TelegramPlug):
+                Related plug instance that provides the event.
+            message (telethon.tl.custom.Message):
+                Received message from an event or get request.
+
+        Returns:
+            .TelegramMessage:
+                Parsed message object.
+        """
+        id = "{}:{}".format(message.chat_id, message.id)
+        edited = bool(message.edit_date)
+        if edited:
+            revision = int(message.edit_date.timestamp())
+        elif message.date:
+            revision = int(message.date.timestamp())
+        else:
+            revision = None
+        text = await TelegramRichText.from_proto_entities(telegram, message.message,
+                                                          message.entities)
+        user = TelegramUser.from_proto_user(telegram, await message.get_sender())
+        action = False
+        reply_to = None
+        joined = []
+        left = []
+        title = None
+        attachments = []
+        if message.reply_to_msg_id:
+            reply_to = await telegram.get_message(message.reply_to_msg_id)
+        if message.photo:
+            attachments.append(await TelegramFile.from_id(telegram, pack_bot_file_id(message.photo),
+                                                          immp.File.Type.image))
+        elif message.document:
+            type = immp.File.Type.unknown
+            name = None
+            for attr in message.document.attributes:
+                if isinstance(attr, tl.types.DocumentAttributeSticker):
+                    type = immp.File.Type.image
+                    if attr.alt and not text:
+                        text = "sent {} sticker".format(attr.alt)
+                        action = True
+                elif isinstance(attr, tl.types.DocumentAttributeAnimated):
+                    type = immp.File.Type.image
+                elif isinstance(attr, tl.types.DocumentAttributeFilename):
+                    name = attr.file_name
+            attachments.append(await TelegramFile.from_id(telegram,
+                                                          pack_bot_file_id(message.document),
+                                                          type, name))
+        elif message.poll:
+            action = True
+            prefix = "closed the" if message.poll.poll.closed else "opened a"
+            text = immp.RichText([immp.Segment("{} poll: ".format(prefix)),
+                                  immp.Segment(message.poll.poll.question, bold=True)])
+        elif message.action:
+            action = True
+            if isinstance(message.action, tl.types.MessageActionChatCreate):
+                text = immp.RichText([immp.Segment("created the group "),
+                                      immp.Segment(message.action.new_title, bold=True)])
+            elif isinstance(message.action, tl.types.MessageActionChatJoinedByLink):
+                joined = [user]
+                text = "joined group via invite link"
+            elif isinstance(message.action, tl.types.MessageActionChatAddUser):
+                joined = await gather(*(telegram.user_from_id(id) for id in message.action.users))
+                if joined == [user]:
+                    text = "joined group"
+                else:
+                    text = immp.RichText()
+                    for join in joined:
+                        text.append(immp.Segment(", " if text else "invited "),
+                                    immp.Segment(join.real_name, link=join.link))
+            elif isinstance(message.action, tl.types.MessageActionChatDeleteUser):
+                left = [await telegram.user_from_id(message.action.user_id)]
+                if left == [user]:
+                    text = "left group"
+                else:
+                    part = left[0]
+                    text = immp.RichText([immp.Segment("removed "),
+                                          immp.Segment(part.real_name, bold=True, link=part.link)])
+            elif isinstance(message.action, tl.types.MessageActionChatEditTitle):
+                title = message.action.title
+                text = immp.RichText([immp.Segment("changed group name to "),
+                                      immp.Segment(title, bold=True)])
+            elif isinstance(message.action, tl.types.MessageActionPinMessage):
+                attachments.append(reply_to)
+                reply_to = None
+                text = "pinned message"
+            else:
+                raise NotImplementedError
+        elif not text:
+            # No support for this message type.
+            raise NotImplementedError
+        return immp.SentMessage(id=id,
+                                revision=revision,
+                                at=message.date,
+                                channel=immp.Channel(telegram, message.chat_id),
+                                edited=edited,
+                                text=text,
+                                user=user,
+                                action=action,
+                                reply_to=reply_to,
+                                joined=joined,
+                                left=left,
+                                title=title,
+                                attachments=attachments,
+                                raw=message)
+
 
 if SQLiteSession:
 
@@ -700,6 +863,7 @@ class TelegramPlug(immp.Plug):
         await super().stop()
         self._closing = True
         if self._receive:
+            log.debug("Stopping update long-poll")
             self._receive.cancel()
             self._receive = None
         if self._session:
@@ -830,6 +994,18 @@ class TelegramPlug(immp.Plug):
     async def channel_remove(self, channel, user):
         await self._api("kickChatMember", params={"chat_id": channel.source, "user_id": user.id})
 
+    async def get_message(self, id):
+        if not self._client:
+            log.debug("Client auth required to retrieve messages")
+            return None
+        message = await self._client.get_messages(None, ids=id)
+        if not message:
+            return None
+        try:
+            return await TelegramMessage.from_proto_message(self, message)
+        except NotImplementedError:
+            return None
+
     async def _form_data(self, base, field, attach):
         data = FormData(base)
         if attach.source:
@@ -936,6 +1112,14 @@ class TelegramPlug(immp.Plug):
         chat, message = sent.id.split(":", 1)
         await self._api("deleteMessage", params={"chat_id": chat, "message_id": message})
 
+    def _migrate(self, old, new):
+        log.warning("Chat has migrated: %r -> %r", old, new)
+        self._migrations[old] = new
+        for name, channel in self.host.channels.items():
+            if channel.plug is self and channel.source == old:
+                log.debug("Updating named channel %r in place", name)
+                channel.source = new
+
     async def _poll(self):
         while not self._closing:
             params = {"offset": self._offset,
@@ -959,12 +1143,7 @@ class TelegramPlug(immp.Plug):
                 if "message" in update and update["message"]["migrate_to_chat_id"]:
                     old = update["message"]["chat"]["id"]
                     new = update["message"]["migrate_to_chat_id"]
-                    log.warning("Chat has migrated: %r -> %r", old, new)
-                    self._migrations[old] = new
-                    for name, channel in self.host.channels.items():
-                        if channel.plug is self and channel.source == old:
-                            log.debug("Updating named channel %r in place", name)
-                            channel.source = new
+                    self._migrate(old, new)
                 if any(key in update or "edited_{}".format(key) in update
                        for key in ("message", "channel_post")):
                     try:
