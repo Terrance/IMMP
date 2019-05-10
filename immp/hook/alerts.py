@@ -128,7 +128,7 @@ class SubExclude(BaseModel):
 
 class _AlertHookBase(immp.Hook):
 
-    groups = immp.ConfigProperty("groups", [immp.Group])
+    group = immp.Group.MergedProperty("groups")
 
     async def _get_members(self, msg):
         # Sync integration: avoid duplicate notifications inside and outside a synced channel.
@@ -145,7 +145,7 @@ class _AlertHookBase(immp.Hook):
             log.debug("Translating sync channel: %r -> %r", msg.channel, synced)
             channel = synced
         members = [user for user in (await msg.channel.members()) or []
-                   if self.groups.has_plug(user.plug)]
+                   if self.group.has_plug(user.plug)]
         if not members:
             raise _Skip
         return channel, members
@@ -271,7 +271,7 @@ class SubscriptionsHook(_AlertHookBase):
         self.db.create_tables([SubTrigger, SubExclude], safe=True)
 
     def _test(self, channel, user):
-        return self.groups.has_plug(channel.plug)
+        return self.group.has_plug(channel.plug)
 
     @command("sub-add", scope=CommandScope.private, test=_test)
     async def add(self, msg, *words):

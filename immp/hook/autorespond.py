@@ -48,7 +48,7 @@ class AutoRespondHook(immp.Hook):
     Basic text responses for given trigger words and phrases.
     """
 
-    groups = immp.ConfigProperty("groups", [immp.Group])
+    group = immp.Group.MergedProperty("groups")
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
@@ -78,7 +78,7 @@ class AutoRespondHook(immp.Hook):
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
-        if not primary or not await self.groups.has_channel(sent.channel):
+        if not primary or not await self.group.has_channel(sent.channel):
             return
         # Skip our own response messages.
         if (sent.channel, sent.id) in self._sent:

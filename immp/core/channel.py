@@ -134,6 +134,14 @@ class Group:
     channels, or **anywhere** as long as it belongs to the given plug.
     """
 
+    class MergedProperty(ConfigProperty):
+
+        def __init__(self, key):
+            super().__init__(key, [Group])
+
+        def __get__(self, instance, owner):
+            return Group.merge(instance.host, *super().__get__(instance, owner))
+
     _channels = ConfigProperty("channels", [Channel])
 
     def __init__(self, name, config, host):
@@ -146,13 +154,14 @@ class Group:
         config = {field: [] for field in _GROUP_FIELDS}
         for group in groups:
             for field in _GROUP_FIELDS:
-                config[field] += group.config[field]
+                config[field].extend(item for item in group.config[field]
+                                     if item not in config[field])
         return cls(None, config, host)
 
     async def has_channel(self, channel):
         if not isinstance(channel, Channel):
             raise TypeError
-        elif channel in self._channels:
+        elif self._channels and channel in self._channels:
             return True
         elif self.has_plug(channel.plug, "anywhere"):
             return True
