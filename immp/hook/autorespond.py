@@ -48,7 +48,7 @@ class AutoRespondHook(immp.Hook):
     Basic text responses for given trigger words and phrases.
     """
 
-    groups = immp.Group.Property()
+    groups = immp.ConfigProperty("groups", [immp.Group])
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)

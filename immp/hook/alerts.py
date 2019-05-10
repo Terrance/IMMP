@@ -128,7 +128,7 @@ class SubExclude(BaseModel):
 
 class _AlertHookBase(immp.Hook):
 
-    groups = immp.Group.Property()
+    groups = immp.ConfigProperty("groups", [immp.Group])
 
     async def _get_members(self, msg):
         # Sync integration: avoid duplicate notifications inside and outside a synced channel.

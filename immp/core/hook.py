@@ -1,4 +1,4 @@
-from .util import ConfigProperty, Openable, pretty_str
+from .util import Openable, pretty_str
 
 
 @pretty_str
@@ -19,11 +19,6 @@ class Hook(Openable):
         virtual (bool):
             ``True`` if managed by another component (e.g. a hook that exposes plug functionality).
     """
-
-    class Property(ConfigProperty):
-
-        def __init__(self):
-            super().__init__("hook")
 
     def __init__(self, name, config, host, virtual=False):
         super().__init__()

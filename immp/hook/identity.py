@@ -219,7 +219,7 @@ class IdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
     effectively provides self-service identities, as opposed to being provided externally.
     """
 
-    plugs = immp.Plug.Property()
+    plugs = immp.ConfigProperty("plugs", [immp.Plug])
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)

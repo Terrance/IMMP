@@ -75,72 +75,47 @@ class ConfigProperty:
     """
     Data descriptor to present config from :class:`.Openable` instances using the actual objects
     stored in a :class:`.Host`.
-
-    This class should be subclassed for each type maintained by the host, and the resulting
-    subclasses may then be used by plugs and hooks using those config types.
-    """
-
-    def __init__(self, name, key=None, attr=None):
-        self._name = name
-        self._key = key or "{}s".format(name)
-        self._attr = attr or self._key
-
-    def __get__(self, instance, owner):
-        if not instance:
-            return self
-        objs = getattr(instance.host, self._attr)
-        try:
-            return tuple(objs[label] for label in instance.config[self._key])
-        except KeyError as e:
-            raise ConfigError("No {} {} on host".format(self._name, repr(e.args[0]))) from None
-
-    def __set__(self, instance, value):
-        # Replace a list of object labels in a config dict according to the given objects.
-        objs = getattr(instance.host, self._attr)
-        labels = []
-        for val in value:
-            for label, obj in objs.items():
-                if val == obj:
-                    labels.append(label)
-                    break
-            else:
-                raise ConfigError("{} {} not registered to host"
-                                  .format(self._name.title(), repr(val)))
-        # Update the config list in place, in case anyone has a reference to it.
-        instance.config[self._key].clear()
-        instance.config[self._key].extend(labels)
-
-    def __repr__(self):
-        return "<{}: {}>".format(self.__class__.__name__, repr(self._name))
-
-
-class SingleConfigProperty:
-    """
-    Data descriptor to retrieve a single object based on a config key.
     """
 
     def __init__(self, key, cls=None):
         self._key = key
         self._cls = cls
 
-    def __get__(self, instance, owner):
-        if not instance:
-            return self
-        if not instance.config.get(self._key):
-            return None
+    @classmethod
+    def _describe(cls, spec):
+        if isinstance(spec, list):
+            return "[{}]".format(", ".join(cls._describe(inner) for inner in spec))
+        elif isinstance(spec, tuple):
+            return "{{}}".format(", ".join(inner.__name__ for inner in spec))
+        else:
+            return spec.__name__
+
+    def _from_host(self, instance, name, cls=None):
         try:
-            obj = instance.host[instance.config[self._key]]
+            obj = instance.host[name]
         except KeyError:
-            raise ConfigError("No object {} on host".format(repr(self._key))) from None
-        if self._cls and not isinstance(obj, self._cls):
+            raise ConfigError("No object {} on host".format(repr(name))) from None
+        if cls and not isinstance(obj, cls):
             raise ConfigError("Reference {} not instance of {}"
-                              .format(repr(self._key), self._cls.__name__))
+                              .format(repr(name), self._describe(cls)))
         else:
             return obj
 
+    def __get__(self, instance, owner):
+        if not instance:
+            return self
+        value = instance.config.get(self._key)
+        if not value:
+            return None
+        if isinstance(self._cls, list):
+            obj = tuple(self._from_host(instance, name, tuple(self._cls)) for name in value)
+        else:
+            obj = self._from_host(instance, value, self._cls)
+        return obj
+
     def __repr__(self):
         return "<{}: {}{}>".format(self.__class__.__name__, repr(self._key),
-                                   " {}".format(self._cls.__name__) if self._cls else "")
+                                   " {}".format(self._describe(self._cls)) if self._cls else "")
 
 
 class OpenState(Enum):

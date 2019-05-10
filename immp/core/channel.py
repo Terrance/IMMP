@@ -25,11 +25,6 @@ class Channel:
             Plug-specific channel identifier.
     """
 
-    class Property(ConfigProperty):
-
-        def __init__(self):
-            super().__init__("channel")
-
     def __init__(self, plug, source):
         self.plug = plug
         self.source = str(source)
@@ -139,19 +134,7 @@ class Group:
     channels, or **anywhere** as long as it belongs to the given plug.
     """
 
-    class Property(ConfigProperty):
-
-        def __init__(self):
-            super().__init__("group")
-
-        def __get__(self, instance, owner):
-            value = super().__get__(instance, owner)
-            if instance:
-                return Group.merge(instance.host, *value)
-            else:
-                return value
-
-    _channels = Channel.Property()
+    _channels = ConfigProperty("channels", [Channel])
 
     def __init__(self, name, config, host):
         self.name = name
