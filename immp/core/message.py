@@ -1,5 +1,5 @@
 from copy import copy
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import re
 
@@ -637,7 +637,7 @@ class SentMessage(Message):
         super().__init__(**kwargs)
         self.id = str(id) if id else None
         self.revision = revision or id
-        self.at = at or datetime.now()
+        self.at = at or datetime.now(timezone.utc)
         self.channel = channel
         self.edited = edited
         self.deleted = deleted

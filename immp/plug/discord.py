@@ -28,6 +28,7 @@ will be used in lieu of a webhook, e.g. with direct messages.
 
 from asyncio import Condition, ensure_future
 from collections import defaultdict
+from datetime import timezone
 from functools import partial
 from io import BytesIO
 import logging
@@ -270,7 +271,8 @@ class DiscordMessage(immp.Message):
                                 # Edited timestamp is blank for new messages, but updated in
                                 # existing objects when the message is later edited.
                                 revision=(message.edited_at or message.created_at).timestamp(),
-                                at=message.created_at,
+                                # Timestamps are naive but in UTC.
+                                at=message.created_at.replace(tzinfo=timezone.utc),
                                 channel=immp.Channel(discord, message.channel.id),
                                 edited=edited,
                                 deleted=deleted,

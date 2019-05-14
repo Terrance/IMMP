@@ -31,7 +31,7 @@ methods.  With a session file, you need only do this once, after which the refer
 
 from asyncio import CancelledError, TimeoutError, ensure_future, gather, sleep
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from aiohttp import ClientError, ClientResponseError, ClientSession, FormData
@@ -508,7 +508,7 @@ class TelegramMessage(immp.Message):
         # Pair with the chat ID for a network-unique value.
         id = "{}:{}".format(message["chat"]["id"], message["message_id"])
         revision = message["edit_date"] or message["date"]
-        at = datetime.fromtimestamp(message["date"])
+        at = datetime.fromtimestamp(message["date"], timezone.utc)
         channel = immp.Channel(telegram, message["chat"]["id"])
         edited = bool(message["edit_date"])
         text = await TelegramRichText.from_bot_entities(telegram, message["text"],

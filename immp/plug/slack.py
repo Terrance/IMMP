@@ -25,7 +25,7 @@ If multiple Slack workspaces are involved, you will need a separate bot and plug
 from asyncio import CancelledError, ensure_future, sleep
 from copy import copy
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import partial
 from json import dumps as json_dumps
 import logging
@@ -435,6 +435,7 @@ class SlackMessage(immp.Message):
             # opt-in prompts etc.) which shouldn't be served to message processors.
             raise NotImplementedError
         id = revision = event["ts"]
+        at = datetime.fromtimestamp(float(event["ts"]), timezone.utc)
         edited = False
         deleted = False
         user = None
@@ -561,7 +562,7 @@ class SlackMessage(immp.Message):
             text = SlackRichText.from_mrkdwn(slack, text)
         return immp.SentMessage(id=id,
                                 revision=revision,
-                                at=datetime.fromtimestamp(float(event["ts"])),
+                                at=at,
                                 channel=immp.Channel(slack, event["channel"]),
                                 edited=edited,
                                 deleted=deleted,

@@ -19,7 +19,6 @@ This will generate a cookie file called *refresh_token.txt* in the current direc
 
 from asyncio import CancelledError, Condition, ensure_future, gather, sleep
 from copy import copy
-from datetime import datetime
 from io import BytesIO
 import logging
 import re
@@ -278,7 +277,6 @@ class HangoutsMessage(immp.Message):
             .HangoutsMessage:
                 Parsed message object.
         """
-        version = event._event.event_version
         user = HangoutsUser.from_user(hangouts, hangouts._users.get_user(event.user_id))
         action = False
         joined = None
@@ -368,8 +366,8 @@ class HangoutsMessage(immp.Message):
         if not isinstance(event, hangups.ChatMessageEvent):
             text = immp.RichText(segments)
         return immp.SentMessage(id=event.id_,
-                                revision=version,
-                                at=datetime.fromtimestamp(version / 1000000),
+                                revision=int(event.timestamp.timestamp()),
+                                at=event.timestamp,
                                 channel=immp.Channel(hangouts, event.conversation_id),
                                 text=text,
                                 user=user,
