@@ -425,24 +425,38 @@ class _SyncHookBase(immp.Hook):
 
     async def _replace_identity_mentions(self, msg, channel):
         # Replace mentions for identified users in the target channel.
-        if not msg.text or not self._identities:
+        if not msg.text:
             return
         msg.text = msg.text.clone()
         for segment in msg.text:
-            if not segment.mention:
+            if not segment.mention or segment.mention.plug == channel.plug:
+                # No mention or already matches plug, nothing to do.
                 continue
-            try:
-                identity = await self._identities.identity_from_user(segment.mention)
-            except Exception as e:
-                log.warning("Failed to retrieve identity information for {}"
-                            .format(repr(segment.mention)), exc_info=e)
-                continue
+            identity = None
+            if self.config["identities"]:
+                try:
+                    identity = await self._identities.identity_from_user(segment.mention)
+                except Exception as e:
+                    log.warning("Failed to retrieve identity information for %r",
+                                segment.mention, exc_info=e)
+            replaced = False
             if identity:
+                # Try to find an identity corresponding to the target plug.
                 for user in identity.links:
-                    if user.plug.network_id == channel.plug.network_id:
+                    if user.plug == channel.plug:
                         log.debug("Replacing mention: %r -> %r", segment.mention, user)
                         segment.mention = user
+                        replaced = True
                         break
+            if not replaced:
+                # Fallback case: replace mention with a link to the user's profile.
+                if segment.mention.link:
+                    log.debug("Adding fallback mention link: %r -> %r",
+                              segment.mention, segment.mention.link)
+                    segment.link = segment.mention.link
+                else:
+                    log.debug("Removing foreign mention: %r", segment.mention)
+                segment.mention = None
 
     async def _replace_name(self, msg):
         # Use name-format or identities to render a suitable author real name.
