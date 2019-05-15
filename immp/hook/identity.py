@@ -72,7 +72,16 @@ class Identity:
             list:
                 Gathered results of those tasks.
         """
-        return list(filter(None, await gather(*tasks))) if tasks else []
+        tasks = list(filter(None, tasks))
+        if not tasks:
+            return []
+        users = []
+        for result in await gather(*tasks, return_exceptions=True):
+            if isinstance(result, BaseException):
+                log.warning("Failed to retrieve user for identity", exc_info=result)
+            else:
+                users.append(result)
+        return users
 
     def __init__(self, name, provider=None, links=(), roles=()):
         self.name = name
