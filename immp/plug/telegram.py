@@ -8,6 +8,13 @@ Config:
         Optional Telegram application ID for the MTProto API.
     api-hash (str):
         Corresponding Telegram application secret.
+    client-updates (bool):
+        ``True`` (when API credentials are configured) to listen for messages over the MTProto
+        connection instead of long-polling with the bot API.
+
+        This allows you to maintain multiple connections with a single bot account, however it will
+        not mark messages as read within the bot API.  This means if you switch back to the bot API
+        at a later date, you'll receive a backlog of any messages not yet picked up.
     session (str):
         Optional path to store a session file, used to cache access hashes.
 
@@ -41,7 +48,7 @@ import immp
 
 
 try:
-    from telethon import TelegramClient, tl
+    from telethon import TelegramClient, events, tl
     from telethon.errors import BadRequestError
     from telethon.sessions import SQLiteSession
     from telethon.utils import pack_bot_file_id
@@ -57,6 +64,7 @@ class _Schema:
     config = Schema({"token": str,
                      Optional("api-id", default=None): Any(int, None),
                      Optional("api-hash", default=None): Any(str, None),
+                     Optional("client-updates", default=False): bool,
                      Optional("session", default=None): Any(str, None)},
                     extra=ALLOW_EXTRA, required=True)
 
@@ -833,6 +841,10 @@ class TelegramPlug(immp.Plug):
         super().__init__(name, _Schema.config(config), host)
         if bool(self.config["api-id"]) != bool(self.config["api-hash"]):
             raise immp.ConfigError("Both of API ID and hash must be given")
+        if self.config["client-updates"] and not self.config["api-id"]:
+            raise immp.ConfigError("Client updates require API ID and hash")
+        if self.config["session"] and not self.config["api-id"]:
+            raise immp.ConfigError("Session file requires API ID and hash")
         # Connection objects that need to be closed on disconnect.
         self._session = self._bot_user = self._receive = self._client = None
         self._closing = False
@@ -865,13 +877,21 @@ class TelegramPlug(immp.Plug):
         self._closing = False
         self._session = ClientSession()
         self._bot_user = await self._api("getMe", _Schema.me)
-        self._receive = ensure_future(self._poll())
         if self.config["api-id"] and self.config["api-hash"]:
             if not TelegramClient:
                 raise immp.ConfigError("API ID/hash specified but Telethon is not installed")
             log.debug("Starting client")
             self._client = TelegramClient(Session(self.config["session"]),
                                           self.config["api-id"], self.config["api-hash"])
+        if self._client and self.config.get("client-updates"):
+            log.debug("Adding client event handlers")
+            self._client.add_event_handler(self._handle_raw)
+            for event in (events.NewMessage, events.MessageEdited, events.ChatAction):
+                self._client.add_event_handler(self._handle, event)
+        else:
+            log.debug("Starting update long-poll")
+            self._receive = ensure_future(self._poll())
+        if self._client:
             await self._client.start(bot_token=self.config["token"])
 
     async def stop(self):
@@ -1171,3 +1191,23 @@ class TelegramPlug(immp.Plug):
                     else:
                         self.queue(sent)
                 self._offset = max(update["update_id"] + 1, self._offset)
+
+    async def _handle_raw(self, event):
+        log.debug("Received a %s event", event.__class__.__qualname__)
+        if isinstance(event, tl.types.UpdateNewMessage):
+            if isinstance(event.message.action, tl.types.MessageActionChatMigrateTo):
+                old = event.message.chat_id
+                new = int("-100{}".format(event.message.action.channel_id))
+                self._migrate(old, new)
+
+    async def _handle(self, event):
+        if isinstance(event, events.ChatAction.Event):
+            message = event.action_message
+        else:
+            message = event.message
+        try:
+            sent = await TelegramMessage.from_proto_message(self, message)
+        except NotImplementedError:
+            log.debug("Skipping message with no usable parts")
+        else:
+            self.queue(sent)
