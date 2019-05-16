@@ -117,9 +117,11 @@ class _Schema:
                       Optional("group_chat_created", default=False): bool,
                       Optional("new_chat_members", default=[]): [user],
                       Optional("left_chat_member", default=None): Any(user, None),
+                      Optional("new_chat_title", default=None): Any(str, None),
+                      Optional("new_chat_photo", default=[]): [_file],
+                      Optional("delete_chat_photo", default=False): bool,
                       Optional("pinned_message", default=None):
                           Any(lambda v: _Schema.message(v), None),
-                      Optional("new_chat_title", default=None): Any(str, None),
                       Optional("migrate_to_chat_id", default=None): Any(int, None)},
                      extra=ALLOW_EXTRA, required=True)
 
@@ -379,7 +381,7 @@ class TelegramRichText(immp.RichText):
                 value, clear = True, False
             elif entity["type"] in ("url", "email"):
                 key = "link"
-                value, clear = encoded[start:end], None
+                value, clear = encoded[start:end].decode("utf-16-le"), None
             elif entity["type"] == "text_url":
                 key = "link"
                 value, clear = entity["url"], None
@@ -554,6 +556,15 @@ class TelegramMessage(immp.Message):
             action = True
             text = immp.RichText([immp.Segment("changed group name to "),
                                   immp.Segment(title, bold=True)])
+        elif message["new_chat_photo"]:
+            action = True
+            text = "changed group photo"
+            photo = max(message["new_chat_photo"], key=lambda photo: photo["height"])
+            attachments.append(await TelegramFile.from_id(telegram, photo["file_id"],
+                                                          immp.File.Type.image))
+        elif message["delete_chat_photo"]:
+            action = True
+            text = "removed group photo"
         elif message["pinned_message"]:
             action = True
             text = "pinned a message"
@@ -728,11 +739,11 @@ class TelegramMessage(immp.Message):
             prefix = "closed the" if message.poll.poll.closed else "opened a"
             text = immp.RichText([immp.Segment("{} poll: ".format(prefix)),
                                   immp.Segment(message.poll.poll.question, bold=True)])
-        elif message.action:
+        if message.action:
             action = True
             if isinstance(message.action, tl.types.MessageActionChatCreate):
                 text = immp.RichText([immp.Segment("created the group "),
-                                      immp.Segment(message.action.new_title, bold=True)])
+                                      immp.Segment(message.action.title, bold=True)])
             elif isinstance(message.action, tl.types.MessageActionChatJoinedByLink):
                 joined = [user]
                 text = "joined group via invite link"
@@ -757,13 +768,17 @@ class TelegramMessage(immp.Message):
                 title = message.action.title
                 text = immp.RichText([immp.Segment("changed group name to "),
                                       immp.Segment(title, bold=True)])
+            elif isinstance(message.action, tl.types.MessageActionChatEditPhoto):
+                text = "changed group photo"
+            elif isinstance(message.action, tl.types.MessageActionChatDeletePhoto):
+                text = "removed group photo"
             elif isinstance(message.action, tl.types.MessageActionPinMessage):
                 attachments.append(reply_to)
                 reply_to = None
                 text = "pinned message"
             else:
                 raise NotImplementedError
-        elif not text:
+        if not text:
             # No support for this message type.
             raise NotImplementedError
         return immp.SentMessage(id=id,
