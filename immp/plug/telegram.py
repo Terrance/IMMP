@@ -935,7 +935,7 @@ class TelegramPlug(immp.Plug):
         except BadRequestError:
             return None
         else:
-            return TelegramUser.from_proto_user(self, data.users[0])
+            return TelegramUser.from_proto_user(self, data.users[0]) if data.users else None
 
     async def user_is_system(self, user):
         return user.id == str(self._bot_user["id"])
