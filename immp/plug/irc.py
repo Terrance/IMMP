@@ -159,6 +159,8 @@ class IRCSegment(immp.Segment):
             # Muted text by colouring it grey.  Includes a default background colour to avoid
             # accidental combinations with a literal comma in a following segment.
             text = "\x0314{}\x0399,99".format(text)
+        if segment.link and segment.text != segment.link:
+            text = "{} [{}]".format(text, segment.link)
         return text
 
 
