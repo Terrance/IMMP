@@ -641,7 +641,7 @@ class SyncHook(_SyncHookBase):
         if queue:
             await gather(*queue)
 
-    def _replace_msg(self, channel, msg, sending):
+    def _replace_msg(self, channel, msg):
         if not isinstance(msg, immp.SentMessage):
             return msg
         try:
@@ -665,11 +665,11 @@ class SyncHook(_SyncHookBase):
             return None
 
     def _replace_all(self, channel, msg):
-        msg.reply_to = self._replace_msg(channel, msg.reply_to, True)
+        msg.reply_to = self._replace_msg(channel, msg.reply_to)
         attachments = []
         for attach in msg.attachments:
             if isinstance(attach, immp.Message):
-                replaced = self._replace_msg(channel, attach, True)
+                replaced = self._replace_msg(channel, attach)
                 if replaced:
                     attachments.append(replaced)
             else:
