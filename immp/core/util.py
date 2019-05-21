@@ -1,6 +1,8 @@
 from asyncio import Condition
 from enum import Enum
+from functools import reduce
 from importlib import import_module
+import re
 import time
 
 from .error import ConfigError
@@ -69,6 +71,49 @@ def pretty_str(cls):
 
     cls.__str__ = __str__
     return cls
+
+
+def _no_escape(char):
+    # Fail a match if the next character is escaped by a backslash.
+    return r"(?<!\\)(?:\\\\)*{}".format(char)
+
+
+def escape(raw, *chars):
+    """
+    Prefix special characters with backslashes, suitable for encoding in a larger string
+    delimiting those characters.
+
+    Args:
+        raw (str):
+            Unsafe input string.
+        chars (str list):
+            Control characters to be escaped.
+
+    Returns:
+        str:
+            Escaped input string.
+    """
+    args = (raw, r"\\", *chars)
+    return reduce(lambda current, char: current.replace(char, r"\{}".format(char)), args)
+
+
+def unescape(raw, *chars):
+    """
+    Inverse of :func:`escape`, remove backslashes escaping special characters.
+
+    Args:
+        raw (str):
+            Escaped input string.
+        chars (str list):
+            Control characters to be unescaped.
+
+    Returns:
+        str:
+            Raw unescaped string.
+    """
+    args = (raw, *chars, r"\\")
+    return reduce(lambda current, char: re.sub(_no_escape(r"\\{}".format(char)),
+                                               char, current), args)
 
 
 class ConfigProperty:

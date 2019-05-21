@@ -5,4 +5,5 @@ from .core.message import User, Segment, RichText, Attachment, File, Location, M
 from .core.hook import Hook, ResourceHook
 from .core.plug import Plug
 from .core.stream import PlugStream
-from .core.util import resolve_import, pretty_str, ConfigProperty, IDGen, OpenState, Openable
+from .core.util import (escape, pretty_str, resolve_import, unescape, ConfigProperty, IDGen,
+                        OpenState, Openable)

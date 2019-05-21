@@ -5,7 +5,7 @@ import re
 
 import aiohttp
 
-from .util import pretty_str
+from .util import _no_escape, escape, pretty_str, unescape
 
 
 @pretty_str
@@ -117,6 +117,8 @@ class Segment:
             Target user mentioned in this segment.
     """
 
+    _bool_tags = ("bold", "italic", "underline", "strike", "code", "pre")
+
     def __init__(self, text, *, bold=False, italic=False, underline=False, strike=False,
                  code=False, pre=False, link=None, mention=None):
         self.text = text
@@ -144,10 +146,7 @@ class Segment:
         return hash(self._tuple)
 
     def __str__(self):
-        text = self.text
-        if self.link:
-            text = "{} [{}]".format(text, self.link)
-        return text
+        return self.text
 
     def __repr__(self):
         attrs = [" {}".format(attr) for attr in ("bold", "italic", "underline", "strike", "code",
@@ -160,15 +159,26 @@ class RichText:
     Common standard for formatted message text, akin to Hangouts' message segments.  This is a
     container designed to hold instances of :class:`.Segment`.
 
-    Calling :meth:`str` on an instance will return the entire message text without formatting.
-    Indexing and slicing are possible, but will return :class:`.RichText` even if subclassed.
+    Calling :meth:`str` on an instance will return the entire text without formatting.
 
-    Note that the length of an instance is equal to the sum of each segment's text length, not the
-    number of segments.  To count the segments, call :meth:`list` on it to get a plain list.
+    Instances may be indexed or sliced, which will apply to the segments.  The :attr:`slice.step`
+    argument is overloaded to be boolean; if ``True``, slicing will apply to characters of the text
+    content rather than the segments.  Length is always based on the content.
+
+    Attributes:
+        size (int):
+            Number of segments in the text.
     """
+
+    _tag_regex = re.compile(r"{}(.*?){}".format(_no_escape("<"), _no_escape(">")))
+    _split_regex = re.compile(_no_escape(","))
 
     def __init__(self, segments=None):
         self._segments = (list(segments) if segments else None) or []
+
+    @property
+    def size(self):
+        return len(self._segments)
 
     def normalise(self):
         """
@@ -253,6 +263,28 @@ class RichText:
                     clone.append(new)
         return clone
 
+    def offset(self, pos):
+        """
+        Find the position within a segment corresponding to a point along the whole text.
+
+        Args:
+            pos (int):
+                Position within the represented text.
+
+        Returns:
+            (int, int) tuple:
+                Segment and offset within it.
+        """
+        if pos < 0 or pos > len(self):
+            raise IndexError("Position {} out of bounds".format(pos))
+        total = 0
+        for i, segment in enumerate(self):
+            total += len(segment)
+            if total > pos:
+                return i, len(segment) - (total - pos)
+        else:
+            return i + 1, 0
+
     def trim(self, length):
         """
         Reduce a long message text to a snippet with an ellipsis.
@@ -267,29 +299,123 @@ class RichText:
         """
         if len(self) <= length:
             return self
-        clone = RichText()
-        total = 0
-        for segment in self:
-            if total + len(segment) < length:
-                clone.append(copy(segment))
-                total += len(segment)
-            else:
-                snip = (length - total) - 2
-                snipped = copy(segment)
-                snipped.text = "{}...".format(snipped.text[:snip])
-                clone.append(snipped)
-                break
+        clone = self[:length:True]
+        clone[-1].text = clone[-1].text[:-2]
+        clone.append(Segment("..."))
         return clone
 
-    def __len__(self):
-        return sum(len(segment) for segment in self._segments)
+    @classmethod
+    def unraw(cls, text, host=None):
+        """
+        Inverse of :meth:`raw`, parse a string with formatting syntax into a rich instance.
+
+        Args:
+            text (str):
+                Plain text with formatting syntax.
+            host (.Host):
+                Optional host instance, needed to resolve mention tags.
+
+        Returns:
+            .RichText:
+                Parsed message text instance.
+        """
+        rich = cls()
+        current = {}
+        while True:
+            match = cls._tag_regex.search(text)
+            if not match:
+                break
+            start = match.start()
+            end = match.end()
+            last, text = text[:start], text[end:]
+            if last or rich:
+                rich.append(Segment(unescape(last, "<"), **current))
+            current = {}
+            tags = cls._split_regex.split(match.group(1))
+            for tag in tags:
+                for target in Segment._bool_tags:
+                    if tag in (target, target[0]):
+                        current[target] = True
+                        break
+                else:
+                    if tag.startswith(("link=", "l=")):
+                        current["link"] = unescape(tag.split("=", 1)[1], ",", ">")
+                    elif tag.startswith(("mention=", "m=")) and host:
+                        parts = re.split(_no_escape("/"), tag.split("=", 1)[1], 2)
+                        plug = unescape(parts[0], "/", ",", ">")
+                        user = unescape(parts[1], "/", ",", ">")
+                        name = unescape(parts[2], ",", ">")
+                        current["mention"] = User(id=user, plug=host.plugs[plug],
+                                                  real_name=name)
+        rich.append(Segment(unescape(text, "<"), **current))
+        return rich
+
+    def raw(self):
+        """
+        Serialise formatted text into a string representation, suitable for storage or transmission
+        as plain text.
+
+        Returns:
+            str:
+                Plain text with formatting syntax.
+        """
+        raw = ""
+        last = "/"
+        for segment in self:
+            tags = []
+            for tag in Segment._bool_tags:
+                if getattr(segment, tag):
+                    tags.append(tag[0])
+            if segment.link:
+                tags.append("l={}".format(escape(segment.link, ",", ">")))
+            if segment.mention:
+                tags.append("m={}/{}/{}"
+                            .format(escape(segment.mention.plug.name, "/", ",", ">"),
+                                    escape(segment.mention.id, "/", ",", ">"),
+                                    escape(segment.mention.real_name or segment.mention.username,
+                                           ",", ">")))
+            current = ",".join(tags) or "/"
+            if current != last:
+                raw += "<{}>".format(current)
+            last = current
+            raw += escape(segment.text, "<")
+        return raw
 
     def __iter__(self):
         return iter(self._segments)
 
+    def __len__(self):
+        return sum(len(segment) for segment in self._segments)
+
     def __getitem__(self, key):
-        item = self._segments[key]
-        return RichText(item) if isinstance(key, slice) else item
+        if isinstance(key, slice):
+            if key.step is not None and not isinstance(key.step, bool):
+                raise TypeError("RichText slice step must be boolean")
+            elif not key.step:
+                return RichText(self._segments[key.start:key.stop])
+            start, end = key.start, key.stop
+            if start is None and end is None:
+                return self.clone()
+            elif start is None:
+                start = 0
+            elif end is None:
+                end = len(self)
+            start_segment, start_offset = self.offset(start % len(self))
+            end_segment, end_offset = self.offset(((end - 1) % len(self)) + 1)
+            stop_segment = end_segment + 1 if end_offset else end_segment
+            stop_offset = end_offset - start_offset if start_segment == end_segment else end_offset
+            clone = RichText()
+            for segment in self[start_segment:stop_segment]:
+                clone.append(copy(segment))
+            if start_offset:
+                clone[0].text = clone[0].text[start_offset:]
+            if end_offset:
+                clone[-1].text = clone[-1].text[:stop_offset]
+            return clone
+        elif isinstance(key, int):
+            return self._segments[key]
+        else:
+            raise TypeError("RichText indices must be integers or slices")
 
     def __add__(self, other):
         return RichText(self._segments + list(other))
