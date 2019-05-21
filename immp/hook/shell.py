@@ -29,8 +29,10 @@ Config:
         `aioconsole's docs <https://aioconsole.readthedocs.io/en/latest/#serving-the-console>`_
         for more info.
     buffer (int):
-        Number of received messages to keep at any one time (default: no limit).  When a new
-        message comes in and the queue is full, the oldest message will be discarded.
+        Number of received messages to keep cached for later inspection.  If unset (default), no
+        buffer will be available.  Otherwise, when a new message comes in and the queue is full,
+        the oldest message will be discarded.  Set to ``0`` for an unlimited buffer, not
+        recommended on production deployments.
 
 At startup, a console will be launched on the given port.  You can connect to it from a separate
 terminal, for example::
@@ -133,15 +135,17 @@ class AsyncShellHook(immp.ResourceHook):
         super().__init__(name, _Schema.config_async(config), host)
         if not aioconsole:
             raise immp.PlugError("'aioconsole' module not installed")
-        self.buffer = deque(maxlen=self.config["buffer"])
+        self.buffer = None
         self._server = None
 
     @property
     def last(self):
-        return self.buffer[-1]
+        return self.buffer[-1] if self.buffer else None
 
     async def start(self):
         await super().start()
+        if self.config["buffer"] is not None:
+            self.buffer = deque(maxlen=self.config["buffer"] or None)
         if isinstance(self.config["bind"], str):
             log.debug("Launching console on socket %s", self.config["bind"])
             bind = {"path": self.config["bind"]}
@@ -152,6 +156,7 @@ class AsyncShellHook(immp.ResourceHook):
 
     async def stop(self):
         await super().stop()
+        self.buffer = None
         if self._server:
             log.debug("Stopping console server")
             self._server.close()
