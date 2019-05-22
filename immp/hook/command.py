@@ -540,7 +540,8 @@ class CommandHook(immp.Hook):
                     text.append(immp.Segment(" {}".format(cmd.spec)))
                 if cmd.doc:
                     text.append(immp.Segment(":", bold=True),
-                                immp.Segment("\n{}".format(cmd.doc)))
+                                immp.Segment("\n"),
+                                *immp.RichText.unraw(cmd.doc, self.host))
         else:
             titles = {None: [immp.Segment("Global commands", bold=True)]}
             if private:
