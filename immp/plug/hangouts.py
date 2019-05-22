@@ -4,6 +4,9 @@ Connect to `Google Hangouts <https://hangouts.google.com>`_ as a regular user.
 Config:
     cookie (str):
         Path to a cookie text file read/written by :func:`hangups.get_auth_stdin`.
+    read (bool):
+        ``True`` (default) to update conversation watermarks on every message, thus marking each
+        message as read once processed.
 
 The cookie file is used by hangups to store the access token.  If the file doesn't exist or is
 invalid, you will be prompted for Google account credentials at startup.  You can generate a new
@@ -26,7 +29,7 @@ from urllib.parse import unquote
 
 import hangups
 from hangups import hangouts_pb2
-from voluptuous import ALLOW_EXTRA, Schema
+from voluptuous import ALLOW_EXTRA, Optional, Schema
 
 import immp
 
@@ -36,7 +39,9 @@ log = logging.getLogger(__name__)
 
 class _Schema:
 
-    config = Schema({"cookie": str}, extra=ALLOW_EXTRA, required=True)
+    config = Schema({"cookie": str,
+                     Optional("read", default=True): bool},
+                    extra=ALLOW_EXTRA, required=True)
 
 
 class HangoutsUser(immp.User):
@@ -431,7 +436,8 @@ class HangoutsPlug(immp.Plug):
         else:
             log.debug("Queueing new message event")
             self.queue(sent)
-        await self._convs.get(event.conversation_id).update_read_timestamp()
+        if self.config["read"]:
+            await self._convs.get(event.conversation_id).update_read_timestamp()
 
     async def start(self):
         await super().start()
