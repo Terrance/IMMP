@@ -55,7 +55,7 @@ class DiscordRoleHook(immp.Hook):
              test=_test, sync_aware=True)
     async def role(self, msg, name):
         try:
-            role, member = self._common(msg, name)
+            role, member = self._common(msg, str(name))
         except _NoSuchRole:
             await msg.channel.send(immp.Message(text="No such role"))
             return
@@ -67,7 +67,7 @@ class DiscordRoleHook(immp.Hook):
              test=_test, sync_aware=True)
     async def unrole(self, msg, name):
         try:
-            role, member = self._common(msg, name)
+            role, member = self._common(msg, str(name))
         except _NoSuchRole:
             await msg.channel.send(immp.Message(text="No such role"))
             return

@@ -76,7 +76,7 @@ class CommandParser(Enum):
         shlex:
             Split using :func:`shlex.split`, which allows quoting of multi-word arguments.
         none:
-            Don't split the argument, just provide a single string.
+            Don't split the argument, just provide the rich message text as-is.
     """
     spaces = 0
     shlex = 1
@@ -273,19 +273,19 @@ class BaseCommand:
         Convert a string of multiple arguments into a list according to the chosen parse mode.
 
         Args:
-            args (str):
-                Raw arguments from a message.
+            args (.RichText):
+                Trailing argument text from a message.
 
         Returns:
-            str list:
+            (str or RichText) list:
                 Parsed arguments.
         """
         if not args:
             return []
         if self.parser == CommandParser.spaces:
-            return args.split()
+            return str(args).split()
         elif self.parser == CommandParser.shlex:
-            return shlex.split(args)
+            return shlex.split(str(args))
         else:
             return [args]
 
@@ -581,7 +581,7 @@ class CommandHook(immp.Hook):
         if synced:
             log.debug("Mapping command channel: %r -> %r", sent.channel, synced)
         name = raw[0].lower()
-        trailing = raw[1] if len(raw) == 2 else None
+        trailing = sent.text[-len(raw[1])::True] if len(raw) == 2 else None
         cmds = await self.commands(sent.channel, sent.user)
         try:
             cmd = cmds[name]
@@ -591,7 +591,6 @@ class CommandHook(immp.Hook):
         else:
             log.debug("Matched command in %r: %r", sent.channel, cmd)
         try:
-            # TODO: Preserve formatting.
             args = cmd.parse(trailing)
             cmd.valid(*args)
         except ValueError:

@@ -100,7 +100,7 @@ class NotesHook(immp.Hook):
         Note.create(network=msg.channel.plug.network_id,
                     channel=msg.channel.source,
                     user=(msg.user.id or msg.user.username) if msg.user else None,
-                    text=text)
+                    text=text.raw())
         count = Note.select_channel(msg.channel).count()
         await msg.channel.send(immp.Message(text="{} Added #{}".format(TICK, count)))
 
@@ -137,7 +137,9 @@ class NotesHook(immp.Hook):
             text = "{} Does not exist".format(CROSS)
         else:
             text = immp.RichText([immp.Segment("{}.".format(pos), bold=True),
-                                  immp.Segment("\t{}\t".format(note.text)),
+                                  immp.Segment("\t"),
+                                  *immp.RichText.unraw(note.text, self.host),
+                                  immp.Segment("\t"),
                                   immp.Segment(note.ago, italic=True)])
         await msg.channel.send(immp.Message(text=text))
 
@@ -161,6 +163,8 @@ class NotesHook(immp.Hook):
                 continue
             text.append(immp.Segment("\n"),
                         immp.Segment("{}.".format(pos), bold=True),
-                        immp.Segment("\t{}\t".format(note.text)),
+                        immp.Segment("\t"),
+                        *immp.RichText.unraw(note.text, self.host),
+                        immp.Segment("\t"),
                         immp.Segment(note.ago, italic=True))
         await msg.channel.send(immp.Message(text=text))
