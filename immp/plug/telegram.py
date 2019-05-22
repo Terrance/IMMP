@@ -786,7 +786,7 @@ class TelegramMessage(immp.Message):
                 text = "pinned message"
             else:
                 raise NotImplementedError
-        if not text:
+        if not text and not attachments:
             # No support for this message type.
             raise NotImplementedError
         return immp.SentMessage(id=id,
