@@ -789,20 +789,57 @@ class TelegramMessage(immp.Message):
         if not text and not attachments:
             # No support for this message type.
             raise NotImplementedError
-        return immp.SentMessage(id=id,
-                                revision=revision,
-                                at=message.date,
-                                channel=immp.Channel(telegram, message.chat_id),
-                                edited=edited,
-                                text=text,
-                                user=user,
-                                action=action,
-                                reply_to=reply_to,
-                                joined=joined,
-                                left=left,
-                                title=title,
-                                attachments=attachments,
-                                raw=message)
+        common = dict(id=id,
+                      revision=revision,
+                      at=message.date,
+                      channel=immp.Channel(telegram, message.chat_id),
+                      edited=edited,
+                      user=user,
+                      raw=message)
+        if message.forward:
+            # Event is a message containing another message.  Forwarded messages have no ID, so we
+            # use a Message instead of a SentMessage here, unless they come from a channel.
+            forward_id = forward_channel = forward_user = None
+            if message.forward.channel_id and message.forward.channel_post:
+                forward_channel = immp.Channel(telegram, message.forward.chat_id)
+                forward_id = "{}:{}".format(message.forward.chat_id,
+                                            message.forward.channel_post)
+                if message.forward.post_author:
+                    forward_user = immp.User(real_name=message.forward.post_author)
+                else:
+                    chat = await message.forward.get_chat()
+                    forward_user = immp.User(real_name=chat.title)
+            elif message.forward.sender_id:
+                forward_user = TelegramUser.from_proto_user(telegram,
+                                                            await message.forward.get_sender())
+            elif message.forward.from_name:
+                forward_user = immp.User(real_name=message.forward.from_name)
+            forward_common = dict(text=text,
+                                  user=forward_user,
+                                  action=action,
+                                  reply_to=reply_to,
+                                  joined=joined,
+                                  left=left,
+                                  title=title,
+                                  attachments=attachments,
+                                  raw=message)
+            if forward_id:
+                forward = immp.SentMessage(id=forward_id,
+                                           channel=forward_channel,
+                                           **forward_common)
+            else:
+                forward = immp.Message(**forward_common)
+            # Embed the inner message as an attachment.
+            return immp.SentMessage(attachments=[forward], **common)
+        else:
+            return immp.SentMessage(text=text,
+                                    action=action,
+                                    reply_to=reply_to,
+                                    joined=joined,
+                                    left=left,
+                                    title=title,
+                                    attachments=attachments,
+                                    **common)
 
 
 if SQLiteSession:
