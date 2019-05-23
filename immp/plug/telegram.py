@@ -1116,12 +1116,12 @@ class TelegramPlug(immp.Plug):
         if msg.text or msg.reply_to:
             quote = False
             reply_to = ""
-            if isinstance(msg.reply_to, immp.SentMessage):
+            if isinstance(msg.reply_to, immp.Receipt):
                 # Reply natively to the given parent message.
                 reply_to = int(msg.reply_to.id.split(":")[1])
             elif isinstance(msg.reply_to, immp.Message):
                 quote = True
-            edited = msg.edited if isinstance(msg, immp.SentMessage) else False
+            edited = msg.edited if isinstance(msg, immp.Receipt) else False
             rich = msg.render(edit=edited, quote_reply=quote)
             text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
             requests.append(self._api("sendMessage", _Schema.send,
@@ -1155,7 +1155,7 @@ class TelegramPlug(immp.Plug):
         requests = []
         for attach in msg.attachments:
             # Generate requests for attached messages first.
-            if isinstance(attach, immp.SentMessage):
+            if isinstance(attach, immp.Receipt):
                 # Forward the messages natively using the given chat/ID.
                 forward_chat, forward_id = map(int, attach.id.split(":"))
                 requests.append(self._api("forwardMessage", _Schema.send,

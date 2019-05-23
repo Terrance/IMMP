@@ -230,8 +230,8 @@ class IRCMessage(immp.Message):
                 action = True
         return immp.SentMessage(id=Line.next_ts(),
                                 channel=immp.Channel(irc, channel),
-                                user=user,
                                 text=text,
+                                user=user,
                                 action=action,
                                 joined=joined,
                                 left=left,
@@ -484,7 +484,7 @@ class IRCPlug(immp.Plug):
 
     async def put(self, channel, msg):
         lines = []
-        edited = isinstance(msg, immp.SentMessage) and msg.edited
+        edited = msg.edited if isinstance(msg, immp.Receipt) else False
         if msg.text:
             lines += self._lines(msg.text, msg.user, msg.action, edited)
         for attach in msg.attachments:
@@ -494,11 +494,9 @@ class IRCPlug(immp.Plug):
             elif isinstance(attach, immp.Location):
                 text = "shared a location: {}".format(attach)
                 lines += self._lines(text, msg.user, True, edited)
-            elif isinstance(attach, immp.SentMessage) and attach.empty:
-                pass
             elif isinstance(attach, immp.Message) and attach.text:
                 lines += self._lines(attach.text, attach.user, attach.action,
-                                     isinstance(attach, immp.SentMessage) and attach.edited)
+                                     attach.edited if isinstance(attach, immp.Receipt) else False)
         ids = []
         for text in lines:
             line = Line("PRIVMSG", channel.source, text)

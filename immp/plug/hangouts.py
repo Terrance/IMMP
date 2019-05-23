@@ -371,9 +371,8 @@ class HangoutsMessage(immp.Message):
         if not isinstance(event, hangups.ChatMessageEvent):
             text = immp.RichText(segments)
         return immp.SentMessage(id=event.id_,
-                                revision=int(event.timestamp.timestamp()),
-                                at=event.timestamp,
                                 channel=immp.Channel(hangouts, event.conversation_id),
+                                at=event.timestamp,
                                 text=text,
                                 user=user,
                                 action=action,
@@ -570,7 +569,7 @@ class HangoutsPlug(immp.Plug):
         return None
 
     async def _resolve_msg(self, conv, msg):
-        if isinstance(msg, immp.SentMessage) and msg.empty:
+        if isinstance(msg, immp.Receipt) and not isinstance(msg, immp.Message):
             # We have the message reference but not the content.
             event = await self._get_event(conv, msg.id)
             if event:
@@ -580,7 +579,7 @@ class HangoutsPlug(immp.Plug):
                 if sent.user.id == self._bot_user:
                     sent.user = None
                 return sent
-            elif not msg.empty:
+            elif isinstance(msg, immp.Message):
                 return msg
         elif isinstance(msg, immp.Message):
             return msg
@@ -623,7 +622,7 @@ class HangoutsPlug(immp.Plug):
             images = await gather(*uploads)
         requests = []
         if msg.text or msg.reply_to:
-            edited = msg.edited if isinstance(msg, immp.SentMessage) else False
+            edited = msg.edited if isinstance(msg, immp.Receipt) else False
             segments = self._serialise(msg.render(link_name=False, edit=edited, quote_reply=True))
             media = None
             if len(images) == 1:

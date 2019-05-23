@@ -440,13 +440,7 @@ class RichText:
 
 
 @pretty_str
-class Attachment:
-    """
-    Base class for secondary data attached to a message.
-    """
-
-
-class File(Attachment):
+class File:
     """
     Base file attachment object.
 
@@ -506,7 +500,8 @@ class File(Attachment):
         return "<{}: {} {}>".format(self.__class__.__name__, repr(self.title), self.type.name)
 
 
-class Location(Attachment):
+@pretty_str
+class Location:
     """
     Attributes:
         latitude (float):
@@ -573,7 +568,7 @@ class Location(Attachment):
 
 
 @pretty_str
-class Message(Attachment):
+class Message:
     """
     Base message content container, understood by all plugs.
 
@@ -609,16 +604,6 @@ class Message(Attachment):
         self.title = title
         self.attachments = attachments or []
         self.raw = raw
-
-    @classmethod
-    def from_sent(cls, msg):
-        return cls(**msg._data)
-
-    @property
-    def _data(self):
-        return {"text": self.text, "user": self.user, "action": self.action,
-                "reply_to": self.reply_to, "joined": self.joined, "left": self.left,
-                "title": self.title, "attachments": self.attachments, "raw": self.raw}
 
     @property
     def text(self):
@@ -705,7 +690,7 @@ class Message(Attachment):
             for segment in output:
                 segment.italic = True
         if quote_reply and self.reply_to:
-            if not (isinstance(self.reply_to, SentMessage) and self.reply_to.empty):
+            if isinstance(self.reply_to, Message):
                 quoted = self.reply_to.render(real_name=real_name, link_name=link_name,
                                               delimiter=delimiter, strip_links=True, trim=32)
                 output.prepend(*(quoted.indent("\N{BOX DRAWINGS LIGHT VERTICAL} ")), Segment("\n"))
@@ -714,64 +699,61 @@ class Message(Attachment):
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
             return False
-        return ((self.user, self.text, self.action, self.reply_to) ==
-                (other.user, other.text, other.action, other.reply_to))
+        return ((self.text, self.user, self.action, self.reply_to) ==
+                (other.text, other.user, other.action, other.reply_to))
 
     def __hash__(self):
         return hash((self.user, self.text, self.action, self.reply_to))
 
+    def _repr_parts(self):
+        return " ".join(filter(None, (repr(self.user) if self.user else None,
+                                      repr(str(self.text)) if self.text else None,
+                                      "join" if self.joined else None,
+                                      "leave" if self.left else None,
+                                      ("+{}".format(len(self.attachments))
+                                       if self.attachments else None))))
+
     def __repr__(self):
-        parts = list(filter(None, (repr(self.user) if self.user else None,
-                                   repr(str(self.text)) if self.text else None,
-                                   "join" if self.joined else None,
-                                   "leave" if self.left else None,
-                                   ("+{}".format(len(self.attachments))
-                                    if self.attachments else None))))
-        return "<{}{}>".format(self.__class__.__name__,
-                               ": {}".format(" ".join(parts)) if parts else "")
+        parts = self._repr_parts()
+        return "<{}{}>".format(self.__class__.__name__, ": {}".format(parts) if parts else "")
 
 
-class SentMessage(Message):
+@pretty_str
+class Receipt:
     """
     Reference to a physical message received from a plug.  This provides metadata for identifying
     a source message, in addition to the actual content attributes.
 
-    As a subclass of :class:`.Message`, it may be used interchangeably, however there may be no
-    content if acting solely as a reference.  In this case, :attr:`.SentMessage.empty` will be set.
-
     Attributes:
         id (str):
             Unique (to the plug) message identifier, which should persist across edits and deletes.
+        channel (.Channel):
+            Source channel of this message.
+        at (datetime.datetime):
+            Timestamp of the message according to the external server, defaults to the current time
+            at creation if unset.
         revision (str):
             Key to uniquely identify updates to a previous message, defaults to :attr:`id`.  Need
             not be in the same format as the main identifier.
-        at (datetime.datetime):
-            Timestamp of the message according to the external server.
-        channel (.Channel):
-            Source channel of this message.
         edited (bool):
             Whether the message content has been changed.
         deleted (bool):
             Whether the message was deleted from its source.
-        empty (bool):
-            If true, the actual message content isn't included, only the identifiers.  It's then up
-            to the receiving plug to resolve those identifiers and retrieve the message if needed.
     """
 
-    def __init__(self, id=None, revision=None, at=None, channel=None, edited=False, deleted=False,
-                 empty=None, **kwargs):
-        super().__init__(**kwargs)
-        self.id = str(id) if id else None
-        self.revision = revision or id
-        self.at = at or datetime.now(timezone.utc)
+    def __init__(self, id, channel, *, at=None, revision=None, edited=False, deleted=False):
+        self.id = str(id)
         self.channel = channel
+        self.at = at or datetime.now(timezone.utc)
+        self.revision = str(revision or id)
         self.edited = edited
         self.deleted = deleted
-        self.empty = (not bool(kwargs)) if empty is None else empty
 
-    @classmethod
-    def from_abstract(cls, msg, **kwargs):
-        return cls(**kwargs, **msg._data)
+    async def delete(self):
+        """
+        Equivalent to :meth:`.Plug.delete`.
+        """
+        return await self.channel.plug.delete(self)
 
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
@@ -782,16 +764,25 @@ class SentMessage(Message):
         return hash((self.id, self.revision, self.channel))
 
     def __repr__(self):
-        try:
-            content = super().__repr__()[1:-1].split(": ", 1)[1]
-        except IndexError:
-            content = None
-        return ("<{}: {} @ {} {}{}>"
-                .format(self.__class__.__name__, repr(self.id), self.at, repr(self.channel),
-                        ": {}".format(content) if content else ""))
+        return "<{}: {} @ {} {}{}{}>".format(self.__class__.__name__, self.id, self.at,
+                                             repr(self.channel), " edited" if self.edited else "",
+                                             " deleted" if self.deleted else "")
 
-    async def delete(self):
-        """
-        Equivalent to :meth:`.Plug.delete`.
-        """
-        return await self.channel.plug.delete(self)
+
+class SentMessage(Receipt, Message):
+    """
+    Combination of :class:`.Receipt` and :class:`.Message`.
+    """
+
+    def __init__(self, id, channel, *, at=None, revision=None, edited=False, deleted=False,
+                 text=None, user=None, action=False, reply_to=None, joined=None, left=None,
+                 title=None, attachments=None, raw=None):
+        Receipt.__init__(self, id=id, channel=channel, revision=revision, at=at, edited=edited,
+                         deleted=deleted)
+        Message.__init__(self, text=text, user=user, action=action, reply_to=reply_to,
+                         joined=joined, left=left, title=title, attachments=attachments, raw=raw)
+
+    def __repr__(self):
+        parts = self._repr_parts()
+        receipt = super().__repr__()
+        return "{}{}{}".format(receipt[:-1], " {}".format(parts) if parts else "", receipt[-1])

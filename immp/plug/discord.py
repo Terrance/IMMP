@@ -268,12 +268,12 @@ class DiscordMessage(immp.Message):
                 attachments.append(immp.File(type=immp.File.Type.image,
                                              source=embed.image.url))
         return immp.SentMessage(id=message.id,
+                                channel=immp.Channel(discord, message.channel.id),
+                                # Timestamps are naive but in UTC.
+                                at=message.created_at.replace(tzinfo=timezone.utc),
                                 # Edited timestamp is blank for new messages, but updated in
                                 # existing objects when the message is later edited.
                                 revision=(message.edited_at or message.created_at).timestamp(),
-                                # Timestamps are naive but in UTC.
-                                at=message.created_at.replace(tzinfo=timezone.utc),
-                                channel=immp.Channel(discord, message.channel.id),
                                 edited=edited,
                                 deleted=deleted,
                                 text=text,
@@ -303,7 +303,7 @@ class DiscordMessage(immp.Message):
         icon = "\N{RIGHTWARDS ARROW WITH HOOK}" if reply else "\N{SPEECH BALLOON}"
         embed = discord.Embed()
         embed.set_footer(text=icon)
-        if isinstance(msg, immp.SentMessage):
+        if isinstance(msg, immp.Receipt):
             embed.timestamp = msg.at
         if msg.user:
             link = discord.Embed.Empty
@@ -473,7 +473,7 @@ class DiscordPlug(immp.Plug):
         return dc_channel, webhook
 
     async def _resolve_message(self, dc_channel, msg):
-        if isinstance(msg, immp.SentMessage):
+        if isinstance(msg, immp.Receipt):
             # Discord offers no reply mechanism, so instead we just fetch the referenced message
             # and render it manually.
             message = await dc_channel.fetch_message(msg.id)
@@ -509,7 +509,7 @@ class DiscordPlug(immp.Plug):
         if msg.reply_to:
             resolved = await self._resolve_message(dc_channel, msg.reply_to)
             embeds.append((await DiscordMessage.to_embed(self, resolved, True), None))
-        edited = msg.edited if isinstance(msg, immp.SentMessage) else False
+        edited = msg.edited if isinstance(msg, immp.Receipt) else False
         if webhook:
             # Sending via webhook: multiple embeds and files supported.
             text = None

@@ -147,11 +147,11 @@ class SyncBackRef(BaseModel):
     @classmethod
     def map_from_sent(cls, sent):
         """
-        Take a :class:`.SentMessage` and attempt to resolve it to a key from a previously synced
+        Take a :class:`.Receipt` and attempt to resolve it to a key from a previously synced
         reference, then defer to :meth:`map_from_key` to make the mapping with the key.
 
         Args:
-            sent (.SentMessage):
+            sent (.Receipt):
                 Referenced message to lookup.
 
         Returns:
@@ -247,7 +247,7 @@ class SyncRef:
         Log a new revision of a message.
 
         Args:
-            sent (.SentMessage):
+            sent (.Receipt):
                 Updated message relating to a previously synced message.
 
         Returns:
@@ -267,7 +267,7 @@ class SyncCache:
     """
     Synced message cache manager, using both in-memory and database-based caches.
 
-    This class has :class:`dict`-like access, using either :class:`.SentMessage` objects or
+    This class has :class:`dict`-like access, using either :class:`.Receipt` objects or
     :class:`.SyncPlug` message IDs that map to :class:`.SyncRef` keys.
     """
 
@@ -305,7 +305,7 @@ class SyncCache:
         return ref
 
     def __getitem__(self, key):
-        if isinstance(key, immp.SentMessage):
+        if isinstance(key, immp.Receipt):
             try:
                 # If in the local cache, the message already passed through sync in this session.
                 # Use the existing cache entry as-is (entry in _lookup <=> entry in _cache).
@@ -610,7 +610,7 @@ class SyncHook(_SyncHookBase):
                 Bridge that defines the underlying synced channels to send to.
             msg (.Message):
                 External message to push.
-            origin (.SentMessage):
+            origin (.Receipt):
                 Raw message that triggered this sync; if set and part of the sync, it will be
                 skipped (used to avoid retransmitting a message we just received).
         """
@@ -637,32 +637,38 @@ class SyncHook(_SyncHookBase):
         for channel, ids in ref.ids.items():
             for id in ids:
                 if not (sent and sent.channel == channel and sent.id == id):
-                    queue.append(immp.SentMessage(channel=channel, id=id).delete())
+                    queue.append(immp.Receipt(id, channel).delete())
         if queue:
             await gather(*queue)
 
     def _replace_msg(self, channel, msg):
-        if not isinstance(msg, immp.SentMessage):
+        base = None
+        if isinstance(msg, immp.SentMessage):
+            base = immp.Message(text=msg.text, user=msg.user, action=msg.action,
+                                reply_to=msg.reply_to, joined=msg.joined, left=msg.left,
+                                title=msg.title, attachments=msg.attachments, raw=msg.raw)
+        if not isinstance(msg, immp.Receipt):
             return msg
         try:
             # Given message was a resync of the source message from a synced channel.
             ref = self._cache[msg]
         except KeyError:
-            # No match for this source, replace with an unqualified message.
-            return immp.Message.from_sent(msg)
+            # No match for this source, replace with the unqualified message.
+            return base
         log.debug("Found reference to previously synced message: %r", ref.key)
         if ref.ids.get(channel):
             # Return a reference to the transport-native copy of the message.
-            at = ref.source.at if isinstance(ref.source, immp.SentMessage) else None
-            return immp.SentMessage.from_abstract(ref.source or msg, id=ref.ids[channel][0],
-                                                  at=at, channel=channel)
+            at = ref.source.at if isinstance(ref.source, immp.Receipt) else None
+            best = ref.source or msg
+            return immp.SentMessage(id=ref.ids[channel][0], channel=channel, at=at,
+                                    text=best.text, user=best.user, action=best.action,
+                                    reply_to=best.reply_to, joined=best.joined, left=best.left,
+                                    title=best.title, attachments=best.attachments, raw=best.raw)
         elif channel.plug == msg.channel.plug:
             # Same network, so let the plug handle it.
             return msg
-        elif not msg.empty:
-            return immp.Message.from_sent(msg)
         else:
-            return None
+            return base
 
     def _replace_all(self, channel, msg):
         msg.reply_to = self._replace_msg(channel, msg.reply_to)

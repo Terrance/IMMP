@@ -142,8 +142,8 @@ class GitHubMessage(immp.Message):
         if text:
             return immp.SentMessage(id=id,
                                     channel=channel,
-                                    user=user,
                                     text=text,
+                                    user=user,
                                     action=True,
                                     raw=event)
         else:

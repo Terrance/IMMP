@@ -497,22 +497,18 @@ class SlackMessage(immp.Message):
             action = True
         thread = recent = None
         if event["thread_ts"]:
-            thread = immp.SentMessage(id=event["thread_ts"],
-                                      channel=immp.Channel(slack, event["channel"]),
-                                      empty=True)
+            thread = immp.Receipt(event["thread_ts"], immp.Channel(slack, event["channel"]))
         if thread and parent:
             try:
                 thread = await slack.get_message(event["channel"], thread.id, False)
             except MessageNotFound:
                 pass
-        if thread and not thread.empty:
+        if isinstance(thread, immp.Message):
             for reply in thread.raw["replies"][::-1]:
                 if reply["ts"] not in (event["ts"], event["thread_ts"]):
                     # Reply to a thread with at least one other message, use the next most
                     # recent rather than the parent.
-                    recent = immp.SentMessage(id=reply["ts"],
-                                              channel=immp.Channel(slack, event["channel"]),
-                                              empty=True)
+                    recent = immp.Receipt(reply["ts"], immp.Channel(slack, event["channel"]))
                     break
         if recent and parent:
             try:
@@ -561,9 +557,9 @@ class SlackMessage(immp.Message):
                         pass
             text = SlackRichText.from_mrkdwn(slack, text)
         return immp.SentMessage(id=id,
-                                revision=revision,
-                                at=at,
                                 channel=immp.Channel(slack, event["channel"]),
+                                at=at,
+                                revision=revision,
                                 edited=edited,
                                 deleted=deleted,
                                 text=text,
@@ -799,7 +795,7 @@ class SlackPlug(immp.Plug):
                 # Upload each file to Slack.
                 data = FormData({"channels": channel.source,
                                  "filename": attach.title or ""})
-                if isinstance(parent.reply_to, immp.SentMessage):
+                if isinstance(parent.reply_to, immp.Receipt):
                     # Reply directly to the corresponding thread.  Note that thread_ts can be any
                     # message in the thread, it need not be resolved to the parent.
                     data.add_field("thread_ts", msg.reply_to.id)
@@ -828,10 +824,10 @@ class SlackPlug(immp.Plug):
             if msg.action:
                 for segment in rich:
                     segment.italic = True
-        if isinstance(msg, immp.SentMessage) and msg.edited:
+        if isinstance(msg, immp.Receipt) and msg.edited:
             rich.append(immp.Segment(" (edited)", italic=True))
         attachments = []
-        if isinstance(parent.reply_to, immp.SentMessage):
+        if isinstance(parent.reply_to, immp.Receipt):
             data["thread_ts"] = msg.reply_to.id
             if self.config["thread-broadcast"]:
                 data["reply_broadcast"] = "true"
@@ -861,7 +857,7 @@ class SlackPlug(immp.Plug):
             clone.text = msg.text.clone()
         forward_ids = []
         for attach in msg.attachments:
-            if isinstance(attach, immp.SentMessage):
+            if isinstance(attach, immp.Receipt):
                 # No public API to share a message, rely on archive link unfurling instead.
                 link = ("https://{}.slack.com/archives/{}/p{}"
                         .format(self._team["domain"], channel.source, attach.id.replace(".", "")))
