@@ -1,5 +1,4 @@
 from asyncio import BoundedSemaphore, Queue
-from itertools import chain
 import logging
 
 from .error import PlugError
@@ -309,9 +308,8 @@ class Plug(Openable):
             raise PlugError("Can't send messages when not active")
         # Allow any hooks to modify the outgoing message before sending.
         original = channel
-        hooks = [hook for hook in chain(self.host.resources.values(), self.host.hooks.values())
-                 if hook.state == OpenState.active]
-        for hook in hooks:
+        ordered, rest = self.host.ordered_hooks()
+        for hook in ordered + rest:
             try:
                 result = await hook.before_send(channel, msg)
             except Exception:

@@ -13,7 +13,11 @@ from immp.hook.runner import RunnerHook
 
 class _Schema:
 
-    _openable = Any({str: {"path": str, Optional("config", default=dict): dict}}, {})
+    _plugs = Any({str: {"path": str, Optional("config", default=dict): dict}}, {})
+
+    _hooks = Any({str: {"path": str,
+                        Optional("priority", default=None): Any(int, None),
+                        Optional("config", default=dict): dict}}, {})
 
     _channels = Any({str: {"plug": str, "source": str}}, {})
 
@@ -21,10 +25,10 @@ class _Schema:
                       extra=ALLOW_EXTRA)
 
     config = Schema({Optional("path", default=list): [str],
-                     Optional("plugs", default=dict): _openable,
+                     Optional("plugs", default=dict): _plugs,
                      Optional("channels", default=dict): _channels,
                      Optional("groups", default=dict): Any({str: dict}, {}),
-                     Optional("hooks", default=dict): _openable,
+                     Optional("hooks", default=dict): _hooks,
                      Optional("logging", default=None): Any(_logging, None)},
                     extra=REMOVE_EXTRA, required=True)
 
@@ -47,7 +51,7 @@ def config_to_host(config, path, write):
         host.add_group(Group(name, group, host))
     for name, spec in config["hooks"].items():
         cls = resolve_import(spec["path"])
-        host.add_hook(cls(name, spec["config"], host))
+        host.add_hook(cls(name, spec["config"], host), spec["priority"])
     try:
         host.add_hook(RunnerHook("runner", {}, host))
     except ConfigError:

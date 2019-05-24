@@ -56,6 +56,7 @@ class Host:
     def __init__(self):
         self._objects = {}
         self.resources = {}
+        self._priority = {}
         self._loaded = False
         self._stream = self._process = None
 
@@ -68,6 +69,20 @@ class Host:
     def plain_hooks(self):
         return {name: hook for name, hook in self.hooks.items()
                 if not isinstance(hook, ResourceHook)}
+
+    def ordered_hooks(self):
+        """
+        Sort all registered hooks by priority.
+
+        Returns:
+            (.Hook tuple, .Hook tuple) tuple:
+                Prioritised and unsorted hooks.
+        """
+        ordered = tuple(hook for _, hook in sorted(self._priority.items())
+                        if hook.state == OpenState.active)
+        rest = tuple(hook for hook in chain(self.resources.values(), self.plain_hooks.values())
+                     if hook not in ordered and hook.state == OpenState.active)
+        return ordered, rest
 
     def __getitem__(self, key):
         if isinstance(key, str):
@@ -207,13 +222,18 @@ class Host:
         log.info("Removing group: %s", name)
         return self._objects.pop(name)
 
-    def add_hook(self, hook):
+    def add_hook(self, hook, priority=None):
         """
         Register a hook to the host.
 
         Args:
             hook (.Hook):
                 Existing hook instance to add.
+            priority (int):
+                Optional ordering constraint, applied to send and receive events.  Hooks registered
+                with a priority will be processed first in serial.  Those without will execute
+                afterwards, in parallel (in the case of on-receive) or in registration order (for
+                before-send and before-receive).
 
         Returns:
             str:
@@ -226,11 +246,15 @@ class Host:
         elif hook.__class__ in self.resources:
             raise ConfigError("Resource class '{}' already registered"
                               .format(hook.__class__.__name__))
+        elif priority is not None and priority in self._priority:
+            raise ConfigError("Priority {} already registered".format(priority))
         log.info("Adding hook: %r (%s)", hook.name, hook.__class__.__name__)
         self._objects[hook.name] = hook
         if isinstance(hook, ResourceHook):
             log.info("Adding resource: %r (%s)", hook.name, hook.__class__.__name__)
             self.resources[hook.__class__] = hook
+        if priority is not None:
+            self._priority[priority] = hook
         if self._loaded:
             hook.on_load()
         return hook.name
@@ -251,6 +275,10 @@ class Host:
             .Hook:
                 Removed hook instance.
         """
+        for priority, hook in self._priority.items():
+            if hook.name == name:
+                del self._priority[priority]
+                break
         if not isinstance(self._objects.get(name), Hook):
             raise RuntimeError("Hook '{}' not registered to host".format(name))
         log.info("Removing hook: %s", name)
@@ -303,9 +331,8 @@ class Host:
             log.exception("Hook %r failed on-receive event", hook.name)
 
     async def _callback(self, sent, source, primary):
-        hooks = [hook for hook in chain(self.resources.values(), self.plain_hooks.values())
-                 if hook.state == OpenState.active]
-        for hook in hooks:
+        ordered, rest = self.ordered_hooks()
+        for hook in ordered + rest:
             try:
                 result = await hook.before_receive(sent, source, primary)
             except Exception:
@@ -316,7 +343,10 @@ class Host:
             else:
                 # Message has been suppressed by a hook.
                 return
-        await gather(*(self._safe_receive(hook, sent, source, primary) for hook in hooks))
+        for hook in ordered:
+            await self._safe_receive(hook, sent, source, primary)
+        if rest:
+            await gather(*(self._safe_receive(hook, sent, source, primary) for hook in rest))
 
     async def process(self):
         """

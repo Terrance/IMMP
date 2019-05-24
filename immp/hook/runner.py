@@ -62,12 +62,14 @@ class RunnerHook(immp.ResourceHook):
         await msg.channel.send(immp.Message(text="\N{WHITE HEAVY CHECK MARK} Written"))
 
     @staticmethod
-    def _config_feature(section, name, obj):
+    def _config_feature(section, name, obj, priority=None):
         if obj.virtual:
             return
         feature = {"path": "{}.{}".format(obj.__class__.__module__, obj.__class__.__name__)}
         if obj.config:
             feature["config"] = obj.config
+        if priority:
+            feature["priority"] = priority
         section[name] = feature
 
     @property
@@ -80,10 +82,9 @@ class RunnerHook(immp.ResourceHook):
                 config["channels"][name] = {"plug": channel.plug.name, "source": channel.source}
         for name, group in self.host.groups.items():
             config["groups"][name] = group.config
-        for hook in self.host.resources.values():
-            self._config_feature(config["hooks"], hook.name, hook)
+        priorities = {hook: priority for priority, hook in self.host._priority.items()}
         for name, hook in self.host.hooks.items():
-            self._config_feature(config["hooks"], name, hook)
+            self._config_feature(config["hooks"], name, hook, priorities.get(hook))
         return config
 
     @property
