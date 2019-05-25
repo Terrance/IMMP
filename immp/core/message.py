@@ -333,7 +333,8 @@ class RichText:
             current = {}
             tags = cls._split_regex.split(match.group(1))
             for tag in tags:
-                for target in Segment._bool_tags:
+                # Bare link tags will use the segment text as the link, filled in at the end.
+                for target in Segment._bool_tags + ("link",):
                     if tag in (target, target[0]):
                         current[target] = True
                         break
@@ -347,7 +348,11 @@ class RichText:
                         name = unescape(parts[2], ",", ">")
                         current["mention"] = User(id=user, plug=host.plugs[plug],
                                                   real_name=name)
-        rich.append(Segment(unescape(text, "<"), **current))
+        if text:
+            rich.append(Segment(unescape(text, "<"), **current))
+        for segment in rich:
+            if segment.link is True:
+                segment.link = segment.text
         return rich
 
     def raw(self):
@@ -367,7 +372,10 @@ class RichText:
                 if getattr(segment, tag):
                     tags.append(tag[0])
             if segment.link:
-                tags.append("l={}".format(escape(segment.link, ",", ">")))
+                if segment.text == segment.link:
+                    tags.append("l")
+                else:
+                    tags.append("l={}".format(escape(segment.link, ",", ">")))
             if segment.mention:
                 tags.append("m={}/{}/{}"
                             .format(escape(segment.mention.plug.name, "/", ",", ">"),
@@ -379,6 +387,8 @@ class RichText:
                 raw += "<{}>".format(current)
             last = current
             raw += escape(segment.text, "<")
+        if last != "/":
+            raw += "</>"
         return raw
 
     def __iter__(self):
