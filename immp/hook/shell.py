@@ -174,5 +174,5 @@ class AsyncShellHook(immp.ResourceHook):
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
-        if self.buffer:
+        if self.buffer is not None:
             self.buffer.append((sent, source))
