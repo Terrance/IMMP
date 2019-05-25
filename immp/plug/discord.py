@@ -33,6 +33,7 @@ from functools import partial
 from io import BytesIO
 import logging
 import re
+from textwrap import wrap
 
 from aiohttp import ClientSession
 import discord
@@ -225,6 +226,38 @@ class DiscordRichText(immp.RichText):
             # Close all remaining tags.
             text += tag
         return re.sub(r":([^: ]+):", partial(cls._sub_emoji, discord), text)
+
+    @classmethod
+    def chunk_split(cls, text):
+        """
+        Split long messages into parts of at most 2000 characters.
+
+        Args:
+            text (str):
+                Markdown-formatted message to be sent.
+
+        Returns:
+            str list:
+                Chunked message text.
+        """
+        parts = []
+        current = []
+        for line in text.splitlines():
+            size = sum(len(part) + 1 for part in current)
+            extra = len(line)
+            if size + extra >= 2000:
+                if current:
+                    # The message is full, split here.
+                    parts.append("\n".join(current))
+                    current.clear()
+                if extra >= 2000:
+                    # The line itself is too long, split on whitespace instead.
+                    *lines, line = wrap(line, 2000, expand_tabs=False, replace_whitespace=False)
+                    parts.extend(lines)
+            current.append(line)
+        if current:
+            parts.append("\n".join(current))
+        return parts
 
 
 class DiscordMessage(immp.Message):
@@ -512,6 +545,7 @@ class DiscordPlug(immp.Plug):
         edited = msg.edited if isinstance(msg, immp.Receipt) else False
         if webhook:
             # Sending via webhook: multiple embeds and files supported.
+            requests = []
             text = None
             if msg.text:
                 rich = msg.text.clone()
@@ -520,19 +554,35 @@ class DiscordPlug(immp.Plug):
                         segment.italic = True
                 if edited:
                     rich.append(immp.Segment(" (edited)", italic=True))
-                text = DiscordRichText.to_markdown(self, rich, True)
-            return [webhook.send(content=text, wait=True, username=name, avatar_url=image,
-                                 files=files, embeds=[embed[0] for embed in embeds])]
+                lines = DiscordRichText.chunk_split(DiscordRichText.to_markdown(self, rich, True))
+                if len(lines) > 1:
+                    # Multiple messages required to accommodate the text.
+                    requests.extend(webhook.send(content=line, wait=True, username=name,
+                                                 avatar_url=image) for line in lines)
+                else:
+                    text = lines[0]
+            if text or embeds or files:
+                requests.append(webhook.send(content=text, wait=True, username=name,
+                                             avatar_url=image, files=files,
+                                             embeds=[embed[0] for embed in embeds]))
+            return requests
         else:
             # Sending via client: only a single embed per message.
+            requests = []
             text = embed = None
             rich = msg.render(link_name=False, edit=edited) or None
             if rich:
-                text = DiscordRichText.to_markdown(self, rich)
+                lines = DiscordRichText.chunk_split(DiscordRichText.to_markdown(self, rich))
+                if len(lines) > 1:
+                    # Multiple messages required to accommodate the text.
+                    requests.extend(dc_channel.send(content=line) for line in lines)
+                else:
+                    text = lines[0]
             if len(embeds) == 1:
                 # Attach the only embed to the message text.
                 embed, _ = embeds.pop()
-            requests = [dc_channel.send(content=text, embed=embed, files=files)]
+            if text or embed or files:
+                requests.append(dc_channel.send(content=text, embed=embed, files=files))
             for embed, desc in embeds:
                 # Send any additional embeds in their own separate messages.
                 content = None
