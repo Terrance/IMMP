@@ -451,11 +451,11 @@ class DiscordPlug(immp.Plug):
         return user.id == str(self._client.user.id)
 
     async def public_channels(self):
-        return [immp.Channel(self, channel.id) for channel in self._client.get_all_channels()]
+        return [immp.Channel(self, channel.id) for channel in self._client.get_all_channels()
+                if isinstance(channel, discord.TextChannel)]
 
     async def private_channels(self):
-        return [immp.Channel(self, user.dm_channel.id)
-                for user in self._client.users if user.dm_channel]
+        return [immp.Channel(self, channel.id) for channel in self._client.private_channels]
 
     def _get_channel(self, channel):
         return self._client.get_channel(int(channel.source))
@@ -470,16 +470,21 @@ class DiscordPlug(immp.Plug):
 
     async def channel_title(self, channel):
         dc_channel = self._get_channel(channel)
-        return dc_channel.name if dc_channel else None
+        return dc_channel.name if isinstance(dc_channel, discord.TextChannel) else None
 
     async def channel_link(self, channel):
         dc_channel = self._get_channel(channel)
-        return ("https://discordapp.com/channels/{}/{}".format(dc_channel.guild.id, dc_channel.id)
-                if dc_channel else None)
+        if isinstance(dc_channel, discord.TextChannel):
+            guild = dc_channel.guild.id
+        elif isinstance(dc_channel, (discord.DMChannel, discord.GroupChannel)):
+            guild = "@me"
+        else:
+            return None
+        return "https://discordapp.com/channels/{}/{}".format(guild, dc_channel.id)
 
     async def channel_rename(self, channel, title):
         dc_channel = self._get_channel(channel)
-        if dc_channel:
+        if isinstance(dc_channel, discord.TextChannel):
             await dc_channel.edit(name=title)
 
     async def channel_is_private(self, channel):
@@ -490,8 +495,13 @@ class DiscordPlug(immp.Plug):
         if channel.plug is not self:
             return None
         dc_channel = self._get_channel(channel)
-        if dc_channel:
+        if isinstance(dc_channel, discord.TextChannel):
             return [DiscordUser.from_user(self, member) for member in dc_channel.members]
+        elif isinstance(dc_channel, discord.GroupChannel):
+            return [DiscordUser.from_user(self, member) for member in dc_channel.recipients]
+        elif isinstance(dc_channel, discord.DMChannel):
+            return [DiscordUser.from_user(self, dc_channel.me),
+                    DiscordUser.from_user(self, dc_channel.recipient)]
         else:
             return []
 
