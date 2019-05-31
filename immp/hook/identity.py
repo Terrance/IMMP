@@ -136,6 +136,9 @@ class IdentityProvider:
 
 
 class WhoIsHook(immp.Hook):
+    """
+    Hook to provide generic lookup of user profiles across one or more identity providers.
+    """
 
     _identities = immp.ConfigProperty([IdentityProvider])
 
