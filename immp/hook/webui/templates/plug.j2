@@ -51,10 +51,10 @@
         <td>{{ channel.source }}</td>
         <td>
           <div class="buttons">
-            <a class="button is-small" href="{{ ctx.url_for("plug_channel", plug=plug.name, source=channel.source) }}">
+            <a class="button is-small" href="{{ ctx.url_for("channel", plug=plug.name, source=channel.source) }}">
               <i class="fas fa-fw fa-hashtag"></i> View
             </a>
-            <form method="post" action="{{ ctx.url_for("channel_remove", name=name) }}">
+            <form method="post" action="{{ ctx.url_for("named_channel_remove", name=name) }}">
               <button type="submit" class="button is-small is-danger">
                 <i class="fas fa-fw fa-trash-alt"></i> Remove
               </button>
@@ -70,14 +70,14 @@
       {%- endif %}
     </tbody>
     <tfoot>
-      <form method="post" action="{{ ctx.url_for("channel_add") }}">
+      <form method="post" action="{{ ctx.url_for("named_channel_add") }}">
         <input name="plug" type="hidden" value="{{ plug.name }}">
         <tr>
           <td>
             <input name="name" type="text" class="input" placeholder="Name"{% if add_name %} value="{{ add_name }}"{% endif %}{% if add_source %} autofocus{% endif %} required>
           </td>
           <td>
-            <input name="source" type="text" class="input" placeholder="Source"{% if add_source %}" value="{{ add_source }}"{% endif %} required>
+            <input name="source" type="text" class="input" placeholder="Source"{% if add_source %} value="{{ add_source }}"{% endif %} required>
           </td>
           <td>
            <div class="buttons">

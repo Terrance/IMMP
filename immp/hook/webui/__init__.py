@@ -73,10 +73,12 @@ class WebUIHook(immp.ResourceHook):
         self.ctx.route("GET", "plug/{name}/remove", self.plug, "plug_remove.j2", "plug_remove")
         self.ctx.route("POST", "plug/{name}/remove", self.plug_remove, name="plug_remove:post")
         # Channels:
-        self.ctx.route("GET", "channel/{name}", self.channel, "channel.j2")
-        self.ctx.route("POST", "channel", self.channel_add)
-        self.ctx.route("POST", "channel/{name}/remove", self.channel_remove)
-        self.ctx.route("GET", "plug/{plug}/channel/{source}", self.plug_channel, "channel.j2")
+        self.ctx.route("GET", "channel/{name}", self.named_channel, "channel.j2")
+        self.ctx.route("POST", "channel", self.named_channel_add)
+        self.ctx.route("POST", "channel/{name}/remove", self.named_channel_remove)
+        self.ctx.route("GET", "plug/{plug}/channel/{source}", self.channel, "channel.j2")
+        self.ctx.route("POST", "plug/{plug}/channel/{source}/invite", self.channel_invite)
+        self.ctx.route("POST", "plug/{plug}/channel/{source}/kick/{user}", self.channel_kick)
         # Groups:
         self.ctx.route("GET", "group/{name}", self.group, "group.j2")
         self.ctx.route("POST", "group", self.group_add)
@@ -218,12 +220,12 @@ class WebUIHook(immp.ResourceHook):
         except KeyError:
             raise web.HTTPNotFound
 
-    async def channel(self, request):
+    async def named_channel(self, request):
         name, channel = self._resolve_channel(request)
-        raise web.HTTPFound(self.ctx.url_for("channel_source", plug=channel.plug.name,
+        raise web.HTTPFound(self.ctx.url_for("channel", plug=channel.plug.name,
                                              source=channel.source))
 
-    async def channel_add(self, request):
+    async def named_channel_add(self, request):
         post = await request.post()
         try:
             plug = post["plug"]
@@ -240,12 +242,12 @@ class WebUIHook(immp.ResourceHook):
         self.host.add_channel(name, immp.Channel(self.host.plugs[plug], source))
         raise web.HTTPFound(self.ctx.url_for("plug", name=plug))
 
-    async def channel_remove(self, request):
+    async def named_channel_remove(self, request):
         name, channel = self._resolve_channel(request)
         self.host.remove_channel(name)
         raise web.HTTPFound(self.ctx.url_for("plug", name=channel.plug.name))
 
-    async def plug_channel(self, request):
+    async def channel(self, request):
         name, channel = self._resolve_channel(request)
         private = await channel.is_private()
         title = await channel.title()
@@ -257,6 +259,44 @@ class WebUIHook(immp.ResourceHook):
                 "title_": title,
                 "link": link,
                 "members": members}
+
+    async def channel_invite(self, request):
+        name, channel = self._resolve_channel(request)
+        if channel.plug.virtual:
+            raise web.HTTPBadRequest
+        post = await request.post()
+        try:
+            id = post["user"]
+        except KeyError:
+            raise web.HTTPBadRequest
+        members = await channel.members()
+        if members is None:
+            raise web.HTTPBadRequest
+        elif id in (member.id for member in members):
+            raise web.HTTPBadRequest
+        user = await channel.plug.user_from_id(id)
+        if user is None:
+            raise web.HTTPBadRequest
+        await channel.invite(user)
+        raise web.HTTPFound(self.ctx.url_for("channel", plug=channel.plug.name,
+                                             source=channel.source))
+
+    async def channel_kick(self, request):
+        name, channel = self._resolve_channel(request)
+        if channel.plug.virtual:
+            raise web.HTTPBadRequest
+        id = request.match_info["user"]
+        members = await channel.members()
+        if members is None:
+            raise web.HTTPBadRequest
+        elif id not in (member.id for member in members):
+            raise web.HTTPBadRequest
+        user = await channel.plug.user_from_id(id)
+        if user is None:
+            raise web.HTTPBadRequest
+        await channel.remove(user)
+        raise web.HTTPFound(self.ctx.url_for("channel", plug=channel.plug.name,
+                                             source=channel.source))
 
     def _resolve_group(self, request):
         try:

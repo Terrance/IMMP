@@ -27,36 +27,61 @@
   </nav>
   {%- if members %}
   <h3 class="title">Members ({{ members|length }})</h3>
-  <div class="columns is-multiline">
-  {%- for member in members %}
-    <div class="column is-one-quarter-widescreen is-one-third-tablet is-half-mobile">
-      <div class="card-content">
-        <div class="media">
+  <table class="table">
+    <tbody>
+      {%- for member in members %}
+      <tr>
+        <td>
           {%- if member.avatar %}
-          <div class="media-left">
-            <figure class="image is-48x48">
-              <img src="{{ member.avatar }}">
-            </figure>
-          </div>
+          <figure class="image is-48x48">
+            <img src="{{ member.avatar }}">
+          </figure>
           {%- endif %}
-          <div class="media-content">
-            <p class="title is-4">
-              {% if member.link %}<a href="{{ member.link }}">{% endif -%}
-              {{ member.real_name or member.username }}
-              {%- if member.link %}</a>{% endif %}
-            </p>
-            <p class="subtitle is-6">
-              {%- if member.real_name and member.username %}
-              {{ member.username }}<br>
-              {%- endif %}
-              <code>{{ member.id }}</code>
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  {%- endfor %}
-  </div>
+        </td>
+        <td>
+          {%- if member.link -%}<a href="{{ member.link }}">{%- endif %}
+          {{- member.id }}
+          {%- if member.link %}</a>{% endif %}
+          {%- if member.plug.name != channel.plug.name %}
+          <br>
+          <small><i class="fas fa-plug"></i> <a href="{{ ctx.url_for("plug", name=member.plug.name) }}">{{ member.plug.name }}</a></small>
+          {%- endif %}
+        </td>
+        <td>
+          {{ member.real_name or member.username or "" }}
+          {%- if member.real_name and member.username -%}
+          <br><small>{{ member.username }}</small>
+          {%- endif %}
+        </td>
+        {%- if not channel.plug.virtual %}
+        <td>
+          <form method="post" action="{{ ctx.url_for("channel_kick", plug=channel.plug.name, source=channel.source, user=member.id) }}">
+            <button type="submit" class="button is-small is-danger"><i class="fas fa-fw fa-user-slash"></i> Kick</button>
+          </form>
+        </td>
+        {%- endif %}
+      </tr>
+      {%- endfor %}
+    </tbody>
+    {%- if not channel.plug.virtual %}
+    <tfoot>
+      <form method="post" action="{{ ctx.url_for("channel_invite", plug=channel.plug.name, source=channel.source) }}">
+        <tr>
+          <td colspan="3">
+            <input name="user" type="text" class="input" placeholder="User ID"{% if add_user %} value="{{ add_user }}" autofocus{% endif %} required>
+          </td>
+          <td>
+           <div class="buttons">
+             <button type="submit" class="button is-success">
+               <i class="fas fa-fw fa-user-plus"></i> Invite
+             </button>
+           </div>
+          </td>
+        </tr>
+      </form>
+    </tfoot>
+    {%- endif %}
+  </table>
   {%- endif %}
 </div>
 {%- endblock %}

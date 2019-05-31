@@ -40,7 +40,7 @@
       {%- if host.channels %}
       <nav class="panel">
       {%- for name, channel in host.channels.items() %}
-        <a class="panel-block" href="{{ ctx.url_for("plug_channel", plug=channel.plug.name, source=channel.source) }}">
+        <a class="panel-block" href="{{ ctx.url_for("channel", plug=channel.plug.name, source=channel.source) }}">
           <span>
             <strong>{{ name }}</strong>
             <small>{{ channel.plug.name }} @ {{ channel.source }}</small>

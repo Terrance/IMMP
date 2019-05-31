@@ -17,7 +17,7 @@
         {%- for channel, name in zipped(public, titles) %}
           <tr>
             <td>
-              <a href="{{ ctx.url_for("plug_channel", plug=plug.name, source=channel.source) }}">{{ channel.source }}</a>
+              <a href="{{ ctx.url_for("channel", plug=plug.name, source=channel.source) }}">{{ channel.source }}</a>
             </td>
             <td>{% if name %}{{ name }}{% endif %}</td>
             <td>
@@ -47,7 +47,7 @@
         {%- for channel, users in zipped(private, users) %}
           <tr>
             <td>
-              <a href="{{ ctx.url_for("plug_channel", plug=plug.name, source=channel.source) }}">{{ channel.source }}</a>
+              <a href="{{ ctx.url_for("channel", plug=plug.name, source=channel.source) }}">{{ channel.source }}</a>
             </td>
             <td>{% for user in users %}{% if not loop.first %}, {% endif %}{{ user.real_name or user.username }}{% endfor %}</td>
             <td>
