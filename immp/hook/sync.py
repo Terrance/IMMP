@@ -412,7 +412,7 @@ class SyncPlug(immp.Plug):
 
 class _SyncHookBase(immp.Hook):
 
-    _identities = immp.ConfigProperty("identities", IdentityProvider)
+    _identities = immp.ConfigProperty(IdentityProvider)
 
     def _accept(self, msg):
         if not self.config["joins"] and (msg.joined or msg.left):

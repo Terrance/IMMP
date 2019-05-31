@@ -142,7 +142,7 @@ class Group:
         def __get__(self, instance, owner):
             return Group.merge(instance.host, *super().__get__(instance, owner))
 
-    _channels = ConfigProperty("channels", [Channel])
+    _channels = ConfigProperty([Channel])
 
     def __init__(self, name, config, host):
         self.name = name

@@ -153,7 +153,7 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
     effectively provides self-service identities, as opposed to being provided externally.
     """
 
-    plugs = immp.ConfigProperty("plugs", [immp.Plug])
+    _plugs = immp.ConfigProperty([immp.Plug])
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
@@ -201,7 +201,7 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
             .IdentityGroup:
                 Linked identity, or ``None`` if not linked.
         """
-        if not user or user.plug not in self.plugs:
+        if not user or user.plug not in self._plugs:
             return None
         try:
             return (IdentityGroup.select_links()
@@ -223,14 +223,14 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
         return await group.to_identity(self.host) if group else None
 
     def _test(self, channel, user):
-        return channel.plug in self.plugs
+        return channel.plug in self._plugs
 
     @command("id-add", scope=CommandScope.private, test=_test)
     async def add(self, msg, name, pwd):
         """
         Create a new identity, or link to an existing one from a second user.
         """
-        if not msg.user or msg.user.plug not in self.plugs:
+        if not msg.user or msg.user.plug not in self._plugs:
             return
         if self.find(msg.user):
             text = "{} Already identified".format(CROSS)

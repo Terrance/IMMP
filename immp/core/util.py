@@ -122,9 +122,13 @@ class ConfigProperty:
     stored in a :class:`.Host`.
     """
 
-    def __init__(self, key, cls=None):
-        self._key = key
+    def __init__(self, cls=None, key=None):
         self._cls = cls
+        self._key = key
+
+    def __set_name__(self, owner, name):
+        if not self._key:
+            self._key = name.lstrip("_")
 
     @classmethod
     def _describe(cls, spec):

@@ -137,7 +137,7 @@ class IdentityProvider:
 
 class WhoIsHook(immp.Hook):
 
-    _identities = immp.ConfigProperty("identities", [IdentityProvider])
+    _identities = immp.ConfigProperty([IdentityProvider])
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
