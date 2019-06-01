@@ -136,8 +136,8 @@ class Group:
 
     class MergedProperty(ConfigProperty):
 
-        def __init__(self, key):
-            super().__init__(key, [Group])
+        def __init__(self, key=None):
+            super().__init__([Group], key)
 
         def __get__(self, instance, owner):
             return Group.merge(instance.host, *super().__get__(instance, owner))
