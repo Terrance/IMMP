@@ -714,8 +714,12 @@ class SlackPlug(immp.Plug):
         return channel.source in self._directs
 
     async def channel_title(self, channel):
-        sl_channel = self._channels.get(channel.source) or self._directs.get(channel.source)
-        return sl_channel["name"] if sl_channel else None
+        try:
+            sl_channel = self._channels[channel.source]
+        except KeyError:
+            return None
+        else:
+            return sl_channel["name"]
 
     async def channel_link(self, channel):
         return "https://{}.slack.com/messages/{}/".format(self._team["domain"], channel.source)

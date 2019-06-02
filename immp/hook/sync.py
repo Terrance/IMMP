@@ -388,8 +388,17 @@ class SyncPlug(immp.Plug):
                 return immp.Channel(self, label)
         return None
 
+    async def public_channels(self):
+        return [immp.Channel(self, name) for name in self._hook.channels]
+
+    async def private_channels(self):
+        return []
+
     async def channel_is_private(self, channel):
         return False if channel.source in self._hook.config["channels"] else None
+
+    async def channel_title(self, channel):
+        return channel.source
 
     async def channel_members(self, channel):
         if channel.source not in self._hook.config["channels"]:

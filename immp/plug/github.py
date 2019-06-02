@@ -167,6 +167,9 @@ class GitHubPlug(immp.Plug):
         self.ctx = self.host.resources[WebHook].context(__name__, self.config["route"])
         self.ctx.route("POST", "", self.handle)
 
+    async def channel_title(self, channel):
+        return channel.source
+
     async def handle(self, request):
         if self.config["secret"]:
             try:
