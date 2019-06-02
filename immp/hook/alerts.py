@@ -361,6 +361,12 @@ class SubscriptionsHook(_AlertHookBase):
             triggered[present[(trigger.network, trigger.user)]].add(trigger.text)
         return triggered
 
+    async def channel_migrate(self, old, new):
+        count = (SubExclude.update(network=new.plug.network_id, channel=new.source)
+                           .where(SubExclude.network == old.plug.network_id,
+                                  SubExclude.channel == old.source).execute())
+        return count > 0
+
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
         if not primary or not source.text or await sent.channel.is_private():

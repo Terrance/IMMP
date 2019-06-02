@@ -92,6 +92,12 @@ class NotesHook(immp.Hook):
         self.db = self.host.resources[DatabaseHook].db
         self.db.create_tables([Note], safe=True)
 
+    async def channel_migrate(self, old, new):
+        count = (Note.update(network=new.plug.network_id, channel=new.source)
+                     .where(Note.network == old.plug.network_id,
+                            Note.channel == old.source).execute())
+        return count > 0
+
     @command("note-add", parser=CommandParser.none)
     async def add(self, msg, text):
         """

@@ -42,6 +42,23 @@ class Hook(Openable):
         Perform any additional one-time setup that requires other plugs or hooks to be loaded.
         """
 
+    async def channel_migrate(self, old, new):
+        """
+        Move any private data between channels on admin request.  This is intended to cover data
+        keyed by channel sources and plug network identifiers.
+
+        Args:
+            old (.Channel):
+                Existing channel with local data.
+            new (.Channel):
+                Target replacement channel to migrate data to.
+
+        Returns:
+            bool:
+                ``True`` if any data was migrated for the requested channel.
+        """
+        return False
+
     async def before_send(self, channel, msg):
         """
         Modify an outgoing message before it's pushed to the network.  The ``(channel, msg)`` pair

@@ -348,6 +348,26 @@ class Host:
         if rest:
             await gather(*(self._safe_receive(hook, sent, source, primary) for hook in rest))
 
+    async def channel_migrate(self, old, new):
+        """
+        Issue a migration call to all hooks.
+
+        Args:
+            old (.Channel):
+                Existing channel with local data.
+            new (.Channel):
+                Target replacement channel to migrate data to.
+
+        Returns:
+            str list:
+                Names of hooks that migrated any data for the requested channel.
+        """
+        hooks = list(self.hooks.values())
+        if not hooks:
+            return []
+        results = await gather(*(hook.channel_migrate(old, new) for hook in hooks))
+        return [hook.name for hook, result in zip(hooks, results) if result]
+
     async def process(self):
         """
         Retrieve messages from plugs, and distribute them to hooks.
