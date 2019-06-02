@@ -53,12 +53,12 @@ class WebUIHook(immp.ResourceHook):
     def on_load(self):
         log.debug("Registering routes")
         runner = self.host.resources.get(RunnerHook)
-        self.ctx = self.host.resources[WebHook].context(__name__, self.config["route"],
-                                                        {"hook_url_for": self.hook_url_for,
-                                                         "group_summary": self.group_summary,
-                                                         "runner": runner,
-                                                         # Calling it `zip` doesn't seem to work.
-                                                         "zipped": zip})
+        self.ctx = self.host.resources[WebHook].context(self.config["route"], __name__,
+                                                        env={"hook_url_for": self.hook_url_for,
+                                                             "group_summary": self.group_summary,
+                                                             "runner": runner,
+                                                             # `zip` doesn't seem to work.
+                                                             "zipped": zip})
         # Home:
         self.ctx.route("GET", "", self.noop, "main.j2", "main")
         # Add:

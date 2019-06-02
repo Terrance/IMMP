@@ -164,7 +164,7 @@ class GitHubPlug(immp.Plug):
 
     def on_load(self):
         log.debug("Registering webhook route")
-        self.ctx = self.host.resources[WebHook].context(__name__, self.config["route"])
+        self.ctx = self.host.resources[WebHook].context(self.config["route"], __name__)
         self.ctx.route("POST", "", self.handle)
 
     async def channel_title(self, channel):

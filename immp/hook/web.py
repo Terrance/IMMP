@@ -17,6 +17,7 @@ behind a full webserver like nginx to separate out routes, lock down access and 
 from functools import wraps
 import json
 import logging
+import os.path
 
 from aiohttp import web
 from voluptuous import ALLOW_EXTRA, Schema
@@ -46,10 +47,12 @@ class WebContext:
     Attributes:
         hook (.WebHook):
             Parent hook instance providing the webserver.
-        module (str):
-            Dotted module name of the Python module using this context.
         prefix (str):
             URL prefix acting as the base path.
+        module (str):
+            Dotted module name of the Python module using this context (``__name__``).
+        path (str):
+            Base path of the module (``os.path.dirname(__file__)``), needed for static routes.
         env (dict):
             Additional variables to make available in the Jinja context.  The default context is:
 
@@ -59,10 +62,11 @@ class WebContext:
             * :data:`request`, the current :class:`aiohttp.web.Request` instance
     """
 
-    def __init__(self, hook, module, prefix, env=None):
+    def __init__(self, hook, prefix, module, path=None, env=None):
         self.hook = hook
-        self.module = module
         self.prefix = prefix
+        self.module = module
+        self.path = path
         self.env = {"ctx": self}
         if env:
             self.env.update(env)
@@ -93,6 +97,26 @@ class WebContext:
             fn = self._jinja(fn, template)
         route = self.hook.add_route(method, "{}/{}".format(self.prefix, route), fn,
                                     name="{}:{}".format(self.module, name))
+        self._routes[name] = route
+
+    def static(self, route, path, name=None):
+        """
+        Add a new route to the webserver.
+
+        Args:
+            route (str):
+                URL pattern to match.
+            path (str):
+                Filesystem location relative to the base path.
+            name (str):
+                Custom name for the route, defaulting to the function name if not specified.
+        """
+        name = name or path
+        if name in self._routes:
+            raise KeyError(name)
+        route = self.hook.add_static("{}/{}".format(self.prefix, route),
+                                     os.path.join(self.path, path),
+                                     name="{}:{}".format(self.module, name))
         self._routes[name] = route
 
     def _jinja(self, fn, path):
@@ -148,16 +172,19 @@ class WebHook(immp.ResourceHook):
         self._site = None
         self._contexts = {}
 
-    def context(self, module, prefix, env=None):
+    def context(self, prefix, module, path=None, env=None):
         """
         Retrieve a context for the current module.
 
         Args:
+            prefix (str):
+                URL prefix acting as the base path.
             module (str):
                 Dotted module name of the Python module using this context.  Callers should use
                 :data:`__name__` from the root of their module.
-            prefix (str):
-                URL prefix acting as the base path.
+            path (str):
+                Base path of the module, needed for static routes.  Callers should use
+                ``os.path.dirname(__file__)`` from the root of their module.
             env (dict):
                 Additional variables to make available in the Jinja context.  See
                 :attr:`.WebContext.env` for details.
@@ -166,8 +193,7 @@ class WebHook(immp.ResourceHook):
             .WebContext:
                 Linked context instance for that module.
         """
-        if module not in self._contexts:
-            self._contexts[module] = WebContext(self, module, prefix, env)
+        self._contexts[module] = WebContext(self, prefix, module, path, env)
         return self._contexts[module]
 
     def add_loader(self, module):
@@ -186,7 +212,13 @@ class WebHook(immp.ResourceHook):
         """
         Equivalent to :meth:`aiohttp.web.UrlDispatcher.add_route`.
         """
-        return self.app.router.add_route(*args)
+        return self.app.router.add_route(*args, **kwargs)
+
+    def add_static(self, *args, **kwargs):
+        """
+        Equivalent to :meth:`aiohttp.web.UrlDispatcher.add_static`.
+        """
+        return self.app.router.add_static(*args, **kwargs)
 
     async def start(self):
         log.debug("Starting server on %s:%d", self.config["host"], self.config["port"])
