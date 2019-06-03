@@ -22,7 +22,7 @@ adding or removing users in channels.
 If multiple Slack workspaces are involved, you will need a separate bot and plug setup per team.
 """
 
-from asyncio import CancelledError, ensure_future, sleep
+from asyncio import CancelledError, ensure_future, gather, sleep
 from copy import copy
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -746,6 +746,14 @@ class SlackPlug(immp.Plug):
         else:
             await self._api("conversations.kick", params={"channel": channel.source,
                                                           "user": user.id})
+
+    async def channel_history(self, channel, before=None):
+        params = {"channel": channel.source}
+        if before:
+            params["latest"] = before.id
+        history = await self._api("conversations.history", _Schema.history, params=params)
+        messages = reversed(history["messages"])
+        return await gather(*(SlackMessage.from_event(self, msg) for msg in messages))
 
     async def get_message(self, channel_id, ts, parent=True):
         params = {"channel": channel_id,

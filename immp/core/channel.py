@@ -100,6 +100,20 @@ class Channel:
         """
         return await self.plug.channel_remove(self, user)
 
+    async def history(self, before=None):
+        """
+        Equivalent to :meth:`.Plug.channel_history`.
+
+        Args:
+            before (.Receipt):
+                Starting point message, or ``None`` to fetch the most recent.
+
+        Returns:
+            .Receipt list:
+                Messages from the channel, oldest first.
+        """
+        return await self.plug.channel_history(self, before)
+
     async def send(self, msg):
         """
         Push a message object to the related plug on this channel.

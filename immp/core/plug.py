@@ -232,6 +232,23 @@ class Plug(Openable):
                 Existing user to kick.
         """
 
+    async def channel_history(self, channel, before=None):
+        """
+        Retrieve the most recent messages sent or received in the given channel.  May return an
+        empty list if the plug is unable to query history.
+
+        Args:
+            channel (.Channel):
+                Requested channel instance.
+            before (.Receipt):
+                Starting point message, or ``None`` to fetch the most recent.
+
+        Returns:
+            .Receipt list:
+                Messages from the channel, oldest first.
+        """
+        return []
+
     def queue(self, sent):
         """
         Add a new message to the queue, picked up from :meth:`get` by default.

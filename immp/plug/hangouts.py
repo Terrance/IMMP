@@ -556,34 +556,74 @@ class HangoutsPlug(immp.Plug):
             participant_id=hangouts_pb2.ParticipantId(gaia_id=user.id))
         await self._client.remove_user(request)
 
+    async def channel_history(self, channel, before=None):
+        try:
+            conv = self._convs.get(channel.source)
+        except KeyError:
+            return []
+        if not before:
+            if len(conv.events) == 1:
+                # Only the initial message cached, try to fetch a first batch.
+                await conv.get_events(conv.events[0].id_)
+            # Return all cached events.
+            return [HangoutsMessage.from_event(self, event) for event in conv.events]
+        ids = [event.id_ for event in conv.events]
+        if before.id in ids:
+            # Handled by get_events() -- if the target is the oldest message in the current batch,
+            # fetch the next whole batch and return that, else return everything before the target.
+            events = await conv.get_events(before.id)
+            return [HangoutsMessage.from_event(self, event) for event in events]
+        # Hangouts has no way to query for an event by ID, only by timestamp.  Instead, we'll try a
+        # few times to retrieve it further down the message history.
+        for i in range(10):
+            log.debug("Fetching batch %i of events to find %r", i + 1, before.id)
+            events = await conv.get_events(conv.events[0].id_)
+            ids = [event.id_ for event in events]
+            if not ids:
+                # No further messages, we've hit the end of the message history.
+                return []
+            elif before.id in ids:
+                events = await conv.get_events(before.id)
+                return [HangoutsMessage.from_event(self, event) for event in events]
+        # Maxed out on attempts but didn't find the requested message.
+        return []
+
     async def _get_event(self, conv, event_id):
-        # Check first if we've already got the event cached.
-        for event in conv.events:
-            if event.id_ == event_id:
-                return event
-        # Hangouts has no way to query for an event by ID, only by timestamp.  Instead, we'll fetch
-        # the last X (in this case 500) events and hope to find it.
-        for event in await conv.get_events(conv.events[0].id_, 500):
-            if event.id_ == event_id:
-                return event
+        ids = [event.id_ for event in conv.events]
+        try:
+            return conv.get_event(event_id)
+        except KeyError:
+            pass
+        # Hangouts has no way to query for an event by ID, only by timestamp.  Instead, we'll try a
+        # few times to retrieve it further down the message history.
+        for i in range(10):
+            log.debug("Fetching batch %i of events to find %r", i + 1, event_id)
+            events = await conv.get_events(conv.events[0].id_)
+            ids = [event.id_ for event in events]
+            if not ids:
+                # No further messages, we've hit the end of the message history.
+                return []
+            elif event_id in ids:
+                return events[ids.index(event_id)]
+        # Maxed out on attempts but didn't find the requested message.
         return None
 
     async def _resolve_msg(self, conv, msg):
-        if isinstance(msg, immp.Receipt) and not isinstance(msg, immp.Message):
+        if isinstance(msg, immp.Message):
+            return msg
+        elif isinstance(msg, immp.Receipt):
             # We have the message reference but not the content.
             event = await self._get_event(conv, msg.id)
-            if event:
-                sent = HangoutsMessage.from_event(self, event)
-                # As we only use this for rendering the message again, we shouldn't add a second
-                # layer of authorship if we originally sent the message being retrieved.
-                if sent.user.id == self._bot_user:
-                    sent.user = None
-                return sent
-            elif isinstance(msg, immp.Message):
-                return msg
-        elif isinstance(msg, immp.Message):
-            return msg
-        return None
+            if not event:
+                return None
+            sent = HangoutsMessage.from_event(self, event)
+            # As we only use this for rendering the message again, we shouldn't add a second
+            # layer of authorship if we originally sent the message being retrieved.
+            if sent.user.id == self._bot_user:
+                sent.user = None
+            return sent
+        else:
+            return None
 
     async def _upload(self, attach):
         async with (await attach.get_content()) as img_content:

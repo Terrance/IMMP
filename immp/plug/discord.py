@@ -492,8 +492,6 @@ class DiscordPlug(immp.Plug):
         return isinstance(dc_channel, discord.DMChannel)
 
     async def channel_members(self, channel):
-        if channel.plug is not self:
-            return None
         dc_channel = self._get_channel(channel)
         if isinstance(dc_channel, discord.TextChannel):
             return [DiscordUser.from_user(self, member) for member in dc_channel.members]
@@ -504,6 +502,13 @@ class DiscordPlug(immp.Plug):
                     DiscordUser.from_user(self, dc_channel.recipient)]
         else:
             return []
+
+    async def channel_history(self, channel, before=None):
+        dc_channel = self._get_channel(channel)
+        dc_before = await dc_channel.fetch_message(before.id) if before else None
+        history = dc_channel.history(before=dc_before, oldest_first=False)
+        messages = [DiscordMessage.from_message(self, message) async for message in history]
+        return list(reversed(messages))
 
     def _resolve_channel(self, channel):
         dc_channel = self._get_channel(channel)
