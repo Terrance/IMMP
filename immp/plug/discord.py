@@ -86,7 +86,8 @@ class DiscordUser(immp.User):
         """
         username = "{}#{}".format(user.name, user.discriminator)
         real_name = getattr(user, "nick", None) or user.name
-        avatar = user.avatar_url or None
+        # Avatar URL is an Asset object, URL only available via __str__.
+        avatar = str(user.avatar_url) if user.avatar_url else None
         return cls(id=user.id,
                    plug=discord,
                    username=username,
