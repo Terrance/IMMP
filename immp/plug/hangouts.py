@@ -556,10 +556,28 @@ class HangoutsPlug(immp.Plug):
             participant_id=hangouts_pb2.ParticipantId(gaia_id=user.id))
         await self._client.remove_user(request)
 
+    async def _next_batch(self, conv, before_id):
+        # Conversation.get_events() should, if the target is the oldest message in the current
+        # batch, fetch the next whole batch and return that, or else return everything before the
+        # target.  However, at the end of the message history, it sometimes returns an arbitrary
+        # batch instead.  Return fetched messages from Conversation.events directly instead.
+        ids = [event.id_ for event in conv.events]
+        if before_id not in ids:
+            return None
+        if ids[0] == before_id:
+            # Target is the oldest message cached, so there may be more -- try for another batch.
+            await conv.get_events(before_id)
+            ids = [event.id_ for event in conv.events]
+        # Take all events older than the target.
+        events = conv.events[:ids.index(before_id)]
+        return [HangoutsMessage.from_event(self, event) for event in events]
+
     async def channel_history(self, channel, before=None):
         try:
             conv = self._convs.get(channel.source)
         except KeyError:
+            return []
+        if not conv.events:
             return []
         if not before:
             if len(conv.events) == 1:
@@ -569,10 +587,7 @@ class HangoutsPlug(immp.Plug):
             return [HangoutsMessage.from_event(self, event) for event in conv.events]
         ids = [event.id_ for event in conv.events]
         if before.id in ids:
-            # Handled by get_events() -- if the target is the oldest message in the current batch,
-            # fetch the next whole batch and return that, else return everything before the target.
-            events = await conv.get_events(before.id)
-            return [HangoutsMessage.from_event(self, event) for event in events]
+            return await self._next_batch(conv, before.id)
         # Hangouts has no way to query for an event by ID, only by timestamp.  Instead, we'll try a
         # few times to retrieve it further down the message history.
         for i in range(10):
@@ -583,8 +598,7 @@ class HangoutsPlug(immp.Plug):
                 # No further messages, we've hit the end of the message history.
                 return []
             elif before.id in ids:
-                events = await conv.get_events(before.id)
-                return [HangoutsMessage.from_event(self, event) for event in events]
+                return await self._next_batch(conv, before.id)
         # Maxed out on attempts but didn't find the requested message.
         return []
 
