@@ -724,8 +724,13 @@ class TelegramMessage(immp.Message):
         if message.reply_to_msg_id:
             reply_to = await telegram.get_message(message.reply_to_msg_id)
         if message.photo:
-            attachments.append(await TelegramFile.from_id(telegram, pack_bot_file_id(message.photo),
-                                                          immp.File.Type.image))
+            try:
+                attach = await TelegramFile.from_id(telegram, pack_bot_file_id(message.photo),
+                                                    immp.File.Type.image)
+            except TelegramAPIRequestError as e:
+                log.warning("Unable to fetch attachment", exc_info=e)
+            else:
+                attachments.append(attach)
         elif message.document:
             type = immp.File.Type.unknown
             name = None
@@ -739,9 +744,13 @@ class TelegramMessage(immp.Message):
                     type = immp.File.Type.image
                 elif isinstance(attr, tl.types.DocumentAttributeFilename):
                     name = attr.file_name
-            attachments.append(await TelegramFile.from_id(telegram,
-                                                          pack_bot_file_id(message.document),
-                                                          type, name))
+            try:
+                attach = await TelegramFile.from_id(telegram, pack_bot_file_id(message.document),
+                                                    type, name)
+            except TelegramAPIRequestError as e:
+                log.warning("Unable to fetch attachment", exc_info=e)
+            else:
+                attachments.append(attach)
         elif message.poll:
             action = True
             prefix = "closed the" if message.poll.poll.closed else "opened a"
@@ -1065,6 +1074,28 @@ class TelegramPlug(immp.Plug):
 
     async def channel_remove(self, channel, user):
         await self._api("kickChatMember", params={"chat_id": channel.source, "user_id": user.id})
+
+    async def channel_history(self, channel, before=None):
+        if not self._client:
+            log.debug("Client auth required to retrieve messages")
+            return []
+        elif not before:
+            log.debug("Before message required to retrieve messages")
+            return []
+        chat, message = (int(field) for field in before.id.split(":", 1))
+        ids = list(range(max(message - 50, 1), message))
+        history = filter(None, await self._client.get_messages(entity=chat, ids=ids))
+        tasks = (TelegramMessage.from_proto_message(self, message) for message in history)
+        results = await gather(*tasks, return_exceptions=True)
+        messages = []
+        for result in results:
+            if isinstance(result, NotImplementedError):
+                continue
+            elif isinstance(result, Exception):
+                raise result
+            else:
+                messages.append(result)
+        return messages
 
     async def get_message(self, id):
         if not self._client:
