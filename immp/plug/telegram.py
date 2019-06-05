@@ -253,7 +253,7 @@ class TelegramUser(immp.User):
         if user.last_name:
             real_name = "{} {}".format(real_name, user.last_name)
         avatar = None
-        if user.username:
+        if user.username and user.photo:
             avatar = "https://t.me/i/userpic/320/{}.jpg".format(user.username)
         return cls(id=user.id,
                    plug=telegram,
