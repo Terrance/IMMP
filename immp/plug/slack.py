@@ -572,6 +572,49 @@ class SlackMessage(immp.Message):
                                 attachments=attachments,
                                 raw=json)
 
+    @classmethod
+    def to_attachment(cls, slack, msg, reply=False):
+        """
+        Convert a :class:`.Message` to a message attachment structure, suitable for embedding
+        within an outgoing message.
+
+        Args:
+            slack (.SlackPlug):
+                Target plug instance for this attachment.
+            msg (.Message):
+                Original message from another plug or hook.
+            reply (bool):
+                Whether to show a reply icon instead of a quote icon.
+
+        Returns.
+            dict:
+                Slack API `attachment <https://api.slack.com/docs/message-attachments>`_ object.
+        """
+        icon = ":arrow_right_hook:" if reply else ":speech_balloon:"
+        quote = {"footer": icon}
+        if isinstance(msg, immp.SentMessage):
+            quote["ts"] = msg.at.timestamp()
+        if msg.user:
+            quote["author_name"] = msg.user.real_name or msg.user.username
+            quote["author_icon"] = msg.user.avatar
+        quoted_rich = None
+        quoted_action = False
+        if msg.text:
+            quoted_rich = msg.text.clone()
+            quoted_action = msg.action
+        elif msg.attachments:
+            count = len(msg.attachments)
+            what = "{} files".format(count) if count > 1 else "this file"
+            quoted_rich = immp.RichText([immp.Segment("sent {}".format(what))])
+            quoted_action = True
+        if quoted_rich:
+            if quoted_action:
+                for segment in quoted_rich:
+                    segment.italic = True
+            quote["text"] = SlackRichText.to_mrkdwn(slack, quoted_rich)
+            quote["mrkdwn_in"] = ["text"]
+        return quote
+
 
 class SlackPlug(immp.Plug):
     """
