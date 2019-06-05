@@ -305,6 +305,9 @@ class SyncCache:
         return ref
 
     def __getitem__(self, key):
+        if isinstance(key, immp.Receipt) and key.channel.plug == self._hook.plug:
+            # Message from the sync channel itself, so just look the key up directly.
+            key = key.id
         if isinstance(key, immp.Receipt):
             try:
                 # If in the local cache, the message already passed through sync in this session.
@@ -410,8 +413,8 @@ class SyncPlug(immp.Plug):
 
     async def put(self, channel, msg):
         if channel.source in self._hook.config["channels"]:
-            await self._hook.send(channel.source, msg)
-            return []
+            ref = await self._hook.send(channel.source, msg)
+            return [ref.key]
         else:
             raise immp.PlugError("Send to unknown sync channel: {}".format(repr(channel)))
 
@@ -639,7 +642,16 @@ class SyncHook(_SyncHookBase):
                 queue.append(self._send(synced, local))
             # Send all the messages in parallel, and match the resulting IDs up by channel.
             ids = dict(await gather(*queue))
-            return self._cache.add(SyncRef(ids, source=msg, origin=origin))
+            ref = SyncRef(ids, source=msg, origin=origin)
+            self._cache.add(ref)
+            # Push a copy of the message to the sync channel, if running.
+            if self.plug:
+                sent = immp.SentMessage(id=ref.key, channel=immp.Channel(self.plug, label),
+                                        text=msg.text, user=msg.user, action=msg.action,
+                                        reply_to=msg.reply_to, joined=msg.joined, left=msg.left,
+                                        title=msg.title, attachments=msg.attachments, raw=msg)
+                self.plug.queue(sent)
+            return ref
 
     async def delete(self, ref, sent=None):
         queue = []
@@ -726,13 +738,7 @@ class SyncHook(_SyncHookBase):
         if not self._accept(source):
             return
         log.debug("Sending message to synced channel %r: %r", label, sent.id)
-        ref = await self.send(label, source, sent)
-        # Push a copy of the message to the sync channel, if running.
-        if self.plug:
-            clone = copy(source)
-            clone.id = ref.key
-            clone.channel = immp.Channel(self.plug, label)
-            self.plug.queue(clone)
+        await self.send(label, source, sent)
 
     async def before_send(self, channel, msg):
         await super().before_send(channel, msg)
