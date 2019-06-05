@@ -77,6 +77,7 @@ channels.  Unlike a sync, this is a one-direction copy, useful for announcements
 from asyncio import BoundedSemaphore, gather
 from collections import defaultdict
 from copy import copy
+from itertools import chain
 import logging
 import re
 
@@ -406,10 +407,9 @@ class SyncPlug(immp.Plug):
     async def channel_members(self, channel):
         if channel.source not in self._hook.config["channels"]:
             return None
-        members = []
-        for synced in self._hook.channels[channel.source]:
-            members.extend(await synced.members() or [])
-        return members
+        tasks = (synced.members() for synced in self._hook.channels[channel.source])
+        members = set(chain(*(await gather(*tasks))))
+        return list(sorted(members, key=lambda u: (u.plug.name, u.username or u.real_name)))
 
     async def put(self, channel, msg):
         if channel.source in self._hook.config["channels"]:
