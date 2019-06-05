@@ -25,6 +25,49 @@
       {%- endif %}
     </div>
   </nav>
+  <h3 class="title">Migrate</h3>
+  <p>Transfer hook data from this channel to a replacement.  <strong>Caution:</strong> this action is irreversible.</p>
+  <form action="{{ ctx.url_for("channel_migration", plug=channel.plug.name, source=channel.source) }}" method="post">
+    <div class="field has-addons">
+      <div class="control">
+        <div class="select">
+          <select name="name" required>
+            <option disabled selected>Channels</option>
+            {% for option in host.channels %}
+            <option value="{{ option }}">{{ option }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="control">
+       <button type="submit" class="button is-warning">
+         <i class="fas fa-fw fa-random"></i> Migrate
+       </button>
+      </div>
+    </div>
+  </form>
+  <form action="{{ ctx.url_for("channel_migration", plug=channel.plug.name, source=channel.source) }}" method="post">
+    <div class="field has-addons">
+      <div class="control">
+        <div class="select">
+          <select name="plug" required>
+            <option disabled selected>Plugs</option>
+            {% for option in host.plugs %}
+            <option value="{{ option }}">{{ option }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="control">
+        <input name="source" type="text" class="input" placeholder="Channel source" required>
+      </div>
+      <div class="control">
+       <button type="submit" class="button is-warning">
+         <i class="fas fa-fw fa-random"></i> Migrate
+       </button>
+      </div>
+    </div>
+  </form>
   {%- if members %}
   <h3 class="title">Members ({{ members|length }})</h3>
   <table class="table">

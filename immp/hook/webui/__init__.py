@@ -77,6 +77,7 @@ class WebUIHook(immp.ResourceHook):
         self.ctx.route("POST", "channel", self.named_channel_add)
         self.ctx.route("POST", "channel/{name}/remove", self.named_channel_remove)
         self.ctx.route("GET", "plug/{plug}/channel/{source}", self.channel, "channel.j2")
+        self.ctx.route("POST", "plug/{plug}/channel/{source}/migrate", self.channel_migration)
         self.ctx.route("POST", "plug/{plug}/channel/{source}/invite", self.channel_invite)
         self.ctx.route("POST", "plug/{plug}/channel/{source}/kick/{user}", self.channel_kick)
         # Groups:
@@ -259,6 +260,19 @@ class WebUIHook(immp.ResourceHook):
                 "title_": title,
                 "link": link,
                 "members": members}
+
+    async def channel_migration(self, request):
+        name, old = self._resolve_channel(request)
+        post = await request.post()
+        if "name" in post:
+            new = self.host.channels[post["name"]]
+        elif "plug" in post and "source" in post:
+            new = immp.Channel(self.host.plugs[post["plug"]], post["source"])
+        else:
+            raise web.HTTPBadRequest
+        hooks = await self.host.channel_migrate(old, new)
+        summary = ",".join(hooks)
+        raise web.HTTPFound(self.ctx.url_for("channel", plug=old.plug.name, source=old.source))
 
     async def channel_invite(self, request):
         name, channel = self._resolve_channel(request)

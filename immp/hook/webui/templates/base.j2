@@ -10,6 +10,14 @@
     <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.4.1/css/all.css" integrity="sha384-5sAR7xN1Nv6T6+dT2mhtzEpVJvfS3NScPQTrOxhwjIuvcA67KV2R5Jz6kr4abQsz" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/josdejong/jsoneditor@v5.24.6/dist/jsoneditor.min.css" integrity="sha384-OC0x1yhDAHS+N1Do1hm8ASEhisiOijhpEfh57KZNvIDAmBgooTEgC7Msju1gD0cl" crossorigin="anonymous">
     <script src="https://cdn.jsdelivr.net/gh/josdejong/jsoneditor@v5.24.6/dist/jsoneditor.min.js" integrity="sha384-RNa9jGyRdZqaZPUcntD5CR+eTMxebIIsa71PwgAqlKruDPA5AvlLE+1A1PXMVuUP" crossorigin="anonymous" defer></script>
+    <style>
+      .container > form {
+        margin: 1rem 0;
+      }
+      option:disabled {
+        background-color: #dbdbdb;
+      }
+    </style>
     <script>
       window.addEventListener("load", function(e) {
         var fields = document.querySelectorAll("textarea.json-editor");
