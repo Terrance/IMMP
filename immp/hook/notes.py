@@ -110,6 +110,25 @@ class NotesHook(immp.Hook):
         count = Note.select_channel(msg.channel).count()
         await msg.channel.send(immp.Message(text="{} Added #{}".format(TICK, count)))
 
+    @command("note-edit", parser=CommandParser.hybrid)
+    async def edit(self, msg, pos, text):
+        """
+        Update an existing note from this channel with new text.
+        """
+        try:
+            pos = int(pos)
+        except ValueError:
+            return
+        try:
+            note = Note.select_position(msg.channel, pos)
+        except Note.DoesNotExist:
+            text = "{} Does not exist".format(CROSS)
+        else:
+            note.text = text.raw()
+            note.save()
+            text = "{} Edited".format(TICK)
+        await msg.channel.send(immp.Message(text=text))
+
     @command("note-remove")
     async def remove(self, msg, pos):
         """
