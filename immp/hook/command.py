@@ -35,6 +35,7 @@ from copy import copy
 from enum import Enum
 import inspect
 import logging
+import re
 import shlex
 
 from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
@@ -77,10 +78,15 @@ class CommandParser(Enum):
             Split using :func:`shlex.split`, which allows quoting of multi-word arguments.
         none:
             Don't split the argument, just provide the rich message text as-is.
+        hybrid:
+            Split as with ``spaces`` up to the number of accepted arguments, and return rich text
+            in the last argument.  If optional arguments are present, only the last will receive
+            the rich text, or none of them if not filled in.
     """
     spaces = 0
     shlex = 1
     none = 2
+    hybrid = 3
 
 
 class CommandScope(Enum):
@@ -253,6 +259,14 @@ class BaseCommand:
         return len(self._args[0])
 
     @property
+    def min(self):
+        return len([arg for arg in self._args[1] if arg.default is inspect.Parameter.empty])
+
+    @property
+    def max(self):
+        return len(self._args[1])
+
+    @property
     def doc(self):
         return inspect.cleandoc(self.fn.__doc__) if self.fn.__doc__ else None
 
@@ -286,6 +300,17 @@ class BaseCommand:
             return str(args).split()
         elif self.parser == CommandParser.shlex:
             return shlex.split(str(args))
+        elif self.parser == CommandParser.hybrid:
+            filled = self.max
+            parts = str(args).split(maxsplit=filled - 1)
+            if len(parts) < filled:
+                return parts
+            full = re.split(r"(\s+)", str(args))
+            index = filled * 2
+            if full[0]:
+                index -= 2
+            offset = len("".join(full[:index]))
+            return parts[:-1] + [args[offset::True]]
         else:
             return [args]
 
@@ -299,9 +324,8 @@ class BaseCommand:
                 Parsed arguments.
         """
         params = self._args[1]
-        required = len([arg for arg in params if arg.default is inspect.Parameter.empty])
         varargs = len([arg for arg in params if arg.kind is inspect.Parameter.VAR_POSITIONAL])
-        required -= varargs
+        required = self.min - varargs
         if len(args) < required:
             raise ValueError("Expected at least {} args, got {}".format(required, len(args)))
         if len(args) > len(params) and not varargs:
