@@ -16,6 +16,8 @@ Config:
             Primary nick for the bot user.
         real-name (str):
             Real name, as displayed in WHO queries.
+    accept-invites (bool):
+        ``True`` to auto-join channels when an INVITE is received.
 """
 
 from asyncio import CancelledError, Future, Queue, ensure_future, open_connection, sleep
@@ -37,7 +39,8 @@ class _Schema():
                                 Optional("ssl", default=False): bool,
                                 Optional("password", default=None): Any(str, None)},
                      "user": {"nick": str,
-                              "real-name": str}},
+                              "real-name": str},
+                     Optional("accept-invites", default=False): bool},
                     extra=ALLOW_EXTRA, required=True)
 
 
@@ -443,6 +446,8 @@ class IRCPlug(immp.Plug):
                     self._joins.remove(sent.channel.source)
                     return
             self.queue(sent)
+        elif line.command == "INVITE" and self.config["accept-invites"]:
+            self.write(Line("JOIN", line.args[1]))
         elif line.command == "005":
             for param in line.args[1:]:
                 if param.startswith("PREFIX="):
