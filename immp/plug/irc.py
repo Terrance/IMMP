@@ -305,6 +305,7 @@ class IRCPlug(immp.Plug):
         self._joins = set()
         # Cache responses that may be rate-limited by the server.
         self._channels = self._names = None
+        self._members = {}
 
     @property
     def network_name(self):
@@ -330,7 +331,7 @@ class IRCPlug(immp.Plug):
         for channel in self.host.channels.values():
             if channel.plug == self and channel.source.startswith("#"):
                 self._joins.add(channel.source)
-                self.write(Line("JOIN", channel.source))
+                await self._join(channel.source)
 
     async def stop(self):
         if self._reader:
@@ -365,11 +366,18 @@ class IRCPlug(immp.Plug):
         await self.start()
 
     async def _who(self, name):
-        users = []
-        for line in await self.wait(Line("WHO", name), success=["315"], collect=["352"]):
+        if name in self._members:
+            return self._members[name]
+        users = set()
+        for line in await self.wait(Line("WHO", name), success=("315",), collect=("352",)):
             id = "{}!{}@{}".format(line.args[5], line.args[2], line.args[3])
-            users.append(immp.User(id=id, plug=self, username=line.args[5], raw=line))
+            users.add(immp.User(id=id, plug=self, username=line.args[5], raw=line))
+        self._members[name] = users
         return users
+
+    async def _join(self, name):
+        await self.wait(Line("JOIN", name), success=("366",), collect=("353",))
+        await self._who(name)
 
     def _strip_prefix(self, name):
         return re.sub("^[{}]+".format(self._prefixes), "", name) if self._prefixes else name
@@ -422,7 +430,7 @@ class IRCPlug(immp.Plug):
         return channel.source
 
     async def channel_members(self, channel):
-        return await self._who(channel.source)
+        return list(await self._who(channel.source))
 
     def _sync_wait(self):
         if self._current_wait or self._waits.empty():
@@ -446,8 +454,31 @@ class IRCPlug(immp.Plug):
                     self._joins.remove(sent.channel.source)
                     return
             self.queue(sent)
+            if line.command == "JOIN":
+                log.debug("Adding %s to %s members", sent.user.username, sent.channel.source)
+                self._members[sent.channel.source].add(sent.user)
+            elif line.command == "PART":
+                log.debug("Removing %s from %s members", sent.user.username, sent.channel.source)
+                self._members[sent.channel.source].remove(sent.user)
+        elif line.command == "QUIT":
+            nick = line.source.split("!", 1)[0]
+            find = immp.User(id=line.source, plug=self, username=nick)
+            for name, members in self._members.items():
+                if find in members:
+                    log.debug("Converting QUIT to PART for %s in %s", nick, name)
+                    await self._handle(Line("PART", name, source=line.source))
+        elif line.command == "NICK":
+            old, host = line.source.split("!", 1)
+            new = line.args[0]
+            find = immp.User(id=line.source, plug=self, username=old)
+            replace = immp.User(id="{}!{}".format(new, host), plug=self, username=new, raw=line)
+            for name, members in self._members.items():
+                if find in members:
+                    log.debug("Replacing %s with %s in %s members", old, new, name)
+                    members.remove(find)
+                    members.add(replace)
         elif line.command == "INVITE" and self.config["accept-invites"]:
-            self.write(Line("JOIN", line.args[1]))
+            await self._join(line.args[1])
         elif line.command == "005":
             for param in line.args[1:]:
                 if param.startswith("PREFIX="):
