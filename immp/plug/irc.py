@@ -77,7 +77,7 @@ class Line:
                          "(?P<args>(?: +[^: ][^ ]*)*)(?: +:(?P<trailing>.*))?", re.I)
 
     def __init__(self, command, *args, source=None, tags=None):
-        self.command = command
+        self.command = command.upper()
         self.args = args
         self.source = source
         self.tags = tags
@@ -194,7 +194,7 @@ class IRCMessage(immp.Message):
     """
 
     @classmethod
-    def from_line(cls, irc, line):
+    async def from_line(cls, irc, line):
         """
         Convert a :class:`.Line` into a :class:`.Message`.
 
@@ -225,12 +225,21 @@ class IRCMessage(immp.Message):
             text = "left {}".format(channel)
             action = True
             left.append(user)
-        else:
+        elif line.command == "KICK":
+            target = await irc.user_from_username(line.args[1])
+            text = immp.RichText([immp.Segment("kicked "),
+                                  immp.Segment(target.username, bold=True),
+                                  immp.Segment(" ({})".format(line.args[2]))])
+            action = True
+            left.append(target)
+        elif line.command == "PRIVMSG":
             text = line.args[1]
             match = re.match(r"\x01ACTION ([^\x01]*)\x01", text)
             if match:
                 text = match.group(1)
                 action = True
+        else:
+            raise NotImplementedError
         return immp.SentMessage(id=Line.next_ts(),
                                 channel=immp.Channel(irc, channel),
                                 text=text,
@@ -372,7 +381,10 @@ class IRCPlug(immp.Plug):
         for line in await self.wait(Line("WHO", name), success=("315",), collect=("352",)):
             id = "{}!{}@{}".format(line.args[5], line.args[2], line.args[3])
             users.add(immp.User(id=id, plug=self, username=line.args[5], raw=line))
-        self._members[name] = users
+        if users:
+            self._members[name] = users
+        elif name in self._members:
+            del self._members[name]
         return users
 
     async def _join(self, name):
@@ -430,7 +442,16 @@ class IRCPlug(immp.Plug):
         return channel.source
 
     async def channel_members(self, channel):
-        return list(await self._who(channel.source))
+        members = list(await self._who(channel.source))
+        if await channel.is_private() and members[0].id != self._source:
+            members.append(await self.user_from_id(self._source))
+        return members
+
+    async def channel_invite(self, channel, user):
+        self.write(Line("INVITE", user.username, channel.source))
+
+    async def channel_remove(self, channel, user):
+        self.write(Line("KICK", channel.source, user.username))
 
     def _sync_wait(self):
         if self._current_wait or self._waits.empty():
@@ -447,19 +468,19 @@ class IRCPlug(immp.Plug):
             self._sync_wait()
         if line.command == "PING":
             self.write(Line("PONG", *line.args))
-        elif line.command in ("JOIN", "PART", "PRIVMSG"):
-            sent = IRCMessage.from_line(self, line)
+        elif line.command in ("JOIN", "PART", "KICK", "PRIVMSG"):
+            sent = await IRCMessage.from_line(self, line)
             if sent.joined and sent.joined[0].username == self._source.split("!", 1)[0]:
                 if sent.channel.source in self._joins:
                     self._joins.remove(sent.channel.source)
                     return
             self.queue(sent)
             if line.command == "JOIN":
-                log.debug("Adding %s to %s members", sent.user.username, sent.channel.source)
-                self._members[sent.channel.source].add(sent.user)
-            elif line.command == "PART":
-                log.debug("Removing %s from %s members", sent.user.username, sent.channel.source)
-                self._members[sent.channel.source].remove(sent.user)
+                log.debug("Adding %s to %s members", sent.joined[0].username, sent.channel.source)
+                self._members[sent.channel.source].add(sent.joined[0])
+            elif line.command in ("PART", "KICK"):
+                log.debug("Removing %s from %s members", sent.left[0].username, sent.channel.source)
+                self._members[sent.channel.source].remove(sent.left[0])
         elif line.command == "QUIT":
             nick = line.source.split("!", 1)[0]
             find = immp.User(id=line.source, plug=self, username=nick)
@@ -472,8 +493,12 @@ class IRCPlug(immp.Plug):
             new = line.args[0]
             find = immp.User(id=line.source, plug=self, username=old)
             replace = immp.User(id="{}!{}".format(new, host), plug=self, username=new, raw=line)
-            for name, members in self._members.items():
-                if find in members:
+            for name, members in list(self._members.items()):
+                if name == old:
+                    log.debug("Replacing %s with %s in self entry", old, new)
+                    del self._members[old]
+                    self._members[new] = {replace}
+                elif find in members:
                     log.debug("Replacing %s with %s in %s members", old, new, name)
                     members.remove(find)
                     members.add(replace)
@@ -538,7 +563,7 @@ class IRCPlug(immp.Plug):
             line = Line("PRIVMSG", channel.source, text)
             self.write(line)
             line.source = self._source
-            sent = IRCMessage.from_line(self, line)
+            sent = await IRCMessage.from_line(self, line)
             self.queue(sent)
             ids.append(sent.id)
         return ids
