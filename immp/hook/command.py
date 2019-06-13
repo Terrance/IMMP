@@ -515,7 +515,7 @@ class CommandHook(immp.Hook):
                 group = self.host.groups[label]
                 if plug and group.has_plug(plug, "anywhere", "named"):
                     mappings.append(mapping)
-                elif await group.has_channel(channel):
+                elif not plug and await group.has_channel(channel):
                     mappings.append(mapping)
         cmds = set()
         for mapping in mappings:
