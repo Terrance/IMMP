@@ -484,8 +484,11 @@ class IRCPlug(immp.Plug):
         elif line.command == "QUIT":
             nick = line.source.split("!", 1)[0]
             find = immp.User(id=line.source, plug=self, username=nick)
-            for name, members in self._members.items():
-                if find in members:
+            for name, members in list(self._members.items()):
+                if name == nick:
+                    log.debug("Removing %s self entry", nick)
+                    del self._members[nick]
+                elif find in members:
                     log.debug("Converting QUIT to PART for %s in %s", nick, name)
                     await self._handle(Line("PART", name, source=line.source))
         elif line.command == "NICK":
