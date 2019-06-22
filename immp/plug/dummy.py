@@ -38,19 +38,15 @@ class DummyPlug(immp.Plug):
             self._task = None
 
     async def put(self, channel, msg):
-        if msg.deleted:
-            return
         # Make a clone of the message to echo back out of the generator.
-        clone = immp.Message(id=self.counter(),
-                             at=msg.at,
-                             text=msg.text,
-                             user=msg.user,
-                             action=msg.action,
-                             raw=msg.raw)
+        clone = immp.SentMessage(id=self.counter(),
+                                 channel=self.channel,
+                                 text=msg.text,
+                                 user=msg.user,
+                                 action=msg.action)
         log.debug("Returning message: %r", clone)
-        self.queue(self.channel, clone)
-        # Don't return the clone ID, let it be delivered as a new message.
-        return []
+        self.queue(clone)
+        return [clone.id]
 
     async def _timer(self):
         while True:

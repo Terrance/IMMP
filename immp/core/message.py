@@ -41,7 +41,7 @@ class User:
         self.username = username
         self.real_name = real_name
         self.avatar = avatar
-        if not (hasattr(self.__class__, "link") and isinstance(self.__class__.link, property)):
+        if not isinstance(getattr(self.__class__, "link", None), property):
             # Subclasses may implement as a property, in which case the attribute set would fail.
             self.link = link
         self.suggested = suggested

@@ -135,7 +135,7 @@ class ConfigProperty:
         if isinstance(spec, list):
             return "[{}]".format(", ".join(cls._describe(inner) for inner in spec))
         elif isinstance(spec, tuple):
-            return "{{}}".format(", ".join(inner.__name__ for inner in spec))
+            return "{{{}}}".format(", ".join(inner.__name__ for inner in spec))
         else:
             return spec.__name__
 

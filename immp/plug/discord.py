@@ -617,7 +617,7 @@ class DiscordPlug(immp.Plug):
         return [str(resp.id) for resp in sent]
 
     async def delete(self, sent):
-        dc_channel, webhook = self._resolve_channel(sent.channel)
+        dc_channel = self._resolve_channel(sent.channel)[0]
         if not dc_channel:
             raise DiscordAPIError("No access to channel {}".format(sent.channel.source))
         message = await dc_channel.fetch_message(sent.id)
