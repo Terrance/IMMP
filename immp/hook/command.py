@@ -457,6 +457,9 @@ class CommandHook(immp.Hook):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
+        # Avoiding circular dependency between commands and sync -- use the full path to populate
+        # that attribute path in the global `immp` import for later (so unused here).
+        import immp.hook.sync
 
     def discover(self, hook):
         """
