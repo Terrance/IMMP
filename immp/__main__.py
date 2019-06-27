@@ -94,13 +94,13 @@ def main(path, write=False):
             host.resources[RunnerHook].write_config()
 
 
-def parse():
+def entrypoint():
     parser = ArgumentParser(prog="python -m immp", add_help=False)
     parser.add_argument("-w", "--write", action="store_true")
     parser.add_argument("file", metavar="FILE")
-    return parser.parse_args()
+    args = parser.parse_args()
+    main(args.file, args.write)
 
 
 if __name__ == "__main__":
-    args = parse()
-    main(args.file, args.write)
+    entrypoint()
