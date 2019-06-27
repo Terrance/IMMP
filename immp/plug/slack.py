@@ -468,7 +468,7 @@ class SlackMessage(immp.Message):
         else:
             if event["user"]:
                 author = event["user"]
-            if event["bot_id"]:
+            elif event["bot_id"]:
                 # Event has the bot's app ID, not user ID.
                 try:
                     author = slack._bot_to_user[event["bot_id"]]
@@ -795,7 +795,9 @@ class SlackPlug(immp.Plug):
         if before:
             params["latest"] = before.id
         history = await self._api("conversations.history", _Schema.history, params=params)
-        messages = reversed(history["messages"])
+        messages = list(reversed(history["messages"]))
+        for msg in messages:
+            msg["channel"] = channel.source
         return await gather(*(SlackMessage.from_event(self, msg) for msg in messages))
 
     async def get_message(self, channel_id, ts, parent=True):
