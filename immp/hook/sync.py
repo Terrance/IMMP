@@ -392,6 +392,20 @@ class SyncPlug(immp.Plug):
                 return immp.Channel(self, label)
         return None
 
+    def in_sync(self, channel):
+        """
+        Retrieve the list of member channels for a given sync channel.
+
+        Args:
+            channel (.Channel):
+                Virtual channel belonging to this sync instance.
+
+        Returns:
+            .Channel list:
+                Channels participating in this sync.
+        """
+        return self._hook.channels[channel.source] if channel.plug is self else []
+
     async def public_channels(self):
         return [immp.Channel(self, name) for name in self._hook.channels]
 
