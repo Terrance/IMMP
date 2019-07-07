@@ -467,16 +467,16 @@ def main(args):
     anyconfig.dump(data.make_config(), args.output)
 
 
-def parse():
+def entrypoint():
+    logging.basicConfig(level=logging.DEBUG)
     parser = ArgumentParser(add_help=False)
     parser.add_argument("config", type=FileType("r"))
     parser.add_argument("memory", type=FileType("r"))
     parser.add_argument("output")
     parser.add_argument("database")
-    return parser.parse_args()
+    args = parser.parse_args()
+    main(args)
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
-    args = parse()
-    main(args)
+    entrypoint()
