@@ -27,7 +27,7 @@ from requests import Session
 from voluptuous import REMOVE_EXTRA, Any, Optional, Schema
 
 from immp.hook.database import BaseModel
-from immp.hook.identity import IdentityGroup, IdentityLink
+from immp.hook.identitylocal import IdentityGroup, IdentityLink
 from immp.hook.notes import Note
 
 
