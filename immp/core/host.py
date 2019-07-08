@@ -43,6 +43,10 @@ class Host:
     Attributes:
         plugs ((str, .Plug) dict):
             Collection of all registered plug instances, keyed by name.
+        channels ((str, .Channel) dict):
+            Collection of all registered channels, keyed by name.
+        groups ((str, .Group) dict):
+            Collection of all registered group, keyed by name.
         hooks ((str, .Hook) dict):
             Collection of all registered hooks, keyed by name.
         plain_hooks ((str, .Hook) dict):
@@ -53,9 +57,11 @@ class Host:
             Whether messages from plugs are being processed by the host.
     """
 
+    __slots__ = ("_objects", "_resources", "_priority", "_loaded", "_stream", "_process")
+
     def __init__(self):
         self._objects = {}
-        self.resources = {}
+        self._resources = {}
         self._priority = {}
         self._loaded = False
         self._stream = self._process = None
@@ -64,6 +70,7 @@ class Host:
     channels = HostGetter(Channel)
     groups = HostGetter(Group)
     hooks = HostGetter(Hook)
+    resources = property(lambda self: self._resources)
 
     @property
     def plain_hooks(self):

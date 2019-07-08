@@ -25,6 +25,8 @@ class Channel:
             Plug-specific channel identifier.
     """
 
+    __slots__ = ("plug", "source")
+
     def __init__(self, plug, source):
         self.plug = plug
         self.source = str(source)
@@ -157,6 +159,8 @@ class Group:
             return Group.merge(instance.host, *super().__get__(instance, owner))
 
     _channels = ConfigProperty([Channel])
+
+    __slots__ = ("name", "config", "host")
 
     def __init__(self, name, config, host):
         self.name = name

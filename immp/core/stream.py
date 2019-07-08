@@ -17,6 +17,8 @@ class PlugStream:
         As per :meth:`.Plug.stream`, only one iterator of this class should be used at once.
     """
 
+    __slots__ = ("_agens", "_tasks", "_sync", "_close")
+
     def __init__(self):
         # Mapping from plugs to their stream() generator coroutines.
         self._agens = {}

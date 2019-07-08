@@ -8,33 +8,6 @@ import time
 from .error import ConfigError
 
 
-class IDGen:
-    """
-    Generator of generic timestamp-based identifiers.
-
-    IDs are guaranteed unique for the lifetime of the application -- two successive calls will
-    yield two different identifiers.
-    """
-
-    def __init__(self):
-        self.last = 0
-
-    def __call__(self):
-        """
-        Make a new identifier.
-
-        Returns:
-            str:
-                Newly generated identifier.
-        """
-        new = max(self.last + 1, int(time.time()))
-        self.last = new
-        return str(new)
-
-    def __repr__(self):
-        return "<{}: {} -> {}>".format(self.__class__.__name__, self.last, self())
-
-
 def resolve_import(path):
     """
     Take the qualified name of a Python class, and return the physical class object.
@@ -122,6 +95,8 @@ class ConfigProperty:
     stored in a :class:`.Host`.
     """
 
+    __slots__ = ("_cls", "_key")
+
     def __init__(self, cls=None, key=None):
         self._cls = cls
         self._key = key
@@ -165,6 +140,35 @@ class ConfigProperty:
     def __repr__(self):
         return "<{}: {}{}>".format(self.__class__.__name__, repr(self._key),
                                    " {}".format(self._describe(self._cls)) if self._cls else "")
+
+
+class IDGen:
+    """
+    Generator of generic timestamp-based identifiers.
+
+    IDs are guaranteed unique for the lifetime of the application -- two successive calls will
+    yield two different identifiers.
+    """
+
+    __slots__ = ("last",)
+
+    def __init__(self):
+        self.last = 0
+
+    def __call__(self):
+        """
+        Make a new identifier.
+
+        Returns:
+            str:
+                Newly generated identifier.
+        """
+        new = max(self.last + 1, int(time.time()))
+        self.last = new
+        return str(new)
+
+    def __repr__(self):
+        return "<{}: {} -> {}>".format(self.__class__.__name__, self.last, self())
 
 
 class OpenState(Enum):

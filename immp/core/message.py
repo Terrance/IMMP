@@ -34,6 +34,8 @@ class User:
             Optional plug-specific underlying user object.
     """
 
+    __slots__ = ("_id", "plug", "username", "real_name", "avatar", "link", "suggested", "raw")
+
     def __init__(self, id_=None, plug=None, *, username=None, real_name=None, avatar=None,
                  link=None, suggested=False, raw=None):
         self.id = id_
@@ -127,7 +129,9 @@ class Segment:
             ``True`` if the segment is not formatted.
     """
 
-    _format_attrs = ("bold", "italic", "underline", "strike", "code", "pre", "link", "mention")
+    __slots__ = ("text", "bold", "italic", "underline", "strike", "code", "pre", "link", "mention")
+
+    _format_attrs = __slots__[1:]
 
     def __init__(self, text, *, bold=False, italic=False, underline=False, strike=False,
                  code=False, pre=False, link=None, mention=None):
@@ -201,7 +205,9 @@ class RichText:
     _tag_regex = re.compile(r"{}(.*?){}".format(_no_escape("<"), _no_escape(">")))
     _split_regex = re.compile(_no_escape(","))
 
-    _bool_tags = Segment._format_attrs[:6]
+    _bool_tags = Segment.__slots__[1:7]
+
+    __slots__ = ("_segments",)
 
     def __init__(self, segments=None):
         self._segments = (list(segments) if segments else None) or []
@@ -517,6 +523,8 @@ class File:
             Public URL to the original file location, if one is available.
     """
 
+    __slots__ = ("title", "type", "source")
+
     class Type(Enum):
         """
         Possible file attachment types.
@@ -582,6 +590,8 @@ class Location:
             URL to Google Maps centred on this place.
     """
 
+    __slots__ = ("latitude", "longitude", "name", "address")
+
     def __init__(self, latitude=None, longitude=None, name=None, address=None):
         self.latitude = latitude
         self.longitude = longitude
@@ -631,8 +641,16 @@ class Location:
                                        " {}".format(repr(self.name)) if self.name else "")
 
 
+class _SentMessageSlots:
+
+    # Multiple-inheritance compatibility: define attributes for both Message and Receipt here (i.e.
+    # all fields needed for SentMessage).
+    __slots__ = ("_text", "user", "action", "reply_to", "joined", "left", "title", "attachments",
+                 "_id", "channel", "at", "revision", "edited", "deleted", "raw")
+
+
 @pretty_str
-class Message:
+class Message(_SentMessageSlots):
     """
     Base message content container, understood by all plugs.
 
@@ -656,6 +674,8 @@ class Message:
         raw:
             Optional plug-specific underlying message or event object.
     """
+
+    __slots__ = ()
 
     def __init__(self, *, text=None, user=None, action=False, reply_to=None, joined=None,
                  left=None, title=None, attachments=None, raw=None):
@@ -783,7 +803,7 @@ class Message:
 
 
 @pretty_str
-class Receipt:
+class Receipt(_SentMessageSlots):
     """
     Reference to a physical message received from a plug.  This provides metadata for identifying
     a source message, in addition to the actual content attributes.
@@ -804,6 +824,8 @@ class Receipt:
         deleted (bool):
             Whether the message was deleted from its source.
     """
+
+    __slots__ = ()
 
     def __init__(self, id_, channel, *, at=None, revision=None, edited=False, deleted=False):
         self.id = id_
@@ -845,6 +867,8 @@ class SentMessage(Receipt, Message):
     """
     Combination of :class:`.Receipt` and :class:`.Message`.
     """
+
+    __slots__ = ()
 
     def __init__(self, id_, channel, *, at=None, revision=None, edited=False, deleted=False,
                  text=None, user=None, action=False, reply_to=None, joined=None, left=None,
