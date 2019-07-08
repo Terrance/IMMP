@@ -123,9 +123,11 @@ class Segment:
             Anchor URL if this segment represents a clickable link.
         mention (.User):
             Target user mentioned in this segment.
+        plain (bool):
+            ``True`` if the segment is not formatted.
     """
 
-    _bool_tags = ("bold", "italic", "underline", "strike", "code", "pre")
+    _format_attrs = ("bold", "italic", "underline", "strike", "code", "pre", "link", "mention")
 
     def __init__(self, text, *, bold=False, italic=False, underline=False, strike=False,
                  code=False, pre=False, link=None, mention=None):
@@ -147,6 +149,25 @@ class Segment:
         return (self.text, self.bold, self.italic, self.underline, self.strike, self.code,
                 self.pre, self.link, self.mention)
 
+    @property
+    def plain(self):
+        return all(not getattr(self, attr) for attr in self._format_attrs)
+
+    def same_format(self, other):
+        """
+        Test if this and another segment are equally formatted.  Works like ``==`` but ignores the
+        segment text.
+
+        Args:
+            other (.Segment):
+                Second segment for comparison.
+
+        Returns:
+            bool:
+                ``True`` if the segments match.
+        """
+        return isinstance(other, self.__class__) and self._tuple[1:] == other._tuple[1:]
+
     def __eq__(self, other):
         return isinstance(other, self.__class__) and self._tuple == other._tuple
 
@@ -157,8 +178,7 @@ class Segment:
         return self.text
 
     def __repr__(self):
-        attrs = [" {}".format(attr) for attr in ("bold", "italic", "underline", "strike", "code",
-                                                 "pre", "link", "mention") if getattr(self, attr)]
+        attrs = [" {}".format(attr) for attr in self._format_attrs if getattr(self, attr)]
         return "<{}: {}{}>".format(self.__class__.__name__, repr(self.text), "".join(attrs))
 
 
@@ -181,6 +201,8 @@ class RichText:
     _tag_regex = re.compile(r"{}(.*?){}".format(_no_escape("<"), _no_escape(">")))
     _split_regex = re.compile(_no_escape(","))
 
+    _bool_tags = Segment._format_attrs[:6]
+
     def __init__(self, segments=None):
         self._segments = (list(segments) if segments else None) or []
 
@@ -194,26 +216,50 @@ class RichText:
 
         For example::
 
-            Some[b] bold [/b]text.
+            Some<b> bold </>text.
 
-        The bold boundaries would be moved to surround "bold" excluding the spaces.
+        The bold boundaries would be moved to surround "bold" excluding the spaces::
+
+            Some <b>bold</> text.
 
         Returns:
             .RichText:
                 Normalised message text instance.
         """
-        normalised = []
+        # Find leading or trailing whitespace in segments, and split them out.
+        parts = []
         for segment in self._segments:
+            if segment.plain:
+                parts.append(segment)
+                continue
             clone = copy(segment)
             match = re.match(r"(\s*)(.*?)(\s*)$", clone.text, re.DOTALL)
             before, clone.text, after = match.groups()
             if before:
-                normalised.append(Segment(before))
+                parts.append(Segment(before))
             if clone.text:
-                normalised.append(clone)
+                parts.append(clone)
             if after:
-                normalised.append(Segment(after))
-        return RichText(normalised)
+                parts.append(Segment(after))
+        # Look for segments like "<b>Left</>", " ", "<b>Right</>" (where two segments of equal
+        # formatting are separated only by non-new-line whitespace) and combine them.
+        merged = parts[:2]
+        for right in parts[2:]:
+            left, middle = merged[-2:]
+            if left.same_format(right) and not middle.text.strip() and "\n" not in middle.text:
+                left.text = "".join((left.text, middle.text, right.text))
+                merged.pop()
+            else:
+                merged.append(right)
+        # Look for adjacent segments with equal formatting and combine them.
+        normal = [merged[0]]
+        for segment in merged[1:]:
+            prev = normal[-1]
+            if segment.same_format(prev):
+                prev.text += segment.text
+            else:
+                normal.append(segment)
+        return RichText(normal)
 
     def clone(self):
         """
@@ -342,7 +388,7 @@ class RichText:
             tags = cls._split_regex.split(match.group(1))
             for tag in tags:
                 # Bare link tags will use the segment text as the link, filled in at the end.
-                for target in Segment._bool_tags + ("link",):
+                for target in cls._bool_tags + ("link",):
                     if tag in (target, target[0]):
                         current[target] = True
                         break
@@ -376,7 +422,7 @@ class RichText:
         last = "/"
         for segment in self:
             tags = []
-            for tag in Segment._bool_tags:
+            for tag in self._bool_tags:
                 if getattr(segment, tag):
                     tags.append(tag[0])
             if segment.link:
