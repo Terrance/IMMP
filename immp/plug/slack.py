@@ -179,9 +179,9 @@ class SlackUser(immp.User):
             Reference to the Slack integration app for a bot user.
     """
 
-    def __init__(self, id=None, plug=None, username=None, real_name=None, avatar=None,
+    def __init__(self, id_=None, plug=None, username=None, real_name=None, avatar=None,
                  bot_id=None, raw=None):
-        super().__init__(id=id,
+        super().__init__(id_=id_,
                          plug=plug,
                          username=username,
                          real_name=real_name,
@@ -218,7 +218,7 @@ class SlackUser(immp.User):
                 Parsed user object.
         """
         member = _Schema.user(json)
-        return cls(id=member["id"],
+        return cls(id_=member["id"],
                    plug=slack,
                    username=member["name"],
                    real_name=member["profile"]["real_name"],
@@ -371,8 +371,8 @@ class SlackFile(immp.File):
     File attachment originating from Slack.
     """
 
-    def __init__(self, slack, title=None, type=None, source=None):
-        super().__init__(title=title, type=type)
+    def __init__(self, slack, title=None, type_=None, source=None):
+        super().__init__(title=title, type_=type_)
         self.slack = slack
         # Private source as the URL is not publicly accessible.
         self._source = source
@@ -398,12 +398,12 @@ class SlackFile(immp.File):
                 Parsed file object.
         """
         file = _Schema.file(json)
-        type = immp.File.Type.unknown
+        type_ = immp.File.Type.unknown
         if file["mimetype"].startswith("image/"):
-            type = immp.File.Type.image
+            type_ = immp.File.Type.image
         return cls(slack,
                    title=file["name"],
-                   type=type,
+                   type_=type_,
                    source=file["url_private"])
 
 
@@ -434,7 +434,7 @@ class SlackMessage(immp.Message):
             # Ignore user-private messages from Slack (e.g. over quota warnings, link unfurling
             # opt-in prompts etc.) which shouldn't be served to message processors.
             raise NotImplementedError
-        id = revision = event["ts"]
+        id_ = revision = event["ts"]
         at = datetime.fromtimestamp(float(event["ts"]), timezone.utc)
         edited = False
         deleted = False
@@ -453,7 +453,7 @@ class SlackMessage(immp.Message):
                 # or deleting replies (reply is removed from event.replies in new *and old*).
                 raise NotImplementedError
             # Original message details are under a nested "message" key.
-            id = event["message"]["ts"]
+            id_ = event["message"]["ts"]
             edited = True
             text = event["message"]["text"]
             if event["message"]["subtype"] == "me_message":
@@ -461,7 +461,7 @@ class SlackMessage(immp.Message):
             # NB: Editing user may be different to the original sender.
             author = event["message"]["edited"]["user"] or event["message"]["user"]
         elif event["subtype"] == "message_deleted":
-            id = event["deleted_ts"]
+            id_ = event["deleted_ts"]
             deleted = True
             author = None
             text = None
@@ -479,7 +479,7 @@ class SlackMessage(immp.Message):
                         user = immp.User(real_name=event["username"])
             text = event["text"]
         if author:
-            user = slack._users.get(author, SlackUser(id=author, plug=slack))
+            user = slack._users.get(author, SlackUser(id_=author, plug=slack))
             if text and re.match(r"<@{}(\|.*?)?> ".format(author), text):
                 # Own username at the start of the message, assume it's an action.
                 action = True
@@ -534,7 +534,7 @@ class SlackMessage(immp.Message):
                     pass
             elif attach["image_url"]:
                 attachments.append(immp.File(title=attach["title"],
-                                             type=immp.File.Type.image,
+                                             type_=immp.File.Type.image,
                                              source=attach["image_url"]))
             elif attach["fallback"]:
                 if text:
@@ -556,7 +556,7 @@ class SlackMessage(immp.Message):
                     except MessageNotFound:
                         pass
             text = SlackRichText.from_mrkdwn(slack, text)
-        return immp.SentMessage(id=id,
+        return immp.SentMessage(id_=id_,
                                 channel=immp.Channel(slack, event["channel"]),
                                 at=at,
                                 revision=revision,
@@ -723,8 +723,8 @@ class SlackPlug(immp.Plug):
             self._session = None
         self._team = self._bot_user = None
 
-    async def user_from_id(self, id):
-        return self._users.get(id)
+    async def user_from_id(self, id_):
+        return self._users.get(id_)
 
     async def user_from_username(self, username):
         for user in self._users.values():

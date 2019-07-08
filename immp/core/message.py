@@ -34,9 +34,9 @@ class User:
             Optional plug-specific underlying user object.
     """
 
-    def __init__(self, *, id=None, plug=None, username=None, real_name=None, avatar=None,
+    def __init__(self, id_=None, plug=None, *, username=None, real_name=None, avatar=None,
                  link=None, suggested=False, raw=None):
-        self.id = str(id) if id else None
+        self.id = id_
         self.plug = plug
         self.username = username
         self.real_name = real_name
@@ -46,6 +46,14 @@ class User:
             self.link = link
         self.suggested = suggested
         self.raw = raw
+
+    @property
+    def id(self):
+        return self._id
+
+    @id.setter
+    def id(self, value):
+        self._id = str(value) if value else None
 
     async def is_system(self):
         """
@@ -346,7 +354,7 @@ class RichText:
                         plug = unescape(parts[0], "/", ",", ">")
                         user = unescape(parts[1], "/", ",", ">")
                         name = unescape(parts[2], ",", ">")
-                        current["mention"] = User(id=user, plug=host.plugs[plug],
+                        current["mention"] = User(id_=user, plug=host.plugs[plug],
                                                   real_name=name)
         if text:
             rich.append(Segment(unescape(text, "<"), **current))
@@ -476,9 +484,9 @@ class File:
         unknown = 0
         image = 1
 
-    def __init__(self, title=None, type=Type.unknown, source=None):
+    def __init__(self, title=None, type_=Type.unknown, source=None):
         self.title = title
-        self.type = type
+        self.type = type_
         self.source = source
 
     async def get_content(self, sess=None):
@@ -751,13 +759,21 @@ class Receipt:
             Whether the message was deleted from its source.
     """
 
-    def __init__(self, id, channel, *, at=None, revision=None, edited=False, deleted=False):
-        self.id = str(id)
+    def __init__(self, id_, channel, *, at=None, revision=None, edited=False, deleted=False):
+        self.id = id_
         self.channel = channel
         self.at = at or datetime.now(timezone.utc)
         self.revision = str(revision or id)
         self.edited = edited
         self.deleted = deleted
+
+    @property
+    def id(self):
+        return self._id
+
+    @id.setter
+    def id(self, value):
+        self._id = str(value) if value else None
 
     async def delete(self):
         """
@@ -784,10 +800,10 @@ class SentMessage(Receipt, Message):
     Combination of :class:`.Receipt` and :class:`.Message`.
     """
 
-    def __init__(self, id, channel, *, at=None, revision=None, edited=False, deleted=False,
+    def __init__(self, id_, channel, *, at=None, revision=None, edited=False, deleted=False,
                  text=None, user=None, action=False, reply_to=None, joined=None, left=None,
                  title=None, attachments=None, raw=None):
-        Receipt.__init__(self, id=id, channel=channel, revision=revision, at=at, edited=edited,
+        Receipt.__init__(self, id_=id_, channel=channel, revision=revision, at=at, edited=edited,
                          deleted=deleted)
         Message.__init__(self, text=text, user=user, action=action, reply_to=reply_to,
                          joined=joined, left=left, title=title, attachments=attachments, raw=raw)

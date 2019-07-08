@@ -52,7 +52,7 @@ class GitHubMessage(immp.Message):
     """
 
     @classmethod
-    def from_event(cls, github, type, id, event):
+    def from_event(cls, github, type_, id_, event):
         """
         Convert a `GitHub webhook <https://developer.github.com/webhooks/>`_ payload to a
         :class:`.Message`.
@@ -74,14 +74,14 @@ class GitHubMessage(immp.Message):
         repo = event["repository"]["full_name"]
         channel = immp.Channel(github, repo)
         sender = event["sender"]
-        user = immp.User(id=sender["id"],
+        user = immp.User(id_=sender["id"],
                          plug=github,
                          username=sender["login"],
                          avatar=sender["avatar_url"],
                          link=sender["html_url"],
                          raw=sender)
         text = None
-        if type == "push":
+        if type_ == "push":
             count = len(event["commits"])
             desc = "{} commits".format(count) if count > 1 else event["after"][:7]
             ref = event["ref"].split("/")[1:]
@@ -99,48 +99,48 @@ class GitHubMessage(immp.Message):
                 text.append(immp.Segment("\n* "),
                             immp.Segment(commit["id"][:7], code=True),
                             immp.Segment(" - {}".format(commit["message"])))
-        elif type == "release":
+        elif type_ == "release":
             release = event["release"]
             desc = ("{} ({} {})".format(release["name"], repo, release["tag_name"])
                     if release["name"] else release["tag_name"])
             text = immp.RichText([immp.Segment("{} release ".format(event["action"])),
                                   immp.Segment(desc, link=release["html_url"])])
-        elif type == "issues":
+        elif type_ == "issues":
             issue = event["issue"]
             desc = "{} ({}#{})".format(issue["title"], repo, issue["number"])
             text = immp.RichText([immp.Segment("{} issue ".format(event["action"])),
                                   immp.Segment(desc, link=issue["html_url"])])
-        elif type == "pull_request":
+        elif type_ == "pull_request":
             pull = event["pull_request"]
             desc = "{} ({}#{})".format(pull["title"], repo, pull["number"])
             text = immp.RichText([immp.Segment("{} pull request ".format(event["action"])),
                                   immp.Segment(desc, link=pull["html_url"])])
-        elif type == "project":
+        elif type_ == "project":
             project = event["project"]
             desc = "{} ({}#{})".format(project["name"], repo, project["number"])
             text = immp.RichText([immp.Segment("{} project ".format(event["action"])),
                                   immp.Segment(desc, link=project["html_url"])])
-        elif type == "project_card":
+        elif type_ == "project_card":
             card = event["project_card"]
             text = immp.RichText([immp.Segment("{} ".format(event["action"])),
                                   immp.Segment("card", link=card["html_url"]),
                                   immp.Segment(" in project:\n"),
                                   immp.Segment(card["note"])])
-        elif type == "gollum":
+        elif type_ == "gollum":
             text = immp.RichText()
             for i, page in enumerate(event["pages"]):
                 if i:
                     text.append(immp.Segment(", "))
                 text.append(immp.Segment("{} {} wiki page ".format(page["action"], repo)),
                             immp.Segment(page["title"], link=page["html_url"]))
-        elif type == "fork":
+        elif type_ == "fork":
             fork = event["forkee"]
             text = immp.RichText([immp.Segment("forked {} to ".format(repo)),
                                   immp.Segment(fork["full_name"], link=fork["html_url"])])
-        elif type == "watch":
+        elif type_ == "watch":
             text = immp.RichText([immp.Segment("starred {}".format(repo))])
         if text:
-            return immp.SentMessage(id=id,
+            return immp.SentMessage(id_=id_,
                                     channel=channel,
                                     text=text,
                                     user=user,
@@ -160,7 +160,7 @@ class GitHubPlug(immp.Plug):
 
     def __init__(self, name, config, host):
         super().__init__(name, _Schema.config(config), host)
-        self._session = None
+        self._session = self.ctx = None
 
     def on_load(self):
         log.debug("Registering webhook route")
@@ -186,8 +186,8 @@ class GitHubPlug(immp.Plug):
                 log.warning("Bad signature on event")
                 raise web.HTTPUnauthorized
         try:
-            type = request.headers["X-GitHub-Event"]
-            id = request.headers["X-GitHub-Delivery"]
+            type_ = request.headers["X-GitHub-Event"]
+            id_ = request.headers["X-GitHub-Delivery"]
             event = _Schema.event(await request.json())
         except (KeyError, ValueError):
             raise web.HTTPBadRequest
@@ -195,7 +195,7 @@ class GitHubPlug(immp.Plug):
             log.debug("Received ping event for %s", event["repository"]["full_name"])
         else:
             try:
-                self.queue(GitHubMessage.from_event(self, type, id, event))
+                self.queue(GitHubMessage.from_event(self, type_, id_, event))
             except NotImplementedError:
                 log.debug("Ignoring unrecognised event type %r", type)
         return web.Response()

@@ -25,7 +25,7 @@ class DummyPlug(immp.Plug):
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         self.counter = immp.IDGen()
-        self.user = immp.User(id="dummy", real_name=name)
+        self.user = immp.User(id_="dummy", real_name=name)
         self.channel = immp.Channel(self, "dummy")
         self._task = None
 
@@ -39,7 +39,7 @@ class DummyPlug(immp.Plug):
 
     async def put(self, channel, msg):
         # Make a clone of the message to echo back out of the generator.
-        clone = immp.SentMessage(id=self.counter(),
+        clone = immp.SentMessage(id_=self.counter(),
                                  channel=self.channel,
                                  text=msg.text,
                                  user=msg.user,
@@ -52,7 +52,7 @@ class DummyPlug(immp.Plug):
         while True:
             await sleep(10)
             log.debug("Creating next test message")
-            self.queue(immp.SentMessage(id=self.counter(),
+            self.queue(immp.SentMessage(id_=self.counter(),
                                         channel=self.channel,
                                         text="Test",
                                         user=self.user))

@@ -297,10 +297,10 @@ class SyncCache:
         self._cache[ref.key] = ref
         data = []
         for channel, ids in ref.ids.items():
-            for id in ids:
-                self._lookup[channel][id] = ref.key
+            for id_ in ids:
+                self._lookup[channel][id_] = ref.key
                 data.append({"key": ref.key, "network": channel.plug.network_id,
-                             "channel": channel.source, "message": id})
+                             "channel": channel.source, "message": id_})
         if self._hook.db and not back:
             SyncBackRef.insert_many(data).on_conflict("ignore").execute()
         return ref
@@ -493,8 +493,8 @@ class _SyncHookBase(immp.Hook):
             try:
                 identity = await self._identities.identity_from_user(msg.user)
             except Exception as e:
-                log.warning("Failed to retrieve identity information for {}"
-                            .format(repr(msg.user)), exc_info=e)
+                log.warning("Failed to retrieve identity information for %r", msg.user,
+                            exc_info=e)
         if self.config["name-format"]:
             if not Template:
                 raise immp.PlugError("'jinja2' module not installed")
@@ -660,7 +660,7 @@ class SyncHook(_SyncHookBase):
             self._cache.add(ref)
             # Push a copy of the message to the sync channel, if running.
             if self.plug:
-                sent = immp.SentMessage(id=ref.key, channel=immp.Channel(self.plug, label),
+                sent = immp.SentMessage(id_=ref.key, channel=immp.Channel(self.plug, label),
                                         text=msg.text, user=msg.user, action=msg.action,
                                         reply_to=msg.reply_to, joined=msg.joined, left=msg.left,
                                         title=msg.title, attachments=msg.attachments, raw=msg)
@@ -670,9 +670,9 @@ class SyncHook(_SyncHookBase):
     async def delete(self, ref, sent=None):
         queue = []
         for channel, ids in ref.ids.items():
-            for id in ids:
-                if not (sent and sent.channel == channel and sent.id == id):
-                    queue.append(immp.Receipt(id, channel).delete())
+            for id_ in ids:
+                if not (sent and sent.channel == channel and sent.id == id_):
+                    queue.append(immp.Receipt(id_, channel).delete())
         if queue:
             await gather(*queue)
 
@@ -695,7 +695,7 @@ class SyncHook(_SyncHookBase):
             # Return a reference to the transport-native copy of the message.
             at = ref.source.at if isinstance(ref.source, immp.Receipt) else None
             best = ref.source or msg
-            return immp.SentMessage(id=ref.ids[channel][0], channel=channel, at=at,
+            return immp.SentMessage(id_=ref.ids[channel][0], channel=channel, at=at,
                                     text=best.text, user=best.user, action=best.action,
                                     reply_to=best.reply_to, joined=best.joined, left=best.left,
                                     title=best.title, attachments=best.attachments, raw=best.raw)

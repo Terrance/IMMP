@@ -66,7 +66,7 @@ class HangoutsUser(immp.User):
         """
         # No usernames here, just the ID.
         avatar = re.sub("^//", "https://", user.photo_url) if user.photo_url else None
-        return cls(id=user.id_.chat_id,
+        return cls(id_=user.id_.chat_id,
                    plug=hangouts,
                    real_name=user.full_name,
                    avatar=avatar,
@@ -90,7 +90,7 @@ class HangoutsUser(immp.User):
         """
         avatar = (re.sub("^//", "https://", entity.properties.photo_url)
                   if entity.properties.photo_url else None)
-        return cls(id=entity.id_.chat_id,
+        return cls(id_=entity.id_.chat_id,
                    plug=hangouts,
                    real_name=entity.properties.display_name,
                    avatar=avatar,
@@ -309,7 +309,7 @@ class HangoutsMessage(immp.Message):
                         # Couldn't match the user's name to the message text.
                         pass
             for attach in event.attachments:
-                attachments.append(immp.File(type=immp.File.Type.image, source=attach))
+                attachments.append(immp.File(type_=immp.File.Type.image, source=attach))
             for attach in event._event.chat_message.message_content.attachment:
                 embed = attach.embed_item
                 if any(place in embed.type for place in
@@ -370,7 +370,7 @@ class HangoutsMessage(immp.Message):
             raise NotImplementedError
         if not isinstance(event, hangups.ChatMessageEvent):
             text = immp.RichText(segments)
-        return immp.SentMessage(id=event.id_,
+        return immp.SentMessage(id_=event.id_,
                                 channel=immp.Channel(hangouts, event.conversation_id),
                                 at=event.timestamp,
                                 text=text,
@@ -462,13 +462,13 @@ class HangoutsPlug(immp.Plug):
             self._looped = None
         self._bot_user = None
 
-    async def user_from_id(self, id):
-        user = self._users.get_user(hangups.user.UserID(chat_id=id, gaia_id=id))
+    async def user_from_id(self, id_):
+        user = self._users.get_user(hangups.user.UserID(chat_id=id_, gaia_id=id_))
         if user:
             return HangoutsUser.from_user(self, user)
         request = hangouts_pb2.GetEntityByIdRequest(
             request_header=self._client.get_request_header(),
-            batch_lookup_spec=[hangouts_pb2.EntityLookupSpec(gaia_id=id)])
+            batch_lookup_spec=[hangouts_pb2.EntityLookupSpec(gaia_id=id_)])
         response = await self._client.get_entity_by_id(request)
         if response.entity:
             return HangoutsUser.from_entity(self, response.entity)

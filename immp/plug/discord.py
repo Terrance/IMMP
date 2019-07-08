@@ -88,7 +88,7 @@ class DiscordUser(immp.User):
         real_name = getattr(user, "nick", None) or user.name
         # Avatar URL is an Asset object, URL only available via __str__.
         avatar = str(user.avatar_url) if user.avatar_url else None
-        return cls(id=user.id,
+        return cls(id_=user.id,
                    plug=discord,
                    username=username,
                    real_name=real_name,
@@ -291,17 +291,17 @@ class DiscordMessage(immp.Message):
         if message.content:
             text = DiscordRichText.from_markdown(discord, message.content)
         for attach in message.attachments:
-            type = immp.File.Type.unknown
+            type_ = immp.File.Type.unknown
             if attach.filename.endswith((".jpg", ".png", ".gif")):
-                type = immp.File.Type.image
+                type_ = immp.File.Type.image
             attachments.append(immp.File(title=attach.filename,
-                                         type=type,
+                                         type_=type_,
                                          source=attach.url))
         for embed in message.embeds:
             if embed.image.url and embed.image.url.rsplit(".", 1)[1] in ("jpg", "png", "gif"):
-                attachments.append(immp.File(type=immp.File.Type.image,
+                attachments.append(immp.File(type_=immp.File.Type.image,
                                              source=embed.image.url))
-        return immp.SentMessage(id=message.id,
+        return immp.SentMessage(id_=message.id,
                                 channel=immp.Channel(discord, message.channel.id),
                                 # Timestamps are naive but in UTC.
                                 at=message.created_at.replace(tzinfo=timezone.utc),
@@ -437,8 +437,8 @@ class DiscordPlug(immp.Plug):
             await self._session.close()
             self._session = None
 
-    async def user_from_id(self, id):
-        user = await self._client.fetch_user(id)
+    async def user_from_id(self, id_):
+        user = await self._client.fetch_user(id_)
         return DiscordUser.from_user(self, user) if user else None
 
     async def user_from_username(self, username):

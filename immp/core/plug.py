@@ -72,7 +72,7 @@ class Plug(Openable):
         """
         await super().stop()
 
-    async def user_from_id(self, id):
+    async def user_from_id(self, id_):
         """
         Retrieve a :class:`.User` based on the underlying network's identifier.
 

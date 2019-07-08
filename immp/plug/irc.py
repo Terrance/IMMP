@@ -213,7 +213,7 @@ class IRCMessage(immp.Message):
         if channel == irc.config["user"]["nick"]:
             # Private messages arrive "from A to B", and should be sent "from B to A".
             channel = nick
-        user = immp.User(id=line.source, plug=irc, username=nick, raw=line)
+        user = immp.User(id_=line.source, plug=irc, username=nick, raw=line)
         action = False
         joined = []
         left = []
@@ -240,7 +240,7 @@ class IRCMessage(immp.Message):
                 action = True
         else:
             raise NotImplementedError
-        return immp.SentMessage(id=Line.next_ts(),
+        return immp.SentMessage(id_=Line.next_ts(),
                                 channel=immp.Channel(irc, channel),
                                 text=text,
                                 user=user,
@@ -379,8 +379,8 @@ class IRCPlug(immp.Plug):
             return self._members[name]
         users = set()
         for line in await self.wait(Line("WHO", name), success=("315",), collect=("352",)):
-            id = "{}!{}@{}".format(line.args[5], line.args[2], line.args[3])
-            users.add(immp.User(id=id, plug=self, username=line.args[5], raw=line))
+            id_ = "{}!{}@{}".format(line.args[5], line.args[2], line.args[3])
+            users.add(immp.User(id_=id_, plug=self, username=line.args[5], raw=line))
         if users:
             self._members[name] = users
         elif name in self._members:
@@ -394,9 +394,9 @@ class IRCPlug(immp.Plug):
     def _strip_prefix(self, name):
         return re.sub("^[{}]+".format(self._prefixes), "", name) if self._prefixes else name
 
-    async def user_from_id(self, id):
-        nick = id.split("!", 1)[0]
-        return immp.User(id=id, plug=self, username=nick)
+    async def user_from_id(self, id_):
+        nick = id_.split("!", 1)[0]
+        return immp.User(id_=id_, plug=self, username=nick)
 
     async def user_from_username(self, username):
         for user in await self._who(username):
@@ -483,7 +483,7 @@ class IRCPlug(immp.Plug):
                 self._members[sent.channel.source].remove(sent.left[0])
         elif line.command == "QUIT":
             nick = line.source.split("!", 1)[0]
-            find = immp.User(id=line.source, plug=self, username=nick)
+            find = immp.User(id_=line.source, plug=self, username=nick)
             for name, members in list(self._members.items()):
                 if name == nick:
                     log.debug("Removing %s self entry", nick)
@@ -494,8 +494,8 @@ class IRCPlug(immp.Plug):
         elif line.command == "NICK":
             old, host = line.source.split("!", 1)
             new = line.args[0]
-            find = immp.User(id=line.source, plug=self, username=old)
-            replace = immp.User(id="{}!{}".format(new, host), plug=self, username=new, raw=line)
+            find = immp.User(id_=line.source, plug=self, username=old)
+            replace = immp.User(id_="{}!{}".format(new, host), plug=self, username=new, raw=line)
             for name, members in list(self._members.items()):
                 if name == old:
                     log.debug("Replacing %s with %s in self entry", old, new)

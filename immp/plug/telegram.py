@@ -203,7 +203,7 @@ class TelegramUser(immp.User):
         avatar = None
         if user["username"]:
             avatar = "https://t.me/i/userpic/320/{}.jpg".format(user["username"])
-        return cls(id=user["id"],
+        return cls(id_=user["id"],
                    plug=telegram,
                    username=user["username"],
                    real_name=real_name,
@@ -228,7 +228,7 @@ class TelegramUser(immp.User):
         chat = _Schema.channel(json)
         if chat["id"] == -1001228946795:
             raise _HiddenSender
-        return cls(id=chat["id"],
+        return cls(id_=chat["id"],
                    plug=telegram,
                    username=chat["username"],
                    real_name=chat["title"],
@@ -255,7 +255,7 @@ class TelegramUser(immp.User):
         avatar = None
         if user.username and user.photo:
             avatar = "https://t.me/i/userpic/320/{}.jpg".format(user.username)
-        return cls(id=user.id,
+        return cls(id_=user.id,
                    plug=telegram,
                    username=user.username,
                    real_name=real_name,
@@ -277,8 +277,8 @@ class TelegramUser(immp.User):
             .TelegramUser:
                 Parsed user object.
         """
-        id, username, name = entity
-        return cls(id=id,
+        id_, username, name = entity
+        return cls(id_=id_,
                    plug=telegram,
                    username=username,
                    real_name=name,
@@ -467,7 +467,7 @@ class TelegramFile(immp.File):
     """
 
     @classmethod
-    async def from_id(cls, telegram, id, type=immp.File.Type.unknown, name=None):
+    async def from_id(cls, telegram, id_, type_=immp.File.Type.unknown, name=None):
         """
         Generate a file using the bot API URL for a Telegram file.
 
@@ -485,10 +485,10 @@ class TelegramFile(immp.File):
             .TelegramFile:
                 Parsed file object.
         """
-        file = await telegram._api("getFile", _Schema.file, params={"file_id": id})
+        file = await telegram._api("getFile", _Schema.file, params={"file_id": id_})
         url = ("https://api.telegram.org/file/bot{}/{}"
                .format(telegram.config["token"], file["file_path"]))
-        return immp.File(name, type, url)
+        return immp.File(name, type_, url)
 
 
 class TelegramMessage(immp.Message):
@@ -516,7 +516,7 @@ class TelegramMessage(immp.Message):
         message = _Schema.message(json)
         # Message IDs are just a sequence, only unique to their channel and not the whole network.
         # Pair with the chat ID for a network-unique value.
-        id = "{}:{}".format(message["chat"]["id"], message["message_id"])
+        id_ = "{}:{}".format(message["chat"]["id"], message["message_id"])
         revision = message["edit_date"] or message["date"]
         at = datetime.fromtimestamp(message["date"], timezone.utc)
         channel = immp.Channel(telegram, message["chat"]["id"])
@@ -598,8 +598,8 @@ class TelegramMessage(immp.Message):
                 if message[key]:
                     obj = message[key]
                     break
-            type = immp.File.Type.image if key == "animation" else immp.File.Type.unknown
-            attachments.append(await TelegramFile.from_id(telegram, obj["file_id"], type,
+            type_ = immp.File.Type.image if key == "animation" else immp.File.Type.unknown
+            attachments.append(await TelegramFile.from_id(telegram, obj["file_id"], type_,
                                                           obj["file_name"]))
         elif message["venue"]:
             attachments.append(immp.Location(latitude=message["venue"]["location"]["latitude"],
@@ -617,7 +617,7 @@ class TelegramMessage(immp.Message):
         elif not text:
             # No support for this message type.
             raise NotImplementedError
-        common = dict(id=id,
+        common = dict(id_=id_,
                       revision=revision,
                       at=at,
                       channel=channel,
@@ -651,7 +651,7 @@ class TelegramMessage(immp.Message):
                                   attachments=attachments,
                                   raw=message)
             if forward_id:
-                forward = immp.SentMessage(id=forward_id,
+                forward = immp.SentMessage(id_=forward_id,
                                            channel=forward_channel,
                                            **forward_common)
             else:
@@ -704,7 +704,7 @@ class TelegramMessage(immp.Message):
             .TelegramMessage:
                 Parsed message object.
         """
-        id = "{}:{}".format(message.chat_id, message.id)
+        id_ = "{}:{}".format(message.chat_id, message.id)
         edited = bool(message.edit_date)
         if edited:
             revision = int(message.edit_date.timestamp())
@@ -732,21 +732,21 @@ class TelegramMessage(immp.Message):
             else:
                 attachments.append(attach)
         elif message.document:
-            type = immp.File.Type.unknown
+            type_ = immp.File.Type.unknown
             name = None
             for attr in message.document.attributes:
                 if isinstance(attr, tl.types.DocumentAttributeSticker):
-                    type = immp.File.Type.image
+                    type_ = immp.File.Type.image
                     if attr.alt and not text:
                         text = "sent {} sticker".format(attr.alt)
                         action = True
                 elif isinstance(attr, tl.types.DocumentAttributeAnimated):
-                    type = immp.File.Type.image
+                    type_ = immp.File.Type.image
                 elif isinstance(attr, tl.types.DocumentAttributeFilename):
                     name = attr.file_name
             try:
                 attach = await TelegramFile.from_id(telegram, pack_bot_file_id(message.document),
-                                                    type, name)
+                                                    type_, name)
             except TelegramAPIRequestError as e:
                 log.warning("Unable to fetch attachment", exc_info=e)
             else:
@@ -798,7 +798,7 @@ class TelegramMessage(immp.Message):
         if not text and not attachments:
             # No support for this message type.
             raise NotImplementedError
-        common = dict(id=id,
+        common = dict(id_=id_,
                       revision=revision,
                       at=message.date,
                       channel=immp.Channel(telegram, message.chat_id),
@@ -833,7 +833,7 @@ class TelegramMessage(immp.Message):
                                   attachments=attachments,
                                   raw=message)
             if forward_id:
-                forward = immp.SentMessage(id=forward_id,
+                forward = immp.SentMessage(id_=forward_id,
                                            channel=forward_channel,
                                            **forward_common)
             else:
@@ -868,8 +868,8 @@ if SQLiteSession:
         def get_chat_entities(self):
             return self._execute_multi("SELECT id, username, name FROM entities WHERE id < 0")
 
-        def get_entity(self, id):
-            return self._execute("SELECT id, username, name FROM entities WHERE id = ?", id)
+        def get_entity(self, id_):
+            return self._execute("SELECT id_, username, name FROM entities WHERE id = ?", id_)
 
 
 class TelegramPlug(immp.Plug):
@@ -960,14 +960,14 @@ class TelegramPlug(immp.Plug):
         if self._migrations:
             log.warning("Chat migrations require a config update before next run")
 
-    async def user_from_id(self, id):
+    async def user_from_id(self, id_):
         if not self._client:
             log.debug("Client auth required to look up users")
             return None
         try:
-            data = await self._client(tl.functions.users.GetFullUserRequest(int(id)))
+            data = await self._client(tl.functions.users.GetFullUserRequest(int(id_)))
         except BadRequestError:
-            entity = self._client.session.get_entity(id)
+            entity = self._client.session.get_entity(id_)
             return TelegramUser.from_entity(self, entity) if entity else None
         else:
             return TelegramUser.from_proto_user(self, data.user)
@@ -1097,11 +1097,11 @@ class TelegramPlug(immp.Plug):
                 messages.append(result)
         return messages
 
-    async def get_message(self, id):
+    async def get_message(self, id_):
         if not self._client:
             log.debug("Client auth required to retrieve messages")
             return None
-        message = await self._client.get_messages(None, ids=id)
+        message = await self._client.get_messages(None, ids=id_)
         if not message:
             return None
         try:
