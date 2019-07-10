@@ -188,12 +188,10 @@ class SlackUser(immp.User):
                          avatar=avatar,
                          raw=raw)
         self.bot_id = bot_id
-        self._workspace = plug._team["domain"]
 
     @property
     def link(self):
-        if self.id and self._workspace:
-            return "https://{}.slack.com/team/{}".format(self._workspace, self.id)
+        return "https://{}.slack.com/team/{}".format(self.plug._team["domain"], self.id)
 
     @classmethod
     def _best_image(cls, profile):

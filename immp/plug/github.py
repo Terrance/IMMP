@@ -46,6 +46,24 @@ class _Schema:
                    extra=ALLOW_EXTRA, required=True)
 
 
+class GitHubUser(immp.User):
+    """
+    User present in GitHub.
+    """
+
+    @classmethod
+    def from_sender(cls, github, sender):
+        return cls(id_=sender["id"],
+                   plug=github,
+                   username=sender["login"],
+                   avatar=sender["avatar_url"],
+                   raw=sender)
+
+    @property
+    def link(self):
+        return "https://github.com/{}".format(self.username)
+
+
 class GitHubMessage(immp.Message):
     """
     Repository event originating from GitHub.
@@ -73,13 +91,7 @@ class GitHubMessage(immp.Message):
         """
         repo = event["repository"]["full_name"]
         channel = immp.Channel(github, repo)
-        sender = event["sender"]
-        user = immp.User(id_=sender["id"],
-                         plug=github,
-                         username=sender["login"],
-                         avatar=sender["avatar_url"],
-                         link=sender["html_url"],
-                         raw=sender)
+        user = GitHubUser.from_sender(github, event["sender"])
         text = None
         if type_ == "push":
             count = len(event["commits"])

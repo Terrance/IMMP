@@ -34,7 +34,7 @@ class User:
             Optional plug-specific underlying user object.
     """
 
-    __slots__ = ("_id", "plug", "username", "real_name", "avatar", "link", "suggested", "raw")
+    __slots__ = ("_id", "plug", "username", "real_name", "avatar", "_link", "suggested", "raw")
 
     def __init__(self, id_=None, plug=None, *, username=None, real_name=None, avatar=None,
                  link=None, suggested=False, raw=None):
@@ -43,9 +43,8 @@ class User:
         self.username = username
         self.real_name = real_name
         self.avatar = avatar
-        if not isinstance(getattr(self.__class__, "link", None), property):
-            # Subclasses may implement as a property, in which case the attribute set would fail.
-            self.link = link
+        # Bypass property for copy.copy() calls.
+        self._link = link
         self.suggested = suggested
         self.raw = raw
 
@@ -56,6 +55,16 @@ class User:
     @id.setter
     def id(self, value):
         self._id = str(value) if value else None
+
+    @property
+    def link(self):
+        return self._link
+
+    @link.setter
+    def link(self, value):
+        # Implemented as a property here so subclasses can reimplement as a property (e.g. to
+        # generate URLs based on the user ID/username).
+        self._link = value
 
     async def is_system(self):
         """
