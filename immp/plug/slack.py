@@ -267,7 +267,7 @@ class SlackRichText(immp.RichText):
         return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
 
     @classmethod
-    def from_mrkdwn(cls, slack, text):
+    async def from_mrkdwn(cls, slack, text):
         """
         Convert a string of Slack's Mrkdwn into a :class:`.RichText`.
 
@@ -301,9 +301,8 @@ class SlackRichText(immp.RichText):
             changes[match.start()]["link"] = cls._unescape(match.group(1))
             changes[match.end()]["link"] = None
         for match in cls._mention_regex.finditer(text):
-            if match.group(1) in slack._users:
-                changes[match.start()]["mention"] = slack._users[match.group(1)]
-                changes[match.end()]["mention"] = None
+            changes[match.start()]["mention"] = await slack.user_from_id(match.group(1))
+            changes[match.end()]["mention"] = None
         segments = []
         points = list(sorted(changes.keys()))
         formatting = {}
@@ -479,7 +478,7 @@ class SlackMessage(immp.Message):
                         user = immp.User(real_name=event["username"])
             text = event["text"]
         if author:
-            user = slack._users.get(author, SlackUser(id_=author, plug=slack))
+            user = await slack.user_from_id(author) or SlackUser(id_=author, plug=slack)
             if text and re.match(r"<@{}(\|.*?)?> ".format(author), text):
                 # Own username at the start of the message, assume it's an action.
                 action = True
@@ -555,7 +554,7 @@ class SlackMessage(immp.Message):
                         attachments.append(await slack.get_message(channel_id, ts))
                     except MessageNotFound:
                         pass
-            text = SlackRichText.from_mrkdwn(slack, text)
+            text = await SlackRichText.from_mrkdwn(slack, text)
         return immp.SentMessage(id_=id_,
                                 channel=immp.Channel(slack, event["channel"]),
                                 at=at,
@@ -724,7 +723,14 @@ class SlackPlug(immp.Plug):
         self._team = self._bot_user = None
 
     async def user_from_id(self, id_):
-        return self._users.get(id_)
+        if id_ not in self._users:
+            try:
+                data = await self._api("users.info", params={"user": id_})
+            except SlackAPIError:
+                return None
+            else:
+                self._users[id_] = SlackUser.from_member(self, data["user"])
+        return self._users[id_]
 
     async def user_from_username(self, username):
         for user in self._users.values():
@@ -774,7 +780,8 @@ class SlackPlug(immp.Plug):
             members = await self._paged("conversations.members", _Schema.members, "members",
                                         data={"channel": channel.source})
             self._members[channel.source] = members
-        return [self._users[member] for member in self._members[channel.source]]
+        return await gather(*(self.user_from_id(member)
+                              for member in self._members[channel.source]))
 
     async def channel_invite(self, channel, user):
         if user.id == self._bot_user["id"]:
