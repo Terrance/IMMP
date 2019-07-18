@@ -869,7 +869,7 @@ if SQLiteSession:
             return self._execute_multi("SELECT id, username, name FROM entities WHERE id < 0")
 
         def get_entity(self, id_):
-            return self._execute("SELECT id_, username, name FROM entities WHERE id = ?", id_)
+            return self._execute("SELECT id, username, name FROM entities WHERE id = ?", id_)
 
 
 class TelegramPlug(immp.Plug):
