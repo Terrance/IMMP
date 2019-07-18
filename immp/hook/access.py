@@ -9,7 +9,7 @@ Config:
     joins (bool):
         ``True`` to check each join as it happens.
     startup (bool):
-        ``True`` to check all named channels on load.
+        ``True`` to run a full check of all named channels on load.
     passive (bool):
         ``True`` to log violations without actually following through with removals.
 
@@ -41,6 +41,9 @@ class _Schema:
 
 
 class AccessPredicate:
+    """
+    Interface for hooks to provide channel access control from a backing source.
+    """
 
     async def channel_access(self, channel, user):
         """
@@ -69,11 +72,20 @@ class ChannelAccessHook(immp.Hook, AccessPredicate):
 
     @property
     def hooks(self):
-        try:
-            return {self.host.hooks[key]: tuple(self.host.channels[label] for label in value)
-                    for key, value in self.config["hooks"].items()}
-        except KeyError:
-            raise immp.ConfigError("No such hook or channel")
+        mapping = {}
+        for name, channels in self.config["hooks"].items():
+            try:
+                hook = self.host.hooks[name]
+            except KeyError:
+                raise immp.ConfigError("Hook '{}' not registered to host".format(name))
+            if not isinstance(hook, AccessPredicate):
+                raise immp.HookError("Hook '{}' does not implement AccessPredicate".format(name))
+            try:
+                channels = tuple(self.host.channels[label] for label in channels)
+            except KeyError as e:
+                raise immp.ConfigError("Channel '{}' not registered to host".format(e.args[0]))
+            mapping[hook] = channels
+        return mapping
 
     @property
     def channels(self):
