@@ -16,6 +16,8 @@ Config:
             Primary nick for the bot user.
         real-name (str):
             Real name, as displayed in WHO queries.
+    quit (str):
+        Quit message, sent as part of disconnection from the server.
     accept-invites (bool):
         ``True`` to auto-join channels when an INVITE is received.
 """
@@ -32,7 +34,7 @@ import immp
 log = logging.getLogger(__name__)
 
 
-class _Schema():
+class _Schema:
 
     config = Schema({"server": {"host": str,
                                 "port": int,
@@ -40,6 +42,7 @@ class _Schema():
                                 Optional("password", default=None): Any(str, None)},
                      "user": {"nick": str,
                               "real-name": str},
+                     Optional("quit", default=None): Any(str, None),
                      Optional("accept-invites", default=False): bool},
                     extra=ALLOW_EXTRA, required=True)
 
@@ -335,7 +338,7 @@ class IRCPlug(immp.Plug):
         # We won't receive this until a valid nick has been set.
         await self.wait(Line("NICK", self.config["user"]["nick"]),
                         Line("USER", "immp", "0", "*", self.config["user"]["real-name"]),
-                        success=["001"])
+                        success=("001",))
         self._source = (await self.user_from_username(self.config["user"]["nick"])).id
         for channel in self.host.channels.values():
             if channel.plug == self and channel.source.startswith("#"):
@@ -343,21 +346,23 @@ class IRCPlug(immp.Plug):
                 await self._join(channel.source)
 
     async def stop(self):
-        if self._reader:
-            log.debug("Closing reader")
-            self._reader.cancel()
-            self._reader = None
-        if self._writer:
-            log.debug("Closing writer")
-            self._writer.close()
-            self._writer = None
-        self._source = None
         if self._current_wait:
             self._current_wait.cancel()
             self._current_wait = None
         while not self._waits.empty():
             self._waits.get_nowait().cancel()
         self._joins.clear()
+        self.write(Line("QUIT", self.config["quit"] or "IMMP: stopping"))
+        if self._reader:
+            log.debug("Closing reader")
+            self._reader.cancel()
+            self._reader = None
+        if self._writer:
+            log.debug("Closing writer")
+            await self._writer.drain()
+            self._writer.close()
+            self._writer = None
+        self._source = None
 
     async def _read_loop(self, reader, host, port):
         while True:
