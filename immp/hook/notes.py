@@ -4,9 +4,11 @@ Recallable per-channel lists of text items.
 Commands:
     note-add <text>:
         Add a new note for this channel.
-    note-remove <#>:
+    note-edit <pos> <text>:
+        Update an existing note from this channel with new text.
+    note-remove <pos>:
         Delete an existing note from this channel by its position.
-    note-show <#>:
+    note-show <pos>:
         Recall a single note in this channel.
     note-list:
         Recall all notes for this channel.
