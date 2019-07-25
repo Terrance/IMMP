@@ -56,6 +56,12 @@ class _Schema:
                                Optional("bot_id", default=None): Any(str, None)}},
                   extra=ALLOW_EXTRA, required=True)
 
+    bot = Schema({"id": str,
+                  "app_id": str,
+                  "name": str,
+                  "icons": {Optional(Match(r"image_(original|\d+)")): Any(str, None)}},
+                 extra=ALLOW_EXTRA, required=True)
+
     channel = Schema({"id": str,
                       "name": str},
                      extra=ALLOW_EXTRA, required=True)
@@ -180,7 +186,7 @@ class SlackUser(immp.User):
     """
 
     def __init__(self, id_=None, plug=None, username=None, real_name=None, avatar=None,
-                 bot_id=None, raw=None):
+                 bot_id=None, app=False, raw=None):
         super().__init__(id_=id_,
                          plug=plug,
                          username=username,
@@ -188,10 +194,13 @@ class SlackUser(immp.User):
                          avatar=avatar,
                          raw=raw)
         self.bot_id = bot_id
+        self.app = app
 
     @property
     def link(self):
-        return "https://{}.slack.com/team/{}".format(self.plug._team["domain"], self.id)
+        return "https://{}.slack.com/{}/{}".format(self.plug._team["domain"],
+                                                   "apps" if self.app else "team",
+                                                   self.id)
 
     @classmethod
     def _best_image(cls, profile):
@@ -222,6 +231,30 @@ class SlackUser(immp.User):
                    real_name=member["profile"]["real_name"],
                    avatar=cls._best_image(member["profile"]),
                    bot_id=member["profile"]["bot_id"],
+                   raw=json)
+
+    @classmethod
+    def from_bot(cls, slack, json):
+        """
+        Convert an API bot :class:`dict` to a :class:`.User`.
+
+        Args:
+            slack (.SlackPlug):
+                Related plug instance that provides the user.
+            json (dict):
+                Slack API bot object.
+
+        Returns:
+            .SlackUser:
+                Parsed user object.
+        """
+        bot = _Schema.bot(json)
+        return cls(id_=bot["app_id"],
+                   plug=slack,
+                   real_name=bot["name"],
+                   avatar=cls._best_image(bot["icons"]),
+                   bot_id=bot["id"],
+                   app=True,
                    raw=json)
 
 
@@ -435,7 +468,7 @@ class SlackMessage(immp.Message):
         at = datetime.fromtimestamp(float(event["ts"]), timezone.utc)
         edited = False
         deleted = False
-        user = None
+        author = user = None
         action = False
         reply_to = None
         joined = None
@@ -465,15 +498,15 @@ class SlackMessage(immp.Message):
         else:
             if event["user"]:
                 author = event["user"]
-            elif event["bot_id"]:
+            elif event["bot_id"] in slack._bot_to_user:
                 # Event has the bot's app ID, not user ID.
-                try:
-                    author = slack._bot_to_user[event["bot_id"]]
-                except KeyError:
-                    # Bot has no associated user, create a dummy user with the username if present.
-                    author = None
-                    if event["username"]:
-                        user = immp.User(real_name=event["username"])
+                author = slack._bot_to_user[event["bot_id"]]
+            elif event["bot_id"] in slack._bots:
+                # Slack app with no bot presence, use the app metadata.
+                user = slack._bots[event["bot_id"]]
+            elif event["username"]:
+                # Bot has no associated user, just create a dummy user with the username.
+                user = immp.User(real_name=event["username"])
             text = event["text"]
         if author:
             user = await slack.user_from_id(author) or SlackUser(id_=author, plug=slack)
@@ -688,7 +721,8 @@ class SlackPlug(immp.Plug):
         self._users = {u["id"]: SlackUser.from_member(self, u) for u in rtm["users"]}
         self._channels = {c["id"]: c for c in rtm["channels"] + rtm["groups"]}
         self._directs = {c["id"]: c for c in rtm["ims"]}
-        self._bots = {b["id"]: b for b in rtm["bots"] if not b["deleted"]}
+        self._bots = {b["id"]: SlackUser.from_bot(self, b)
+                      for b in rtm["bots"] if not b["deleted"]}
         log.debug("Cached %d users, %d channels, %d IMs, %d bots",
                   len(self._users), len(self._channels), len(self._directs), len(self._bots))
         self._members = {}
