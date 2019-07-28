@@ -106,7 +106,7 @@
     <div class="field">
       <div class="control">
         <div id="config-editor"></div>
-        <textarea name="config" class="textarea is-small json-editor" data-editor="config-editor">{{ plug.config|json(indent=2) }}</textarea>
+        <textarea name="config" class="textarea is-small json-editor" data-editor="config-editor" data-schema="{{ plug.schema.json|json }}">{{ plug.config|json(indent=2) }}</textarea>
       </div>
     </div>
     <div class="field is-grouped">

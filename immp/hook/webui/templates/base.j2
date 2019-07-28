@@ -25,7 +25,8 @@
           var field = fields[i];
           var editor = new JSONEditor(document.getElementById(field.dataset.editor), {
             name: field.name,
-            modes: ["tree", "code"]
+            modes: ["tree", "code"],
+            schema: field.dataset.schema ? JSON.parse(field.dataset.schema) : null
           });
           field.style.display = "none";
           var form = field.closest("form");
