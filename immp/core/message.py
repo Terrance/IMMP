@@ -518,7 +518,6 @@ class RichText:
         return "<{}: {}>".format(self.__class__.__name__, repr(self._segments))
 
 
-@pretty_str
 class File:
     """
     Base file attachment object.
