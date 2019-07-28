@@ -39,8 +39,14 @@ def pretty_str(cls):
             return str(obj)
 
     def __str__(self):
+        if hasattr(self, "__dict__"):
+            data = self.__dict__
+        elif hasattr(self, "__slots__"):
+            data = {attr: getattr(self, attr) for attr in self.__slots__}
+        else:
+            raise TypeError("No __dict__ or __slots__ to collect attributes")
         args = "\n".join("{}: {}".format(k, nest_str(v).replace("\n", "\n" + " " * (len(k) + 2)))
-                         for k, v in self.__dict__.items() if not k.startswith("_"))
+                         for k, v in data.items() if not k.startswith("_"))
         return "[{}]\n{}".format(self.__class__.__name__, args)
 
     cls.__str__ = __str__
