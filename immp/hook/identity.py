@@ -20,8 +20,6 @@ query basic identity information.
 from asyncio import gather
 import logging
 
-from voluptuous import ALLOW_EXTRA, Optional, Schema
-
 import immp
 from immp.hook.command import command
 
@@ -31,13 +29,6 @@ TICK = "\N{WHITE HEAVY CHECK MARK}"
 
 
 log = logging.getLogger(__name__)
-
-
-class _Schema:
-
-    config = Schema({"identities": [str],
-                     Optional("public", default=False): bool},
-                    extra=ALLOW_EXTRA, required=True)
 
 
 @immp.pretty_str
@@ -140,10 +131,10 @@ class WhoIsHook(immp.Hook):
     Hook to provide generic lookup of user profiles across one or more identity providers.
     """
 
-    _identities = immp.ConfigProperty([IdentityProvider])
+    schema = immp.Schema({"identities": [str],
+                          immp.Optional("public", False): bool})
 
-    def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+    _identities = immp.ConfigProperty([IdentityProvider])
 
     @command("who")
     async def who(self, msg, name):

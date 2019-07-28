@@ -38,27 +38,10 @@ import logging
 import re
 import shlex
 
-from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
-
 import immp
 
 
 log = logging.getLogger(__name__)
-
-
-class _Schema:
-
-    def _key(name, default=dict):
-        return Optional(name, default=default)
-
-    config = Schema({"prefix": [str],
-                     _key("return-errors", False): bool,
-                     _key("sets"): Any({}, {str: {str: [str]}}),
-                     "mapping": {str: {_key("groups", list): [str],
-                                       _key("hooks", list): [str],
-                                       _key("sets", list): [str],
-                                       _key("admins"): Any({}, {str: [str]})}}},
-                    extra=ALLOW_EXTRA, required=True)
 
 
 class BadUsage(immp.HookError):
@@ -455,8 +438,16 @@ class CommandHook(immp.Hook):
     Generic command handler for other hooks.
     """
 
+    schema = immp.Schema({"prefix": [str],
+                          immp.Optional("return-errors", False): bool,
+                          immp.Optional("sets", dict): {str: {str: [str]}},
+                          "mapping": {str: {immp.Optional("groups", list): [str],
+                                            immp.Optional("hooks", list): [str],
+                                            immp.Optional("sets", list): [str],
+                                            immp.Optional("admins", dict): {str: [str]}}}})
+
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+        super().__init__(name, config, host)
         # Avoiding circular dependency between commands and sync -- use the full path to populate
         # that attribute path in the global `immp` import for later (so unused here).
         import immp.hook.sync

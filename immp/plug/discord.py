@@ -38,7 +38,6 @@ from textwrap import wrap
 from aiohttp import ClientSession
 import discord
 from emoji import emojize
-from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
 
@@ -48,14 +47,12 @@ log = logging.getLogger(__name__)
 
 class _Schema:
 
-    config = Schema({"token": str,
-                     Optional("bot", default=True): bool,
-                     Optional("webhooks", default=dict): dict,
-                     Optional("playing", default=None): Any(str, None)},
-                    extra=ALLOW_EXTRA, required=True)
+    config = immp.Schema({"token": str,
+                          immp.Optional("bot", True): bool,
+                          immp.Optional("webhooks", dict): {str: str},
+                          immp.Optional("playing", None): immp.Nullable(str)})
 
-    webhook = Schema(Any({"code": int, "message": str}, {"id": str}),
-                     extra=ALLOW_EXTRA, required=True)
+    webhook = immp.Schema(immp.Any({"code": int, "message": str}, {"id": str}))
 
 
 class DiscordAPIError(immp.PlugError):
@@ -403,6 +400,8 @@ class DiscordPlug(immp.Plug):
     Plug for a `Discord <https://discordapp.com>`_ server.
     """
 
+    schema = _Schema.config
+
     network_name = "Discord"
 
     @property
@@ -410,7 +409,7 @@ class DiscordPlug(immp.Plug):
         return "discord:{}".format(self._client.user.id) if self._client else None
 
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+        super().__init__(name, config, host)
         # Connection objects that need to be closed on disconnect.
         self._client = self._task = self._session = None
         self._starting = Condition()

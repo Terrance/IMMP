@@ -26,7 +26,6 @@ import logging
 
 from aiohttp import web
 import aiohttp_jinja2
-from voluptuous import ALLOW_EXTRA, Schema
 
 import immp
 from immp.hook.runner import RunnerHook
@@ -36,18 +35,15 @@ from immp.hook.web import WebHook
 log = logging.getLogger(__name__)
 
 
-class _Schema:
-
-    config = Schema({"route": str}, extra=ALLOW_EXTRA, required=True)
-
-
 class WebUIHook(immp.ResourceHook):
     """
     Hook providing web-based configuration management for a running host instance.
     """
 
+    schema = immp.Schema({"route": str})
+
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+        super().__init__(name, config, host)
         self.ctx = None
 
     def on_load(self):

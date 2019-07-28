@@ -21,7 +21,6 @@ import hmac
 import logging
 
 from aiohttp import web
-from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
 from immp.hook.web import WebHook
@@ -32,18 +31,14 @@ log = logging.getLogger(__name__)
 
 class _Schema:
 
-    config = Schema({"route": str,
-                     Optional("secret", default=None): Any(str, None)},
-                    extra=ALLOW_EXTRA, required=True)
+    config = immp.Schema({"route": str,
+                          immp.Optional("secret", None): immp.Nullable(str)})
 
-    _sender = {"id": int,
-               "login": str,
-               "avatar_url": str,
-               "html_url": str}
-
-    event = Schema({"repository": {"full_name": str},
-                    "sender": _sender},
-                   extra=ALLOW_EXTRA, required=True)
+    event = immp.Schema({"repository": {"full_name": str},
+                         "sender": {"id": int,
+                                    "login": str,
+                                    "avatar_url": str,
+                                    "html_url": str}})
 
 
 class GitHubUser(immp.User):
@@ -167,11 +162,13 @@ class GitHubPlug(immp.Plug):
     Plug for incoming `GitHub <https://github.com>`_ notifications.
     """
 
+    schema = _Schema.config
+
     network_name = "GitHub"
     network_id = "github"
 
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+        super().__init__(name, config, host)
         self._session = self.ctx = None
 
     def on_load(self):

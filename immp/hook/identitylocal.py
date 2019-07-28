@@ -38,7 +38,6 @@ from hashlib import sha256
 import logging
 
 from peewee import CharField, ForeignKeyField, IntegerField
-from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
 from immp.hook.access import AccessPredicate
@@ -52,14 +51,6 @@ TICK = "\N{WHITE HEAVY CHECK MARK}"
 
 
 log = logging.getLogger(__name__)
-
-
-class _Schema:
-
-    config = Schema({Optional("instance", default=None): Any(int, None),
-                     "plugs": [str],
-                     Optional("multiple", default=True): bool},
-                    extra=ALLOW_EXTRA, required=True)
 
 
 class IdentityGroup(BaseModel):
@@ -153,10 +144,14 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
     effectively provides self-service identities, as opposed to being provided externally.
     """
 
+    schema = immp.Schema({immp.Optional("instance", None): immp.Nullable(int),
+                          "plugs": [str],
+                          immp.Optional("multiple", True): bool})
+
     _plugs = immp.ConfigProperty([immp.Plug])
 
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+        super().__init__(name, config, host)
         self.db = None
 
     async def start(self):

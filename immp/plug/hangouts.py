@@ -29,19 +29,11 @@ from urllib.parse import unquote
 
 import hangups
 from hangups import hangouts_pb2
-from voluptuous import ALLOW_EXTRA, Optional, Schema
 
 import immp
 
 
 log = logging.getLogger(__name__)
-
-
-class _Schema:
-
-    config = Schema({"cookie": str,
-                     Optional("read", default=True): bool},
-                    extra=ALLOW_EXTRA, required=True)
 
 
 class HangoutsUser(immp.User):
@@ -387,6 +379,9 @@ class HangoutsPlug(immp.Plug):
     Plug for `Google Hangouts <https://hangouts.google.com>`_.
     """
 
+    schema = immp.Schema({"cookie": str,
+                          immp.Optional("read", True): bool})
+
     network_name = "Hangouts"
 
     @property
@@ -394,7 +389,7 @@ class HangoutsPlug(immp.Plug):
         return "hangouts:{}".format(self._bot_user) if self._bot_user else None
 
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+        super().__init__(name, config, host)
         self._client = None
         self._looped = None
         self._starting = Condition()

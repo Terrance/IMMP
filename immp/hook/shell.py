@@ -58,8 +58,6 @@ from functools import partial
 import logging
 from pprint import pformat
 
-from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
-
 import immp
 
 
@@ -77,24 +75,16 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 
-class _Schema:
-
-    config_shell = Schema({Optional("all", default=False): bool,
-                           Optional("console", default=None): Any("ptpython", None)},
-                          extra=ALLOW_EXTRA, required=True)
-
-    config_async = Schema({"bind": Any(str, int),
-                           Optional("buffer", default=None): Any(int, None)},
-                          extra=ALLOW_EXTRA, required=True)
-
-
 class ShellHook(immp.ResourceHook):
     """
     Hook to start a Python shell when a message is received.
     """
 
+    schema = immp.Schema({immp.Optional("all", False): bool,
+                          immp.Optional("console", None): immp.Nullable("ptpython")})
+
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config_shell(config), host)
+        super().__init__(name, config, host)
         if self.config["console"] == "ptpython":
             if ptpython:
                 log.debug("Using ptpython console")
@@ -131,8 +121,11 @@ class AsyncShellHook(immp.ResourceHook):
             Most recent message received from a connected plug.
     """
 
+    schema = immp.Schema({"bind": immp.Any(str, int),
+                          immp.Optional("buffer"): immp.Nullable(int)})
+
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config_async(config), host)
+        super().__init__(name, config, host)
         if not aioconsole:
             raise immp.PlugError("'aioconsole' module not installed")
         self.buffer = None

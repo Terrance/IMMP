@@ -20,7 +20,6 @@ import logging
 import os.path
 
 from aiohttp import web
-from voluptuous import ALLOW_EXTRA, Schema
 
 import immp
 
@@ -33,11 +32,6 @@ except ImportError:
 
 
 log = logging.getLogger(__name__)
-
-
-class _Schema:
-
-    config = Schema({"host": str, "port": int}, extra=ALLOW_EXTRA, required=True)
 
 
 class WebContext:
@@ -158,8 +152,10 @@ class WebHook(immp.ResourceHook):
             Web application instance, used to add new routes.
     """
 
+    schema = immp.Schema({"host": str, "port": int})
+
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+        super().__init__(name, config, host)
         self.app = web.Application()
         if aiohttp_jinja2:
             # Empty mapping by default, other hooks can add to this via add_loader().

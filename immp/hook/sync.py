@@ -82,7 +82,6 @@ import logging
 import re
 
 from peewee import CharField
-from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
 from immp.hook.command import command
@@ -104,21 +103,6 @@ else:
 
 
 log = logging.getLogger(__name__)
-
-
-class _Schema:
-
-    config_forward = Schema({"channels": {str: [str]},
-                             Optional("joins", default=False): bool,
-                             Optional("renames", default=False): bool,
-                             Optional("identities", default=None): Any(str, None),
-                             Optional("name-format", default=None): Any(str, None),
-                             Optional("strip-name-emoji", default=False): bool},
-                            extra=ALLOW_EXTRA, required=True)
-
-    config_sync = config_forward.extend({Optional("joins", default=True): bool,
-                                         Optional("renames", default=True): bool,
-                                         Optional("plug", default=None): Any(str, None)})
 
 
 class SyncBackRef(BaseModel):
@@ -521,6 +505,51 @@ class _SyncHookBase(immp.Hook):
             return (channel, [])
 
 
+class ForwardHook(_SyncHookBase):
+    """
+    Hook to propagate messages from a source channel to one or more destination channels.
+    """
+
+    schema = immp.Schema({"channels": {str: [str]},
+                          immp.Optional("joins", False): bool,
+                          immp.Optional("renames", False): bool,
+                          immp.Optional("identities", None): immp.Nullable(str),
+                          immp.Optional("name-format", None): immp.Nullable(str),
+                          immp.Optional("strip-name-emoji", False): bool})
+
+    @property
+    def _channels(self):
+        try:
+            return {self.host.channels[key]: tuple(self.host.channels[label] for label in value)
+                    for key, value in self.config["channels"].items()}
+        except KeyError as e:
+            raise immp.ConfigError("No such channel '{}'".format(repr(e.args[0])))
+
+    async def send(self, channel, msg):
+        """
+        Send a message to all channels in this sync.
+
+        Args:
+            channel (.Channel):
+                Source channel that defines the underlying forwarding channels to send to.
+            msg (.Message):
+                External message to push.
+        """
+        queue = []
+        for synced in self._channels[channel]:
+            clone = copy(msg)
+            await self._replace_name(clone)
+            await self._replace_identity_mentions(clone, synced)
+            queue.append(self._send(synced, clone))
+        # Send all the messages in parallel.
+        await gather(*queue)
+
+    async def on_receive(self, sent, source, primary):
+        await super().on_receive(sent, source, primary)
+        if primary and sent.channel in self._channels and self._accept(source):
+            await self.send(sent.channel, source)
+
+
 class SyncHook(_SyncHookBase):
     """
     Hook to propagate messages between two or more channels.
@@ -530,8 +559,12 @@ class SyncHook(_SyncHookBase):
             Virtual plug for this sync, if configured.
     """
 
+    schema = immp.Schema({immp.Optional("joins", True): bool,
+                          immp.Optional("renames", True): bool,
+                          immp.Optional("plug", None): immp.Nullable(str)}, ForwardHook.schema)
+
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config_sync(config), host)
+        super().__init__(name, config, host)
         self.db = None
         # Message cache, stores IDs of all synced messages by channel.
         self._cache = SyncCache(self)
@@ -757,44 +790,3 @@ class SyncHook(_SyncHookBase):
     async def before_send(self, channel, msg):
         await super().before_send(channel, msg)
         return (channel, self._replace_all(channel, copy(msg)))
-
-
-class ForwardHook(_SyncHookBase):
-    """
-    Hook to propagate messages from a source channel to one or more destination channels.
-    """
-
-    def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config_forward(config), host)
-
-    @property
-    def _channels(self):
-        try:
-            return {self.host.channels[key]: tuple(self.host.channels[label] for label in value)
-                    for key, value in self.config["channels"].items()}
-        except KeyError as e:
-            raise immp.ConfigError("No such channel '{}'".format(repr(e.args[0])))
-
-    async def send(self, channel, msg):
-        """
-        Send a message to all channels in this sync.
-
-        Args:
-            channel (.Channel):
-                Source channel that defines the underlying forwarding channels to send to.
-            msg (.Message):
-                External message to push.
-        """
-        queue = []
-        for synced in self._channels[channel]:
-            clone = copy(msg)
-            await self._replace_name(clone)
-            await self._replace_identity_mentions(clone, synced)
-            queue.append(self._send(synced, clone))
-        # Send all the messages in parallel.
-        await gather(*queue)
-
-    async def on_receive(self, sent, source, primary):
-        await super().on_receive(sent, source, primary)
-        if primary and sent.channel in self._channels and self._accept(source):
-            await self.send(sent.channel, source)

@@ -22,17 +22,11 @@ import logging
 
 from peewee import Model, Proxy
 from playhouse.db_url import connect
-from voluptuous import ALLOW_EXTRA, Schema
 
 import immp
 
 
 log = logging.getLogger(__name__)
-
-
-class _Schema:
-
-    config = Schema({"url": str}, extra=ALLOW_EXTRA, required=True)
 
 
 class BaseModel(Model):
@@ -55,8 +49,10 @@ class DatabaseHook(immp.ResourceHook):
             Connected database instance.
     """
 
+    schema = immp.Schema({"url": str})
+
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+        super().__init__(name, config, host)
         self.db = None
 
     async def start(self):

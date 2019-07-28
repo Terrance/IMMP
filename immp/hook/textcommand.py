@@ -6,15 +6,8 @@ Config:
         Mapping from command name to rich response text.
 """
 
-from voluptuous import ALLOW_EXTRA, Schema
-
 import immp
 from immp.hook.command import command, DynamicCommands
-
-
-class _Schema:
-
-    config = Schema({"commands": {str: str}}, extra=ALLOW_EXTRA, required=True)
 
 
 class TextCommandHook(immp.Hook, DynamicCommands):
@@ -22,8 +15,7 @@ class TextCommandHook(immp.Hook, DynamicCommands):
     Command provider to send configured text responses.
     """
 
-    def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+    schema = immp.Schema({"commands": {str: str}})
 
     def commands(self):
         return {self._response.complete(name, name) for name in self.config["commands"]}

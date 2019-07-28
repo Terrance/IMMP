@@ -12,16 +12,9 @@ Commands:
         Drop the role of this name.
 """
 
-from voluptuous import ALLOW_EXTRA, Schema
-
 import immp
 from immp.hook.command import CommandParser, CommandScope, command
 from immp.plug.discord import DiscordPlug
-
-
-class _Schema:
-
-    config = Schema({"roles": {str: int}}, extra=ALLOW_EXTRA, required=True)
 
 
 class _NoSuchRole(Exception):
@@ -33,8 +26,7 @@ class DiscordRoleHook(immp.Hook):
     Hook to assign and unassign Discord roles to and from users.
     """
 
-    def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+    schema = immp.Schema({"roles": {str: int}})
 
     def _common(self, msg, name):
         if name not in self.config["roles"]:

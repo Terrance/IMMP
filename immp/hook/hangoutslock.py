@@ -12,7 +12,6 @@ Config:
 
 import hangups
 from hangups import hangouts_pb2
-from voluptuous import ALLOW_EXTRA, Optional, Schema
 
 import immp
 from immp.plug.hangouts import HangoutsPlug
@@ -25,20 +24,13 @@ LINK_JOIN = {True: hangouts_pb2.GROUP_LINK_SHARING_STATUS_ON,
              False: hangouts_pb2.GROUP_LINK_SHARING_STATUS_OFF}
 
 
-class _Schema:
-
-    config = Schema({Optional("history", default=dict): {str: bool},
-                     Optional("linkjoin", default=dict): {str: bool}},
-                    extra=ALLOW_EXTRA, required=True)
-
-
 class HangoutsLockHook(immp.Hook):
     """
     Hook to enforce the history and link-join settings in Hangouts.
     """
 
-    def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+    schema = immp.Schema({immp.Optional("history", dict): {str: bool},
+                          immp.Optional("linkjoin", dict): {str: bool}})
 
     @property
     def channels(self):

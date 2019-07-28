@@ -22,22 +22,10 @@ import asyncio
 from collections import defaultdict
 import logging
 
-from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
-
 import immp
 
 
 log = logging.getLogger(__name__)
-
-
-class _Schema:
-
-    config = Schema({Optional("hooks", default=dict): Any({str: [str]}, {}),
-                     Optional("exclude", default=dict): Any({str: [str]}, {}),
-                     Optional("joins", default=True): bool,
-                     Optional("startup", default=False): bool,
-                     Optional("passive", default=False): bool},
-                    extra=ALLOW_EXTRA, required=True)
 
 
 class AccessPredicate:
@@ -67,8 +55,11 @@ class ChannelAccessHook(immp.Hook, AccessPredicate):
     Hook for controlling membership of, and joins to, secure channels.
     """
 
-    def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+    schema = immp.Schema({immp.Optional("hooks", dict): {str: [str]},
+                          immp.Optional("exclude", dict): {str: [str]},
+                          immp.Optional("joins", True): bool,
+                          immp.Optional("startup", False): bool,
+                          immp.Optional("passive", False): bool})
 
     @property
     def hooks(self):

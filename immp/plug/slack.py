@@ -33,7 +33,6 @@ import re
 
 from aiohttp import ClientResponseError, ClientSession, FormData
 from emoji import emojize
-from voluptuous import ALLOW_EXTRA, Any, Match, Optional, Schema
 
 import immp
 
@@ -43,104 +42,99 @@ log = logging.getLogger(__name__)
 
 class _Schema:
 
-    config = Schema({"token": str,
-                     Optional("fallback-name", default="IMMP"): str,
-                     Optional("fallback-image", default=None): Any(str, None),
-                     Optional("thread-broadcast", default=False): bool},
-                    extra=ALLOW_EXTRA, required=True)
+    image_sizes = ("original", "512", "192", "72", "48", "32", "24")
 
-    user = Schema({"id": str,
-                   "name": str,
-                   "profile": {Optional("real_name", default=None): Any(str, None),
-                               Optional(Match(r"image_(original|\d+)")): Any(str, None),
-                               Optional("bot_id", default=None): Any(str, None)}},
-                  extra=ALLOW_EXTRA, required=True)
+    _images = {immp.Optional("image_{}".format(size)): immp.Nullable(str)
+               for size in image_sizes}
 
-    bot = Schema({"id": str,
-                  "app_id": str,
-                  "name": str,
-                  "icons": {Optional(Match(r"image_(original|\d+)")): Any(str, None)}},
-                 extra=ALLOW_EXTRA, required=True)
+    config = immp.Schema({"token": str,
+                          immp.Optional("fallback-name", "IMMP"): str,
+                          immp.Optional("fallback-image", None): immp.Nullable(str),
+                          immp.Optional("thread-broadcast", False): bool})
 
-    channel = Schema({"id": str,
-                      "name": str},
-                     extra=ALLOW_EXTRA, required=True)
+    user = immp.Schema({"id": str,
+                        "name": str,
+                        "profile": {immp.Optional("real_name", None): immp.Nullable(str),
+                                    immp.Optional("bot_id", None): immp.Nullable(str),
+                                    **_images}})
 
-    direct = Schema({"id": str,
-                     "user": str},
-                    extra=ALLOW_EXTRA, required=True)
+    bot = immp.Schema({"id": str,
+                       "app_id": str,
+                       "name": str,
+                       "icons": _images})
+
+    channel = immp.Schema({"id": str, "name": str})
+
+    direct = immp.Schema({"id": str, "user": str})
 
     _shares = {str: [{"ts": str}]}
 
-    file = Schema({"id": str,
-                   "name": Any(str, None),
-                   "pretty_type": str,
-                   "url_private": str,
-                   Optional("shares", default={"public": {}, "private": {}}):
-                       {Optional("public", default=dict): Any(_shares, {}),
-                        Optional("private", default=dict): Any(_shares, {})}},
-                  extra=ALLOW_EXTRA, required=True)
+    file = immp.Schema({"id": str,
+                        "name": immp.Nullable(str),
+                        "pretty_type": str,
+                        "url_private": str,
+                        immp.Optional("shares", {"public": {}, "private": {}}):
+                            {immp.Optional("public", dict): _shares,
+                             immp.Optional("private", dict): _shares}})
 
-    attachment = Schema({Optional("title", default=None): Any(str, None),
-                         Optional("image_url", default=None): Any(str, None),
-                         Optional("is_msg_unfurl", default=False): bool},
-                        extra=ALLOW_EXTRA, required=True)
+    attachment = immp.Schema({immp.Optional("title", None): immp.Nullable(str),
+                              immp.Optional("image_url", None): immp.Nullable(str),
+                              immp.Optional("is_msg_unfurl", False): bool})
 
-    msg_unfurl = attachment.extend({"channel_id": str,
-                                    "ts": str})
+    msg_unfurl = immp.Schema({"channel_id": str, "ts": str}, attachment)
 
-    _base_msg = Schema({"ts": str,
-                        "type": "message",
-                        Optional("channel", default=None): Any(str, None),
-                        Optional("edited", default={"user": None}):
-                            {Optional("user", default=None): Any(str, None)},
-                        Optional("thread_ts", default=None): Any(str, None),
-                        Optional("replies", default=list): [{"ts": str}],
-                        Optional("files", default=list): [file],
-                        Optional("attachments", default=list): [attachment],
-                        Optional("is_ephemeral", default=False): bool},
-                       extra=ALLOW_EXTRA, required=True)
+    _base_msg = immp.Schema({"ts": str,
+                             "type": "message",
+                             immp.Optional("channel", None): immp.Nullable(str),
+                             immp.Optional("edited", {"user": None}):
+                                 {immp.Optional("user", None): immp.Nullable(str)},
+                             immp.Optional("thread_ts", None): immp.Nullable(str),
+                             immp.Optional("replies", list): [{"ts": str}],
+                             immp.Optional("files", list): [file],
+                             immp.Optional("attachments", list): [attachment],
+                             immp.Optional("is_ephemeral", False): bool})
 
-    _plain_msg = _base_msg.extend({Optional("user", default=None): Any(str, None),
-                                   Optional("bot_id", default=None): Any(str, None),
-                                   Optional("username", default=None): Any(str, None),
-                                   Optional("icons", default=dict): Any(dict, None),
-                                   "text": str})
+    _plain_msg = immp.Schema({immp.Optional("user", None): immp.Nullable(str),
+                              immp.Optional("bot_id", None): immp.Nullable(str),
+                              immp.Optional("username", None): immp.Nullable(str),
+                              immp.Optional("icons", dict): dict,
+                              "text": str}, _base_msg)
 
-    message = Schema(Any(_base_msg.extend({"subtype": "file_comment"}),
-                         _base_msg.extend({"subtype": "message_changed",
-                                           "message": lambda v: _Schema.message(v),
-                                           "previous_message": lambda v: _Schema.message(v)}),
-                         _base_msg.extend({"subtype": "message_deleted",
-                                           "deleted_ts": str}),
-                         _plain_msg.extend({"subtype": Any("channel_name", "group_name"),
-                                            "name": str}),
-                         _plain_msg.extend({Optional("subtype", default=None): Any(str, None)})))
+    message = immp.Schema(immp.Any(immp.Schema({"subtype": "file_comment"}, _base_msg),
+                                   immp.Schema({"subtype": "message_changed",
+                                                "message": lambda v: _Schema.message(v),
+                                                "previous_message": lambda v: _Schema.message(v)},
+                                               _base_msg),
+                                   immp.Schema({"subtype": "message_deleted",
+                                                "deleted_ts": str}, _base_msg),
+                                   immp.Schema({"subtype": immp.Any("channel_name", "group_name"),
+                                                "name": str}, _plain_msg),
+                                   immp.Schema({immp.Optional("subtype", None):
+                                                    immp.Nullable(str)}, _plain_msg)))
 
-    event = Schema(Any(message,
-                       {"type": Any("team_join", "user_change"),
-                        "user": user},
-                       {"type": Any("channel_created", "channel_joined", "channel_rename",
-                                    "group_created", "group_joined", "group_rename"),
-                        "channel": {"id": str, "name": str}},
-                       {"type": "im_created",
-                        "channel": {"id": str}},
-                       {"type": Any("member_joined_channel", "member_left_channel"),
-                        "user": str,
-                        "channel": str},
-                       {"type": "message",
-                        Optional("subtype", default=None): Any(str, None)},
-                       {"type": str}),
-                   extra=ALLOW_EXTRA, required=True)
+    event = immp.Schema(immp.Any(message,
+                                 {"type": immp.Any("team_join", "user_change"),
+                                  "user": user},
+                                 {"type": immp.Any("channel_created", "channel_joined",
+                                                   "channel_rename", "group_created",
+                                                   "group_joined", "group_rename"),
+                                  "channel": {"id": str, "name": str}},
+                                 {"type": "im_created",
+                                  "channel": {"id": str}},
+                                 {"type": immp.Any("member_joined_channel", "member_left_channel"),
+                                  "user": str,
+                                  "channel": str},
+                                 {"type": "message",
+                                  immp.Optional("subtype", None): immp.Nullable(str)},
+                                 {"type": str}))
 
     def _api(nested={}):
-        return Schema(Any({"ok": True,
-                           Optional("response_metadata", default={"next_cursor": ""}):
-                               {Optional("next_cursor", default=""): str},
-                           **nested},
-                          {"ok": False,
-                           "error": str}),
-                      extra=ALLOW_EXTRA, required=True)
+        return immp.Schema(immp.Any({"ok": True,
+                                     immp.Optional("response_metadata", {"next_cursor": ""}):
+                                         {immp.Optional("next_cursor", ""): str},
+                                     **nested},
+                                    {"ok": False,
+                                     "error": str}))
 
     rtm = _api({"url": str,
                 "self": {"id": str},
@@ -204,7 +198,7 @@ class SlackUser(immp.User):
 
     @classmethod
     def _best_image(cls, profile):
-        for size in ("original", "512", "192", "72", "48", "32", "24"):
+        for size in _Schema.image_sizes:
             if "image_{}".format(size) in profile:
                 return profile["image_{}".format(size)]
         return None
@@ -651,6 +645,8 @@ class SlackPlug(immp.Plug):
     Plug for a `Slack <https://slack.com>`_ team.
     """
 
+    schema = _Schema.config
+
     @property
     def network_name(self):
         return "{} Slack".format(self._team["name"]) if self._team else "Slack"
@@ -660,7 +656,7 @@ class SlackPlug(immp.Plug):
         return "slack:{}:{}".format(self._team["id"], self._bot_user["id"]) if self._team else None
 
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+        super().__init__(name, config, host)
         self._team = self._bot_user = None
         self._users = self._channels = self._directs = None
         self._bots = self._bot_to_user = self._members = None

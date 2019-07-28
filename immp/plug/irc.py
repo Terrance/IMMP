@@ -26,25 +26,10 @@ from asyncio import CancelledError, Future, Queue, ensure_future, open_connectio
 import logging
 import re
 
-from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
-
 import immp
 
 
 log = logging.getLogger(__name__)
-
-
-class _Schema:
-
-    config = Schema({"server": {"host": str,
-                                "port": int,
-                                Optional("ssl", default=False): bool,
-                                Optional("password", default=None): Any(str, None)},
-                     "user": {"nick": str,
-                              "real-name": str},
-                     Optional("quit", default=None): Any(str, None),
-                     Optional("accept-invites", default=False): bool},
-                    extra=ALLOW_EXTRA, required=True)
 
 
 class IRCError(immp.PlugError):
@@ -304,8 +289,17 @@ class IRCPlug(immp.Plug):
     Plug for an IRC server.
     """
 
+    schema = immp.Schema({"server": {"host": str,
+                                     "port": int,
+                                     immp.Optional("ssl", False): bool,
+                                     immp.Optional("password", None): immp.Nullable(str)},
+                          "user": {"nick": str,
+                                   "real-name": str},
+                          immp.Optional("quit", None): immp.Nullable(str),
+                          immp.Optional("accept-invites", False): bool})
+
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+        super().__init__(name, config, host)
         self._reader = self._writer = None
         self._prefixes = ""
         # Bot's own identifier as seen by the IRC server.

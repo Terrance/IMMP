@@ -23,8 +23,6 @@ changes via the add/remove commands.
 import logging
 import re
 
-from voluptuous import ALLOW_EXTRA, Optional, Schema
-
 import immp
 from immp.hook.command import CommandParser, command
 
@@ -36,22 +34,18 @@ TICK = "\N{WHITE HEAVY CHECK MARK}"
 log = logging.getLogger(__name__)
 
 
-class _Schema:
-
-    config = Schema({"groups": [str],
-                     Optional("responses", default=dict): {str: str}},
-                    extra=ALLOW_EXTRA, required=True)
-
-
 class AutoRespondHook(immp.Hook):
     """
     Basic text responses for given trigger words and phrases.
     """
 
+    schema = immp.Schema({"groups": [str],
+                          immp.Optional("responses", dict): {str: str}})
+
     group = immp.Group.MergedProperty("groups")
 
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+        super().__init__(name, config, host)
         self.responses = self.config["responses"]
         self._sent = []
 

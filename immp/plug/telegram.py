@@ -42,7 +42,6 @@ from datetime import datetime, timezone
 import logging
 
 from aiohttp import ClientError, ClientResponseError, ClientSession, FormData
-from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
 
 import immp
 
@@ -61,92 +60,85 @@ log = logging.getLogger(__name__)
 
 class _Schema:
 
-    config = Schema({"token": str,
-                     Optional("api-id", default=None): Any(int, None),
-                     Optional("api-hash", default=None): Any(str, None),
-                     Optional("client-updates", default=False): bool,
-                     Optional("session", default=None): Any(str, None)},
-                    extra=ALLOW_EXTRA, required=True)
+    config = immp.Schema({"token": str,
+                          immp.Optional("api-id", None): immp.Nullable(int),
+                          immp.Optional("api-hash", None): immp.Nullable(str),
+                          immp.Optional("client-updates", False): bool,
+                          immp.Optional("session", None): immp.Nullable(str)})
 
-    user = Schema({"id": int,
-                   Optional("username", default=None): Any(str, None),
-                   "first_name": str,
-                   Optional("last_name", default=None): Any(str, None)},
-                  extra=ALLOW_EXTRA, required=True)
+    user = immp.Schema({"id": int,
+                        immp.Optional("username", None): immp.Nullable(str),
+                        "first_name": str,
+                        immp.Optional("last_name", None): immp.Nullable(str)})
 
-    channel = Schema({"id": int,
-                      "title": str,
-                      "type": "channel",
-                      Optional("username", default=None): Any(str, None)},
-                     extra=ALLOW_EXTRA, required=True)
+    channel = immp.Schema({"id": int,
+                           "title": str,
+                           "type": "channel",
+                           immp.Optional("username", None): immp.Nullable(str)})
 
-    entity = Schema({"type": str,
-                     "offset": int,
-                     "length": int,
-                     Optional("url", default=None): Any(str, None),
-                     Optional("user", default=None): Any(user, None)},
-                    extra=ALLOW_EXTRA, required=True)
+    entity = immp.Schema({"type": str,
+                          "offset": int,
+                          "length": int,
+                          immp.Optional("url", None): immp.Nullable(str),
+                          immp.Optional("user", None): immp.Nullable(user)})
 
-    _file = {"file_id": str, Optional("file_name", default=None): Any(str, None)}
+    _file = {"file_id": str, immp.Optional("file_name", None): immp.Nullable(str)}
 
     _location = {"latitude": float, "longitude": float}
 
-    message = Schema({"message_id": int,
-                      "chat": {"id": int},
-                      "date": int,
-                      Optional("edit_date", default=None): Any(int, None),
-                      Optional("from", default=None): Any(user, None),
-                      Optional("forward_from", default=None): Any(user, None),
-                      Optional("forward_date", default=None): Any(int, None),
-                      Optional("forward_from_chat", default=None): Any(channel, None),
-                      Optional("forward_from_message_id", default=None): Any(int, None),
-                      Optional("forward_signature", default=None): Any(str, None),
-                      Optional("text", default=None): Any(str, None),
-                      Optional("caption", default=None): Any(str, None),
-                      Optional("entities", default=[]): [entity],
-                      Optional("caption_entities", default=[]): [entity],
-                      Optional("reply_to_message", default=None):
-                          Any(lambda v: _Schema.message(v), None),
-                      Optional("photo", default=[]): [_file],
-                      Optional("sticker", default=None):
-                          Any({Optional("emoji", default=None): Any(str, None),
-                               "file_id": str}, None),
-                      Optional("animation", default=None): Any(_file, None),
-                      Optional("video", default=None): Any(_file, None),
-                      Optional("video_note", default=None): Any(_file, None),
-                      Optional("audio", default=None): Any(_file, None),
-                      Optional("voice", default=None): Any(_file, None),
-                      Optional("document", default=None): Any(_file, None),
-                      Optional("location", default=None): Any(_location, None),
-                      Optional("venue", default=None):
-                          Any({"location": _location, "title": str, "address": str}, None),
-                      Optional("poll", default=None):
-                          Any({"question": str, "is_closed": bool}, None),
-                      Optional("group_chat_created", default=False): bool,
-                      Optional("new_chat_members", default=[]): [user],
-                      Optional("left_chat_member", default=None): Any(user, None),
-                      Optional("new_chat_title", default=None): Any(str, None),
-                      Optional("new_chat_photo", default=[]): [_file],
-                      Optional("delete_chat_photo", default=False): bool,
-                      Optional("pinned_message", default=None):
-                          Any(lambda v: _Schema.message(v), None),
-                      Optional("migrate_to_chat_id", default=None): Any(int, None)},
-                     extra=ALLOW_EXTRA, required=True)
+    message = immp.Schema({"message_id": int,
+                           "chat": {"id": int},
+                           "date": int,
+                           immp.Optional("edit_date", None): immp.Nullable(int),
+                           immp.Optional("from", None): immp.Nullable(user),
+                           immp.Optional("forward_from", None): immp.Nullable(user),
+                           immp.Optional("forward_date", None): immp.Nullable(int),
+                           immp.Optional("forward_from_chat", None): immp.Nullable(channel),
+                           immp.Optional("forward_from_message_id", None): immp.Nullable(int),
+                           immp.Optional("forward_signature", None): immp.Nullable(str),
+                           immp.Optional("text", None): immp.Nullable(str),
+                           immp.Optional("caption", None): immp.Nullable(str),
+                           immp.Optional("entities", []): [entity],
+                           immp.Optional("caption_entities", []): [entity],
+                           immp.Optional("reply_to_message", None):
+                               immp.Nullable(lambda v: _Schema.message(v)),
+                           immp.Optional("photo", []): [_file],
+                           immp.Optional("sticker", None):
+                               immp.Nullable({immp.Optional("emoji", None): immp.Nullable(str),
+                                              "file_id": str}),
+                           immp.Optional("animation", None): immp.Nullable(_file),
+                           immp.Optional("video", None): immp.Nullable(_file),
+                           immp.Optional("video_note", None): immp.Nullable(_file),
+                           immp.Optional("audio", None): immp.Nullable(_file),
+                           immp.Optional("voice"): immp.Nullable(_file),
+                           immp.Optional("document", None): immp.Nullable(_file),
+                           immp.Optional("location", None): immp.Nullable(_location),
+                           immp.Optional("venue", None):
+                               immp.Nullable({"location": _location, "title": str, "address": str}),
+                           immp.Optional("poll", None):
+                               immp.Nullable({"question": str, "is_closed": bool}),
+                           immp.Optional("group_chat_created", False): bool,
+                           immp.Optional("new_chat_members", []): [user],
+                           immp.Optional("left_chat_member", None): immp.Nullable(user),
+                           immp.Optional("new_chat_title", None): immp.Nullable(str),
+                           immp.Optional("new_chat_photo", []): [_file],
+                           immp.Optional("delete_chat_photo", False): bool,
+                           immp.Optional("pinned_message", None):
+                               immp.Nullable(lambda v: _Schema.message(v)),
+                           immp.Optional("migrate_to_chat_id", None): immp.Nullable(int)})
 
-    update = Schema({"update_id": int,
-                     Optional(Any("message", "edited_message",
-                                  "channel_post", "edited_channel_post")): message},
-                    extra=ALLOW_EXTRA, required=True)
+    update = immp.Schema({"update_id": int,
+                          immp.Optional(immp.Any("message", "edited_message",
+                                                 "channel_post", "edited_channel_post")): message})
 
     def api(result=None):
         success = {"ok": True}
         if result:
             success["result"] = result
-        return Schema(Any(success,
-                          {"ok": False,
-                           "description": str,
-                           "error_code": int}),
-                      extra=ALLOW_EXTRA, required=True)
+        return immp.Schema(immp.Any(success,
+                                    {"ok": False,
+                                     "description": str,
+                                     "error_code": int}))
 
     me = api(user)
 
@@ -155,7 +147,7 @@ class _Schema:
     send = api(message)
 
     chat = api({"type": str,
-                Optional("title", default=None): Any(str, None)})
+                immp.Optional("title", None): immp.Nullable(str)})
 
     updates = api([update])
 
@@ -315,7 +307,7 @@ class TelegramSegment(immp.Segment):
         text = segment.text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         # Any form of tag nesting (e.g. bold inside italic) isn't supported, so at most one type of
         # formatting may apply for each segment.
-        if segment.mention and isinstance(segment.mention.plug, TelegramPlug):
+        if segment.mention and segment.mention.plug.network_id == telegram.network_id:
             if segment.mention.username:
                 # Telegram will parse this automatically.
                 text = "@{}".format(segment.mention.username)
@@ -877,6 +869,8 @@ class TelegramPlug(immp.Plug):
     Plug for a `Telegram <https://telegram.org>`_ bot.
     """
 
+    schema = _Schema.config
+
     network_name = "Telegram"
 
     @property
@@ -884,7 +878,7 @@ class TelegramPlug(immp.Plug):
         return "telegram:{}".format(self._bot_user["id"]) if self._bot_user else None
 
     def __init__(self, name, config, host):
-        super().__init__(name, _Schema.config(config), host)
+        super().__init__(name, config, host)
         if bool(self.config["api-id"]) != bool(self.config["api-hash"]):
             raise immp.ConfigError("Both of API ID and hash must be given")
         if self.config["client-updates"] and not self.config["api-id"]:
