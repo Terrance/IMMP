@@ -5,32 +5,29 @@ import logging.config
 import sys
 
 import anyconfig
-from voluptuous import ALLOW_EXTRA, REMOVE_EXTRA, Any, Optional, Schema
 
-from immp import Channel, ConfigError, Group, Host, resolve_import
+from immp import Channel, ConfigError, Group, Host, Nullable, Optional, Schema, resolve_import
 from immp.hook.runner import RunnerHook
 
 
 class _Schema:
 
-    _plugs = Any({str: {"path": str, Optional("config", default=dict): dict}}, {})
+    _plugs = {str: {"path": str, Optional("config", dict): dict}}
 
-    _hooks = Any({str: {"path": str,
-                        Optional("priority", default=None): Any(int, None),
-                        Optional("config", default=dict): dict}}, {})
+    _hooks = {str: {"path": str,
+                    Optional("priority", None): Nullable(int),
+                    Optional("config", dict): dict}}
 
-    _channels = Any({str: {"plug": str, "source": str}}, {})
+    _channels = {str: {"plug": str, "source": str}}
 
-    _logging = Schema({Optional("disable_existing_loggers", default=False): bool},
-                      extra=ALLOW_EXTRA)
+    _logging = Schema({Optional("disable_existing_loggers", False): bool})
 
-    config = Schema({Optional("path", default=list): [str],
-                     Optional("plugs", default=dict): _plugs,
-                     Optional("channels", default=dict): _channels,
-                     Optional("groups", default=dict): Any({str: dict}, {}),
-                     Optional("hooks", default=dict): _hooks,
-                     Optional("logging", default=None): Any(_logging, None)},
-                    extra=REMOVE_EXTRA, required=True)
+    config = Schema({Optional("path", list): [str],
+                     Optional("plugs", dict): _plugs,
+                     Optional("channels", dict): _channels,
+                     Optional("groups", dict): {str: dict},
+                     Optional("hooks", dict): _hooks,
+                     Optional("logging", None): Nullable(_logging)})
 
 
 class LocalFilter(logging.Filter):

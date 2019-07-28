@@ -2,14 +2,14 @@ from asyncio import BoundedSemaphore, Queue
 import logging
 
 from .error import PlugError
-from .util import Openable, OpenState, pretty_str
+from .util import Configurable, Openable, OpenState, pretty_str
 
 
 log = logging.getLogger(__name__)
 
 
 @pretty_str
-class Plug(Openable):
+class Plug(Configurable, Openable):
     """
     Base of all plug classes, handles communication with an external network by converting
     outside data into standardised message objects, and pushing new messages into the network.
@@ -38,10 +38,7 @@ class Plug(Openable):
     network_name = network_id = None
 
     def __init__(self, name, config, host, virtual=False):
-        super().__init__()
-        self.name = name
-        self.config = config
-        self.host = host
+        super().__init__(name, config, host)
         self.virtual = virtual
         # Active generator created from get(), referenced to cancel on disconnect.
         self._getter = None

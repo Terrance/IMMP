@@ -1,6 +1,5 @@
-from voluptuous import ALLOW_EXTRA, Any, Optional, Schema
-
-from .util import ConfigProperty, pretty_str
+from .schema import Optional, Schema
+from .util import ConfigProperty, Configurable, pretty_str
 
 
 _GROUP_FIELDS = ("channels", "anywhere", "named", "private", "shared")
@@ -8,8 +7,7 @@ _GROUP_FIELDS = ("channels", "anywhere", "named", "private", "shared")
 
 class _Schema:
 
-    group = Schema({Optional(field, default=list): Any([str], []) for field in _GROUP_FIELDS},
-                   extra=ALLOW_EXTRA, required=True)
+    group = Schema({Optional(field, list): [str] for field in _GROUP_FIELDS})
 
 
 @pretty_str
@@ -138,7 +136,7 @@ class Channel:
 
 
 @pretty_str
-class Group:
+class Group(Configurable):
     """
     Container of multiple channels.
 
@@ -158,14 +156,9 @@ class Group:
         def __get__(self, instance, owner):
             return Group.merge(instance.host, *super().__get__(instance, owner))
 
+    schema = _Schema.group
+
     _channels = ConfigProperty([Channel])
-
-    __slots__ = ("name", "config", "host")
-
-    def __init__(self, name, config, host):
-        self.name = name
-        self.config = _Schema.group(config)
-        self.host = host
 
     @classmethod
     def merge(cls, host, *groups):

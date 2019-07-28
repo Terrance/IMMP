@@ -1,8 +1,8 @@
-from .util import Openable, pretty_str
+from .util import Configurable, Openable, pretty_str
 
 
 @pretty_str
-class Hook(Openable):
+class Hook(Configurable, Openable):
     """
     Base of all hook classes, performs any form of processing on messages from all connected
     plugs, via the provided host instance.
@@ -10,21 +10,12 @@ class Hook(Openable):
     Instantiation may raise :class:`.ConfigError` if the provided configuration is invalid.
 
     Attributes:
-        name (str):
-            User-provided, unique name of the hook, used for config references.
-        config (dict):
-            Reference to the user-provided configuration.
-        host (.Host):
-            Controlling host instance, providing access to plugs.
         virtual (bool):
             ``True`` if managed by another component (e.g. a hook that exposes plug functionality).
     """
 
     def __init__(self, name, config, host, virtual=False):
-        super().__init__()
-        self.name = name
-        self.config = config
-        self.host = host
+        super().__init__(name, config, host)
         self.virtual = virtual
 
     async def start(self):
