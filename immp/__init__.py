@@ -6,5 +6,5 @@ from .core.hook import Hook, ResourceHook
 from .core.plug import Plug
 from .core.schema import Any, Nullable, Optional, Schema, SchemaError
 from .core.stream import PlugStream
-from .core.util import (escape, pretty_str, resolve_import, unescape, ConfigProperty, IDGen,
-                        OpenState, Openable)
+from .core.util import (escape, pretty_str, resolve_import, unescape, ConfigProperty, Configurable,
+                        IDGen, OpenState, Openable)

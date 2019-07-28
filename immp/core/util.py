@@ -6,6 +6,7 @@ import re
 import time
 
 from .error import ConfigError
+from .schema import Schema
 
 
 def resolve_import(path):
@@ -181,6 +182,43 @@ class OpenState(Enum):
     stopping = 3
 
 
+class Configurable:
+    """
+    Superclass for objects managed by a :class:`.Host` and created using configuration.
+
+    Attributes:
+        schema (.Schema):
+            Structure of the config expected by this configurable.  If not customised by the
+            subclass, defaults to ``dict`` (that is, any :class:`dict` structure is valid).
+        name (str):
+            User-provided, unique name of the hook, used for config references.
+        config (dict):
+            Reference to the user-provided configuration.  Assigning to this field will validate
+            the data against the class schema, which may raise exceptions on failure as defined by
+            :meth:`.Schema.validate`.
+        host (.Host):
+            Controlling host instance, providing access to plugs.
+    """
+
+    schema = Schema(dict)
+
+    __slots__ = ("name", "_config", "host")
+
+    def __init__(self, name, config, host):
+        super().__init__()
+        self.name = name
+        self._config = self.schema(config)
+        self.host = host
+
+    @property
+    def config(self):
+        return self._config
+
+    @config.setter
+    def config(self, value):
+        self._config = self.schema(value)
+
+
 class Openable:
     """
     Abstract class to provide open and close hooks.  Subclasses should implement :meth:`start`
@@ -192,6 +230,7 @@ class Openable:
     """
 
     def __init__(self):
+        super().__init__()
         self.state = OpenState.inactive
         self._changing = Condition()
 
