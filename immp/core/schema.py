@@ -377,7 +377,12 @@ class Schema:
                 typed = tuple(key for key in unwrapped if isinstance(key, type))
                 fixed = {key for key in unwrapped if key not in typed}
                 if fixed:
-                    root["properties"] = {key: cls.to_json(unwrapped[key], False) for key in fixed}
+                    root["properties"] = {}
+                    for key in fixed:
+                        prop = cls.to_json(unwrapped[key], False)
+                        root["properties"][key] = prop
+                        if key in optional:
+                            prop["default"] = optional[key]
                     required = [key for key in fixed if key not in optional]
                     if required:
                         root["required"] = required
