@@ -10,10 +10,20 @@ class Any:
             Set of valid schemas, or an empty set to match any possible value.
     """
 
-    __slots__ = ("choices",)
+    __slots__ = ("_choices",)
 
     def __init__(self, *choices):
         self.choices = choices
+
+    @property
+    def choices(self):
+        return list(self._choices)
+
+    @choices.setter
+    def choices(self, value):
+        if None in value:
+            raise SchemaError("Use Nullable() instead of None as a choice")
+        self._choices = value
 
     def __repr__(self, seen=None):
         return "<{}{}>".format(self.__class__.__name__,
@@ -35,12 +45,23 @@ class Nullable:
 
     __slots__ = ("schema",)
 
+    @classmethod
+    def unwrap(cls, value):
+        """
+        Unpack a value, whether nullable or not.
+
+        Args:
+            value:
+                Plain or :class:`.Nullable` schema value.
+
+        Returns:
+            Tuple of ``(schema, nullable)``, where :data:`nullable` is ``True`` if the source value
+            was :class:`.Nullable`, ``False`` otherwise.
+        """
+        return (value.schema, True) if isinstance(value, cls) else (value, False)
+
     def __init__(self, schema):
         self.schema = schema
-
-    @classmethod
-    def unwrap(cls, attr):
-        return (attr.schema, True) if isinstance(attr, cls) else (attr, False)
 
     def __repr__(self, seen=None):
         return "<{}: {}>".format(self.__class__.__name__, _render(self.schema, True, seen))
@@ -53,24 +74,38 @@ class Optional:
 
     Attributes:
         schema (.Schema):
-            Inner schema for non-null processing.
+            Inner schema for processing.
         default:
-            Alternative value for when the key is missing.  This should be an instance of a static
-            class (:class:`int`, :class:`float`, :class:`bool` or :data:`None`), the :class:`list`
-            or :class:`dict` constructor, or a lambda or function that produces the desired value
-            (e.g. ``lambda: {"a": 1}``).
+            Alternative value for when the key is missing.  This can be :data:`None` (the default),
+            an instance of a static class (:class:`int`, :class:`float`, :class:`bool`), the
+            :class:`list` or :class:`dict` constructor, or a lambda or function that produces the
+            desired value (e.g. ``lambda: {"a": 1}``).
 
-            Defaults to ``None`` if not specified.  When using ``None``, you should also mark the
-            value as :class:`.Nullable`.
+            When using ``None``, you should also mark the corresponding value as :class:`.Nullable`.
     """
 
     MISSING = object()
 
     __slots__ = ("schema", "_default")
 
+    @classmethod
+    def unwrap(cls, key):
+        """
+        Unpack a :class:`dict` key, whether optional or not.
+
+        Args:
+            key:
+                Plain or :class:`.Optional` key.
+
+        Returns:
+            Tuple of ``(schema, default)``, where default is :attr:`.Optional.MISSING` if
+            :data:`key` is not an :class:`.Optional` instance.
+        """
+        return (key.schema, key.default) if isinstance(key, cls) else (key, cls.MISSING)
+
     def __init__(self, schema, default=None):
         self.schema = schema
-        self._default = default
+        self.default = default
 
     @property
     def default(self):
@@ -82,10 +117,6 @@ class Optional:
             raise SchemaError("Can't reuse {} object, pass class directly or a lambda to customise"
                               .format(type(value).__name__))
         self._default = value
-
-    @classmethod
-    def unwrap(cls, opt):
-        return (opt.schema, opt.default) if isinstance(opt, cls) else (opt, cls.MISSING)
 
     def __repr__(self, seen=None):
         return "<{}: {} -> {}>".format(self.__class__.__name__,
@@ -125,7 +156,7 @@ def _render(item, full=False, seen=None):
 
 
 def _at_path(text, path):
-    return "{}{}".format(text, " at path: {!r}".format(path) if path else "")
+    return "{}{}".format(text, " (path: {})".format(path) if path else "")
 
 
 class Schema:
@@ -146,9 +177,11 @@ class Schema:
 
         validated = config(data)
 
+    Pass a structure representing the expected data format to the constructor, along with an
+    optional :data:`base` to extend from, then validate some given data against the schema by
+    calling the instance -- see :meth:`validate`.
+
     Attributes:
-        raw:
-            Underlying schema structure.
         json (dict):
             `JSON Schema <https://json-schema.org>`_ data corresponding to this schema -- see
             :meth:`to_json`.
@@ -157,26 +190,7 @@ class Schema:
     STATIC = (int, float, bool, str)
     JSON_TYPES = {int: "number", float: "number", bool: "boolean", str: "string"}
 
-    __slots__ = ("raw",)
-
-    def __init__(self, raw, base=None):
-        if isinstance(base, Schema):
-            merged = dict(base.raw)
-            merged.update(raw)
-        elif isinstance(base, dict):
-            merged = dict(base)
-            merged.update(raw)
-        elif base:
-            raise SchemaError("Base schema must be a dict")
-        else:
-            merged = raw
-        self.raw = merged
-
-    def __call__(self, data):
-        """
-        Validate the given data against the schema -- see :meth:`validate`.
-        """
-        return self.validate(self.raw, data)
+    __slots__ = ("_raw",)
 
     @classmethod
     def _validate_static(cls, schema, data, path):
@@ -259,6 +273,7 @@ class Schema:
                 parsed[key] = value
         for key in optional:
             if key not in data:
+                # Missing but optional keys are filled in and validated.
                 parsed[key] = cls.validate(unwrapped[key], optional[key], "{}.{}".format(path, key))
         return parsed
 
@@ -273,7 +288,7 @@ class Schema:
             data:
                 Input data to validate.
             path (str):
-                Route through the data structurem, shown in error messages to trace violations.
+                Route through the data structure, shown in error messages to trace violations.
 
         Raises:
             SchemaError:
@@ -288,7 +303,7 @@ class Schema:
             Parsed data with optional values filled in.
         """
         if isinstance(schema, Schema):
-            schema = schema.raw
+            schema = schema._raw
         if schema in cls.STATIC or isinstance(schema, cls.STATIC):
             return cls._validate_static(schema, data, path)
         elif isinstance(schema, Nullable):
@@ -301,10 +316,6 @@ class Schema:
             return cls._validate_dict(schema, data, path)
         else:
             raise SchemaError(_at_path("Unknown schema type {}".format(_render(schema)), path))
-
-    @property
-    def json(self):
-        return self.__class__.to_json(self)
 
     @classmethod
     def to_json(cls, schema, top=True):
@@ -323,7 +334,7 @@ class Schema:
         if top:
             root["$schema"] = "http://json-schema.org/schema#"
         if isinstance(schema, Schema):
-            schema = schema.raw
+            schema = schema._raw
         if schema in Schema.STATIC:
             root["type"] = cls.JSON_TYPES[schema]
         elif isinstance(schema, Schema.STATIC):
@@ -360,5 +371,25 @@ class Schema:
             raise SchemaError("Unknown schema type {}".format(_render(schema)))
         return root
 
+    def __init__(self, raw, base=None):
+        if isinstance(base, Schema):
+            merged = dict(base._raw)
+            merged.update(raw)
+        elif isinstance(base, dict):
+            merged = dict(base)
+            merged.update(raw)
+        elif base:
+            raise SchemaError("Base schema must be a dict")
+        else:
+            merged = raw
+        self._raw = merged
+
+    def __call__(self, data):
+        return self.validate(self._raw, data)
+
+    @property
+    def json(self):
+        return self.__class__.to_json(self)
+
     def __repr__(self):
-        return "<{}: {}>".format(self.__class__.__name__, _render(self.raw, True))
+        return "<{}: {}>".format(self.__class__.__name__, _render(self._raw, True))
