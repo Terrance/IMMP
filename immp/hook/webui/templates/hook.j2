@@ -38,6 +38,7 @@
       </div>
     </div>
   </nav>
+  {%- if hook.schema %}
   <h3 class="title">Config</h3>
   {%- if runner and not runner.writeable %}
   <article class="message is-danger">
@@ -62,5 +63,6 @@
       </div>
     </div>
   </form>
+  {% endif %}
 </div>
 {%- endblock %}

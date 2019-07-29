@@ -28,6 +28,8 @@ class RunnerHook(immp.ResourceHook):
             ``True`` if the file will be updated on exit, or ``False`` if being used read-only.
     """
 
+    schema = None
+
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         self._config = None

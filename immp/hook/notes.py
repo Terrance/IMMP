@@ -86,6 +86,8 @@ class NotesHook(immp.Hook):
     Hook for managing and recalling notes in channels.
     """
 
+    schema = None
+
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         self.db = None

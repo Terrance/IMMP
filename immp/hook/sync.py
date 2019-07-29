@@ -327,6 +327,8 @@ class SyncPlug(immp.Plug):
     Virtual plug that allows sending external messages to a synced conversation.
     """
 
+    schema = None
+
     network_name = "Sync"
 
     @property

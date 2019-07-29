@@ -94,6 +94,7 @@
     </tfoot>
   </table>
   {%- endif %}
+  {%- if plug.schema %}
   <h3 class="title">Config</h3>
   {%- if runner and not runner.writeable %}
   <article class="message is-danger">
@@ -118,5 +119,6 @@
       </div>
     </div>
   </form>
+  {% endif %}
 </div>
 {%- endblock %}

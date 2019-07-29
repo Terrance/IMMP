@@ -195,7 +195,9 @@ class Configurable:
     Attributes:
         schema (.Schema):
             Structure of the config expected by this configurable.  If not customised by the
-            subclass, defaults to ``dict`` (that is, any :class:`dict` structure is valid).
+            subclass, it defaults to ``dict`` (that is, any :class:`dict` structure is valid).
+
+            It may also be set to :data:`None`, to declare that no configuration is accepted.
         name (str):
             User-provided, unique name of the hook, used for config references.
         config (dict):
@@ -213,7 +215,7 @@ class Configurable:
     def __init__(self, name, config, host):
         super().__init__()
         self.name = name
-        self._config = self.schema(config)
+        self._config = self.schema(config) if self.schema else None
         self.host = host
 
     @property
