@@ -49,13 +49,13 @@ class _Schema:
 
     config = immp.Schema({"token": str,
                           immp.Optional("fallback-name", "IMMP"): str,
-                          immp.Optional("fallback-image", None): immp.Nullable(str),
+                          immp.Optional("fallback-image"): immp.Nullable(str),
                           immp.Optional("thread-broadcast", False): bool})
 
     user = immp.Schema({"id": str,
                         "name": str,
-                        "profile": {immp.Optional("real_name", None): immp.Nullable(str),
-                                    immp.Optional("bot_id", None): immp.Nullable(str),
+                        "profile": {immp.Optional("real_name"): immp.Nullable(str),
+                                    immp.Optional("bot_id"): immp.Nullable(str),
                                     **_images}})
 
     bot = immp.Schema({"id": str,
@@ -73,44 +73,45 @@ class _Schema:
                         "name": immp.Nullable(str),
                         "pretty_type": str,
                         "url_private": str,
-                        immp.Optional("shares", {"public": {}, "private": {}}):
-                            {immp.Optional("public", dict): _shares,
-                             immp.Optional("private", dict): _shares}})
+                        immp.Optional("shares", dict): {immp.Optional("public", dict): _shares,
+                                                        immp.Optional("private", dict): _shares}})
 
-    attachment = immp.Schema({immp.Optional("title", None): immp.Nullable(str),
-                              immp.Optional("image_url", None): immp.Nullable(str),
+    attachment = immp.Schema({immp.Optional("title"): immp.Nullable(str),
+                              immp.Optional("image_url"): immp.Nullable(str),
                               immp.Optional("is_msg_unfurl", False): bool})
 
     msg_unfurl = immp.Schema({"channel_id": str, "ts": str}, attachment)
 
     _base_msg = immp.Schema({"ts": str,
                              "type": "message",
-                             immp.Optional("channel", None): immp.Nullable(str),
-                             immp.Optional("edited", {"user": None}):
-                                 {immp.Optional("user", None): immp.Nullable(str)},
-                             immp.Optional("thread_ts", None): immp.Nullable(str),
+                             immp.Optional("channel"): immp.Nullable(str),
+                             immp.Optional("edited", dict):
+                                 {immp.Optional("user"): immp.Nullable(str)},
+                             immp.Optional("thread_ts"): immp.Nullable(str),
                              immp.Optional("replies", list): [{"ts": str}],
                              immp.Optional("files", list): [file],
                              immp.Optional("attachments", list): [attachment],
                              immp.Optional("is_ephemeral", False): bool})
 
-    _plain_msg = immp.Schema({immp.Optional("user", None): immp.Nullable(str),
-                              immp.Optional("bot_id", None): immp.Nullable(str),
-                              immp.Optional("username", None): immp.Nullable(str),
+    _plain_msg = immp.Schema({immp.Optional("user"): immp.Nullable(str),
+                              immp.Optional("bot_id"): immp.Nullable(str),
+                              immp.Optional("username"): immp.Nullable(str),
                               immp.Optional("icons", dict): dict,
                               "text": str}, _base_msg)
 
+    _changed = {"subtype": "message_changed"}
+
     message = immp.Schema(immp.Any(immp.Schema({"subtype": "file_comment"}, _base_msg),
-                                   immp.Schema({"subtype": "message_changed",
-                                                "message": lambda v: _Schema.message(v),
-                                                "previous_message": lambda v: _Schema.message(v)},
-                                               _base_msg),
+                                   immp.Schema(_changed, _base_msg),
                                    immp.Schema({"subtype": "message_deleted",
                                                 "deleted_ts": str}, _base_msg),
                                    immp.Schema({"subtype": immp.Any("channel_name", "group_name"),
                                                 "name": str}, _plain_msg),
-                                   immp.Schema({immp.Optional("subtype", None):
+                                   immp.Schema({immp.Optional("subtype"):
                                                     immp.Nullable(str)}, _plain_msg)))
+
+    # Circular references to embedded messages.
+    _changed.update({"message": message, "previous_message": message})
 
     event = immp.Schema(immp.Any(message,
                                  {"type": immp.Any("team_join", "user_change"),
@@ -125,12 +126,12 @@ class _Schema:
                                   "user": str,
                                   "channel": str},
                                  {"type": "message",
-                                  immp.Optional("subtype", None): immp.Nullable(str)},
+                                  immp.Optional("subtype"): immp.Nullable(str)},
                                  {"type": str}))
 
     def _api(nested={}):
         return immp.Schema(immp.Any({"ok": True,
-                                     immp.Optional("response_metadata", {"next_cursor": ""}):
+                                     immp.Optional("response_metadata", dict):
                                          {immp.Optional("next_cursor", ""): str},
                                      **nested},
                                     {"ok": False,

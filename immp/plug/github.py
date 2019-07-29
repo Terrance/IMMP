@@ -32,7 +32,7 @@ log = logging.getLogger(__name__)
 class _Schema:
 
     config = immp.Schema({"route": str,
-                          immp.Optional("secret", None): immp.Nullable(str)})
+                          immp.Optional("secret"): immp.Nullable(str)})
 
     event = immp.Schema({"repository": {"full_name": str},
                          "sender": {"id": int,

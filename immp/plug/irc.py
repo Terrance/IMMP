@@ -292,10 +292,10 @@ class IRCPlug(immp.Plug):
     schema = immp.Schema({"server": {"host": str,
                                      "port": int,
                                      immp.Optional("ssl", False): bool,
-                                     immp.Optional("password", None): immp.Nullable(str)},
+                                     immp.Optional("password"): immp.Nullable(str)},
                           "user": {"nick": str,
                                    "real-name": str},
-                          immp.Optional("quit", None): immp.Nullable(str),
+                          immp.Optional("quit"): immp.Nullable(str),
                           immp.Optional("accept-invites", False): bool})
 
     def __init__(self, name, config, host):

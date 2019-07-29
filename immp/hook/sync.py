@@ -513,8 +513,8 @@ class ForwardHook(_SyncHookBase):
     schema = immp.Schema({"channels": {str: [str]},
                           immp.Optional("joins", False): bool,
                           immp.Optional("renames", False): bool,
-                          immp.Optional("identities", None): immp.Nullable(str),
-                          immp.Optional("name-format", None): immp.Nullable(str),
+                          immp.Optional("identities"): immp.Nullable(str),
+                          immp.Optional("name-format"): immp.Nullable(str),
                           immp.Optional("strip-name-emoji", False): bool})
 
     @property
@@ -561,7 +561,7 @@ class SyncHook(_SyncHookBase):
 
     schema = immp.Schema({immp.Optional("joins", True): bool,
                           immp.Optional("renames", True): bool,
-                          immp.Optional("plug", None): immp.Nullable(str)}, ForwardHook.schema)
+                          immp.Optional("plug"): immp.Nullable(str)}, ForwardHook.schema)
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)

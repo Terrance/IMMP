@@ -81,7 +81,7 @@ class ShellHook(immp.ResourceHook):
     """
 
     schema = immp.Schema({immp.Optional("all", False): bool,
-                          immp.Optional("console", None): immp.Nullable("ptpython")})
+                          immp.Optional("console"): immp.Nullable("ptpython")})
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)

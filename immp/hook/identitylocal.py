@@ -144,7 +144,7 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
     effectively provides self-service identities, as opposed to being provided externally.
     """
 
-    schema = immp.Schema({immp.Optional("instance", None): immp.Nullable(int),
+    schema = immp.Schema({immp.Optional("instance"): immp.Nullable(int),
                           "plugs": [str],
                           immp.Optional("multiple", True): bool})
 

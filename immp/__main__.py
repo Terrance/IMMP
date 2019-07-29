@@ -15,7 +15,7 @@ class _Schema:
     _plugs = {str: {"path": str, Optional("config", dict): dict}}
 
     _hooks = {str: {"path": str,
-                    Optional("priority", None): Nullable(int),
+                    Optional("priority"): Nullable(int),
                     Optional("config", dict): dict}}
 
     _channels = {str: {"plug": str, "source": str}}
@@ -27,7 +27,7 @@ class _Schema:
                      Optional("channels", dict): _channels,
                      Optional("groups", dict): {str: dict},
                      Optional("hooks", dict): _hooks,
-                     Optional("logging", None): Nullable(_logging)})
+                     Optional("logging"): Nullable(_logging)})
 
 
 class LocalFilter(logging.Filter):

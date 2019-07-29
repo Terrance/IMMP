@@ -50,7 +50,7 @@ class _Schema:
     config = immp.Schema({"token": str,
                           immp.Optional("bot", True): bool,
                           immp.Optional("webhooks", dict): {str: str},
-                          immp.Optional("playing", None): immp.Nullable(str)})
+                          immp.Optional("playing"): immp.Nullable(str)})
 
     webhook = immp.Schema(immp.Any({"code": int, "message": str}, {"id": str}))
 
