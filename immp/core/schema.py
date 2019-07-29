@@ -194,24 +194,23 @@ class Schema:
 
     @classmethod
     def _validate_static(cls, schema, data, path):
-        if isinstance(schema, type) and isinstance(data, schema):
+        # Don't allow the usual subclassing of ints as bools.
+        if schema is int and isinstance(data, int) and not isinstance(data, bool):
             return data
-        elif schema == data:
+        elif schema in (float, bool, str) and isinstance(data, schema):
+            return data
+        elif isinstance(schema, int) and schema == data and not isinstance(data, bool):
+            return data
+        elif isinstance(schema, (float, bool, str)) and schema == data:
             return data
         else:
-            raise TypeError(_at_path("Expected {} but got {}"
+            raise TypeError(_at_path("Expecting {} but got {}"
                                      .format(_render(schema), _render(data)), path))
 
     @classmethod
     def _validate_nullable(cls, schema, data, path):
-        item, nullable = Nullable.unwrap(schema)
-        if data is not None:
-            return cls.validate(item, data, path)
-        elif nullable:
-            return None
-        else:
-            raise ValueError(_at_path("Expected {} but no value provided"
-                                      .format(_render(item)), path))
+        item = Nullable.unwrap(schema)[0]
+        return None if data is None else cls.validate(item, data, path)
 
     @classmethod
     def _validate_any(cls, schema, data, path):
@@ -302,6 +301,9 @@ class Schema:
         Returns:
             Parsed data with optional values filled in.
         """
+        if isinstance(data, type):
+            raise TypeError(_at_path("Expecting instance but got {} type"
+                                     .format(_render(data)), path))
         if isinstance(schema, Schema):
             schema = schema._raw
         if schema in cls.STATIC or isinstance(schema, cls.STATIC):
