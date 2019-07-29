@@ -15,9 +15,10 @@ class Any:
     def __init__(self, *choices):
         self.choices = choices
 
-    def __repr__(self):
+    def __repr__(self, seen=None):
         return "<{}{}>".format(self.__class__.__name__,
-                               ": {}".format(", ".join(_render(choice) for choice in self.choices))
+                               ": {}".format(", ".join(_render(choice, True, seen)
+                                                       for choice in self.choices))
                                if self.choices else "")
 
 
@@ -41,8 +42,8 @@ class Nullable:
     def unwrap(cls, attr):
         return (attr.schema, True) if isinstance(attr, cls) else (attr, False)
 
-    def __repr__(self):
-        return "<{}: {}>".format(self.__class__.__name__, _render(self.schema))
+    def __repr__(self, seen=None):
+        return "<{}: {}>".format(self.__class__.__name__, _render(self.schema, True, seen))
 
 
 class Optional:
@@ -78,16 +79,18 @@ class Optional:
     @default.setter
     def default(self, value):
         if isinstance(value, (list, dict)):
-            raise SchemaError
+            raise SchemaError("Can't reuse {} object, pass class directly or a lambda to customise"
+                              .format(type(value).__name__))
         self._default = value
 
     @classmethod
     def unwrap(cls, opt):
         return (opt.schema, opt.default) if isinstance(opt, cls) else (opt, cls.MISSING)
 
-    def __repr__(self):
+    def __repr__(self, seen=None):
         return "<{}: {} -> {}>".format(self.__class__.__name__,
-                                       _render(self.schema), _render(self.default))
+                                       _render(self.schema, True, seen),
+                                       _render(self.default, True, seen))
 
 
 class SchemaError(Exception):
@@ -96,20 +99,27 @@ class SchemaError(Exception):
     """
 
 
-def _render(item, full=False):
-    if isinstance(item, type):
+def _render(item, full=False, seen=None):
+    if item is None:
+        return "None"
+    elif isinstance(item, type):
         return item.__name__
     elif isinstance(item, (list, dict)):
-        if full:
+        if not full:
             return item.__class__.__name__
-        elif isinstance(item, dict):
-            return "{{{}}}".format(", ".join("{}: {}".format(_render(key, full),
-                                                             _render(value, full))
+        if not seen:
+            seen = []
+        elif item in seen:
+            return "(recursion: {})".format(_render(item))
+        seen = seen + [item]
+        if isinstance(item, dict):
+            return "{{{}}}".format(", ".join("{}: {}".format(_render(key, full, seen),
+                                                             _render(value, full, seen))
                                              for key, value in item.items()))
         else:
-            return "[{}]".format(", ".join(_render(value, full) for value in item))
-    elif isinstance(item, (Any, Nullable, Optional)) or item is None:
-        return str(item)
+            return "[{}]".format(", ".join(_render(value, full, seen) for value in item))
+    elif isinstance(item, (Any, Nullable, Optional)):
+        return item.__repr__(seen)
     else:
         return "{} {!r}".format(type(item).__name__, item)
 
@@ -351,4 +361,4 @@ class Schema:
         return root
 
     def __repr__(self):
-        return "<{}: {}>".format(self.__class__.__name__, _render(self.raw))
+        return "<{}: {}>".format(self.__class__.__name__, _render(self.raw, True))
