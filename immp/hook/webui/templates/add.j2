@@ -9,7 +9,7 @@
         <div class="field">
           <label class="label" for="path">Path</label>
           <div class="control">
-            <input type="text" class="input" id="path" name="path" placeholder="module.FooPlug" required>
+            <input type="text" class="input" id="path" name="path" placeholder="module.FooPlug" value="{{ path }}" required>
           </div>
           <p class="help">Full path to your plug or hook class.  External modules must be present on the system path, either installed to a default directory or one added to <code>sys.path</code>.</p>
         </div>
@@ -18,7 +18,7 @@
         <div class="field">
           <label class="label" for="name">Name</label>
           <div class="control">
-            <input type="text" class="input" id="name" name="name" placeholder="foo-test" required>
+            <input type="text" class="input" id="name" name="name" placeholder="foo-test" value="{{ name }}" required>
           </div>
           <p class="help">Identifier available to other hooks, in order to reference this instance in config.</p>
         </div>
@@ -26,14 +26,24 @@
     </div>
     <div class="field">
       <label class="label" for="config">Config</label>
+      {%- if class is not defined or class.schema %}
       <div class="control">
         <div id="config-editor"></div>
-        <textarea id="config" name="config" class="textarea is-small json-editor" data-editor="config-editor" style="font-family: monospace">{}</textarea>
+        <textarea id="config" name="config" class="textarea is-small json-editor" data-editor="config-editor"{% if class is defined %} data-schema="{{ class.schema.json|json }}"{% endif %}>{{ config or "{}" }}</textarea>
       </div>
+      {%- if class %}
+      <p class="help">Using schema for <code>{{ path }}</code>.</p>
+      {%- endif %}
+      {%- else %}
+      <p class="help">No config required for <code>{{ path }}</code>.</p>
+      {%- endif %}
     </div>
     <div class="field is-grouped">
       <div class="control">
         <button class="button is-success" type="submit"><i class="fas fa-fw fa-plus"></i> Add</button>
+      </div>
+      <div class="control">
+        <button name="schema" class="button" type="submit"><i class="fas fa-fw fa-tasks"></i> Load schema</button>
       </div>
     </div>
   </form>

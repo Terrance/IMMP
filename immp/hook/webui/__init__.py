@@ -59,7 +59,7 @@ class WebUIHook(immp.ResourceHook):
         self.ctx.route("GET", "", self.noop, "main.j2", "main")
         # Add:
         self.ctx.route("GET", "add", self.noop, "add.j2", "add")
-        self.ctx.route("POST", "add", self.add, name="add:post")
+        self.ctx.route("POST", "add", self.add, "add.j2", "add:post")
         # Plugs:
         self.ctx.route("GET", "plug/{name}", self.plug, "plug.j2")
         self.ctx.route("POST", "plug/{name}/stop", self.plug_stop)
@@ -105,19 +105,23 @@ class WebUIHook(immp.ResourceHook):
         try:
             path = post["path"]
             name = post["name"]
-            config = post["config"] or "{}"
         except KeyError:
             raise web.HTTPBadRequest
+        config = post.get("config")
         if not path or not name:
-            raise web.HTTPBadRequest
-        try:
-            config = json.loads(config)
-        except ValueError:
             raise web.HTTPBadRequest
         try:
             cls = immp.resolve_import(path)
         except ImportError:
             raise web.HTTPNotFound
+        if "schema" in post:
+            return {"path": path, "name": name, "config": config, "class": cls}
+        config = None
+        if cls.schema:
+            try:
+                config = json.loads(config)
+            except ValueError:
+                raise web.HTTPBadRequest
         path = "{}.{}".format(cls.__module__, cls.__name__)
         if issubclass(cls, immp.Plug):
             inst = cls(name, config, self.host)
