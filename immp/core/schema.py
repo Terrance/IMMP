@@ -320,6 +320,26 @@ class Schema:
             raise SchemaError(_at_path("Unknown schema type {}".format(_render(schema)), path))
 
     @classmethod
+    def _make_anyof(cls, choices):
+        types = []
+        anys = []
+        for choice in choices:
+            if isinstance(choice, dict) and len(choice) == 1 and "type" in choice:
+                types.append(choice["type"])
+            else:
+                anys.append(choice)
+        if len(types) == 1:
+            types = types[0]
+        if types and anys:
+            return {"anyOf": anys + [{"type": types}]}
+        elif anys:
+            return {"anyOf": anys}
+        elif types:
+            return {"type": types}
+        else:
+            return {}
+
+    @classmethod
     def to_json(cls, schema, top=True):
         """
         Convert a :class:`.Schema` into a `JSON Schema <https://json-schema.org>`_ representation.
@@ -332,45 +352,43 @@ class Schema:
             dict:
                 Equivalent JSON Schema data.
         """
-        root = {}
-        if top:
-            root["$schema"] = "http://json-schema.org/schema#"
         if isinstance(schema, Schema):
             schema = schema._raw
         if schema in Schema.STATIC:
-            root["type"] = cls.JSON_TYPES[schema]
+            root = {"type": cls.JSON_TYPES[schema]}
         elif isinstance(schema, Schema.STATIC):
-            root["type"] = cls.JSON_TYPES[type(schema)]
-            root["const"] = schema
+            root = {"type": cls.JSON_TYPES[type(schema)], "const": schema}
         elif isinstance(schema, Nullable):
-            root["anyOf"] = [{"type": "null"}, cls.to_json(schema.schema, False)]
+            root = cls._make_anyof([{"type": "null"}, cls.to_json(schema.schema, False)])
         elif isinstance(schema, Any):
-            if schema.choices:
-                root["anyOf"] = [cls.to_json(choice, False) for choice in schema.choices]
+            root = cls._make_anyof(cls.to_json(choice, False) for choice in schema.choices)
         elif schema is list or isinstance(schema, list):
-            root["type"] = "array"
+            root = {"type": "array"}
             if isinstance(schema, list):
                 if len(schema) > 1:
-                    root["items"] = {"anyOf": [cls.to_json(item, False) for item in schema]}
+                    root["items"] = cls._make_anyof([cls.to_json(item, False) for item in schema])
                 elif schema:
                     root["items"] = cls.to_json(schema[0], False)
         elif schema is dict or isinstance(schema, dict):
-            root["type"] = "object"
+            root = {"type": "object"}
             if isinstance(schema, dict) and schema:
                 optional = dict(Optional.unwrap(key) for key in schema if isinstance(key, Optional))
                 unwrapped = {Optional.unwrap(key)[0]: value for key, value in schema.items()}
                 typed = tuple(key for key in unwrapped if isinstance(key, type))
                 fixed = {key for key in unwrapped if key not in typed}
-                root["properties"] = {key: cls.to_json(unwrapped[key], False) for key in fixed}
-                required = [key for key in fixed if key not in optional]
-                if required:
-                    root["required"] = required
+                if fixed:
+                    root["properties"] = {key: cls.to_json(unwrapped[key], False) for key in fixed}
+                    required = [key for key in fixed if key not in optional]
+                    if required:
+                        root["required"] = required
                 for key in typed:
                     if key is not str:
                         raise SchemaError("Object keys must be str in JSON")
                     root["additonalItems"] = cls.to_json(unwrapped[key], False)
         else:
             raise SchemaError("Unknown schema type {}".format(_render(schema)))
+        if top:
+            root["$schema"] = "http://json-schema.org/schema#"
         return root
 
     def __init__(self, raw, base=None):
