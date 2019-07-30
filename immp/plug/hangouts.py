@@ -470,9 +470,9 @@ class HangoutsPlug(immp.HTTPOpenable, immp.Plug):
     async def user_is_system(self, user):
         return user.id == self._bot_user
 
-    def _filter_channels(self, type):
+    def _filter_channels(self, type_):
         convs = self._convs.get_all(include_archived=True)
-        return (immp.Channel(self, conv.id_) for conv in convs if conv._conversation.type == type)
+        return (immp.Channel(self, conv.id_) for conv in convs if conv._conversation.type == type_)
 
     async def public_channels(self):
         return list(self._filter_channels(hangouts_pb2.CONVERSATION_TYPE_GROUP))

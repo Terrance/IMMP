@@ -74,7 +74,7 @@ class Plug(Configurable, Openable):
         Retrieve a :class:`.User` based on the underlying network's identifier.
 
         Args:
-            id:
+            id (str):
                 Network identifier of the user.
 
         Returns:
@@ -88,7 +88,7 @@ class Plug(Configurable, Openable):
         Retrieve a :class:`.User` based on the underlying network's username.
 
         Args:
-            username:
+            username (str):
                 Network username of the user.
 
         Returns:
@@ -343,8 +343,8 @@ class Plug(Configurable, Openable):
         # return the new message ID(s) in advance of them appearing in the receive queue.
         async with self._lock:
             ids = await self.put(channel, msg)
-        for id in ids:
-            self._sent[(channel, id)] = (msg, ids)
+        for id_ in ids:
+            self._sent[(channel, id_)] = (msg, ids)
         return ids
 
     async def put(self, channel, msg):

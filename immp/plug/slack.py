@@ -765,10 +765,10 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
         return user.id == self._bot_user["id"]
 
     async def public_channels(self):
-        return [immp.Channel(self, id) for id in self._channels]
+        return [immp.Channel(self, id_) for id_ in self._channels]
 
     async def private_channels(self):
-        return [immp.Channel(self, id) for id in self._directs]
+        return [immp.Channel(self, id_) for id_ in self._directs]
 
     async def channel_for_user(self, user):
         if not isinstance(user, SlackUser):

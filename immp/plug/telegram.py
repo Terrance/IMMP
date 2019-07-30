@@ -759,7 +759,7 @@ class TelegramMessage(immp.Message):
                 joined = [user]
                 text = "joined group via invite link"
             elif isinstance(message.action, tl.types.MessageActionChatAddUser):
-                joined = await gather(*(telegram.user_from_id(id) for id in message.action.users))
+                joined = await gather(*(telegram.user_from_id(id_) for id_ in message.action.users))
                 if joined == [user]:
                     text = "joined group"
                 else:
@@ -924,7 +924,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             log.debug("Starting client")
             self._client = TelegramClient(Session(self.config["session"]),
                                           self.config["api-id"], self.config["api-hash"])
-        if self._client and self.config.get("client-updates"):
+        if self._client and self.config["client-updates"]:
             log.debug("Adding client event handlers")
             self._client.add_event_handler(self._handle_raw)
             for event in (events.NewMessage, events.MessageEdited, events.ChatAction):

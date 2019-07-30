@@ -280,15 +280,15 @@ class WebUIHook(immp.ResourceHook):
             raise web.HTTPBadRequest
         post = await request.post()
         try:
-            id = post["user"]
+            id_ = post["user"]
         except KeyError:
             raise web.HTTPBadRequest
         members = await channel.members()
         if members is None:
             raise web.HTTPBadRequest
-        elif id in (member.id for member in members):
+        elif id_ in (member.id for member in members):
             raise web.HTTPBadRequest
-        user = await channel.plug.user_from_id(id)
+        user = await channel.plug.user_from_id(id_)
         if user is None:
             raise web.HTTPBadRequest
         await channel.invite(user)
@@ -299,13 +299,13 @@ class WebUIHook(immp.ResourceHook):
         name, channel = self._resolve_channel(request)
         if channel.plug.virtual:
             raise web.HTTPBadRequest
-        id = request.match_info["user"]
+        id_ = request.match_info["user"]
         members = await channel.members()
         if members is None:
             raise web.HTTPBadRequest
-        elif id not in (member.id for member in members):
+        elif id_ not in (member.id for member in members):
             raise web.HTTPBadRequest
-        user = await channel.plug.user_from_id(id)
+        user = await channel.plug.user_from_id(id_)
         if user is None:
             raise web.HTTPBadRequest
         await channel.remove(user)
