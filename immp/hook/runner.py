@@ -68,7 +68,7 @@ class RunnerHook(immp.ResourceHook):
         if obj.virtual:
             return
         feature = {"path": "{}.{}".format(obj.__class__.__module__, obj.__class__.__name__)}
-        if obj.config:
+        if obj.schema and obj.config:
             feature["config"] = obj.config
         if priority:
             feature["priority"] = priority
