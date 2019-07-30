@@ -41,7 +41,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 import logging
 
-from aiohttp import ClientError, ClientResponseError, ClientSession, FormData
+from aiohttp import ClientError, ClientResponseError, FormData
 
 import immp
 
@@ -866,7 +866,7 @@ if SQLiteSession:
             return self._execute("SELECT id, username, name FROM entities WHERE id = ?", id_)
 
 
-class TelegramPlug(immp.Plug):
+class TelegramPlug(immp.HTTPOpenable, immp.Plug):
     """
     Plug for a `Telegram <https://telegram.org>`_ bot.
     """
@@ -888,7 +888,7 @@ class TelegramPlug(immp.Plug):
         if self.config["session"] and not self.config["api-id"]:
             raise immp.ConfigError("Session file requires API ID and hash")
         # Connection objects that need to be closed on disconnect.
-        self._session = self._bot_user = self._receive = self._client = None
+        self._bot_user = self._receive = self._client = None
         self._closing = False
         # Temporary tracking of migrated chats for the current session.
         self._migrations = {}
@@ -899,7 +899,7 @@ class TelegramPlug(immp.Plug):
         url = "https://api.telegram.org/bot{}/{}".format(self.config["token"], endpoint)
         log.debug("Making API request to %r", endpoint)
         try:
-            async with self._session.post(url, **kwargs) as resp:
+            async with self.session.post(url, **kwargs) as resp:
                 try:
                     json = await resp.json()
                     data = schema(json)
@@ -917,7 +917,6 @@ class TelegramPlug(immp.Plug):
     async def start(self):
         await super().start()
         self._closing = False
-        self._session = ClientSession()
         self._bot_user = await self._api("getMe", _Schema.me)
         if self.config["api-id"] and self.config["api-hash"]:
             if not TelegramClient:
@@ -943,10 +942,6 @@ class TelegramPlug(immp.Plug):
             log.debug("Stopping update long-poll")
             self._receive.cancel()
             self._receive = None
-        if self._session:
-            log.debug("Closing session")
-            await self._session.close()
-            self._session = None
         if self._client:
             log.debug("Closing client")
             await self._client.disconnect()
@@ -1110,7 +1105,7 @@ class TelegramPlug(immp.Plug):
         if attach.source:
             data.add_field(field, attach.source)
         else:
-            img_resp = await attach.get_content(self._session)
+            img_resp = await attach.get_content(self.session)
             data.add_field(field, img_resp.content, filename=attach.title or field)
         return data
 

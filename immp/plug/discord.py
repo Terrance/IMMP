@@ -35,7 +35,6 @@ import logging
 import re
 from textwrap import wrap
 
-from aiohttp import ClientSession
 import discord
 from emoji import emojize
 
@@ -395,7 +394,7 @@ class DiscordClient(discord.Client):
         self._plug.queue(DiscordMessage.from_message(self._plug, message, deleted=True))
 
 
-class DiscordPlug(immp.Plug):
+class DiscordPlug(immp.HTTPOpenable, immp.Plug):
     """
     Plug for a `Discord <https://discordapp.com>`_ server.
     """
@@ -411,13 +410,11 @@ class DiscordPlug(immp.Plug):
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         # Connection objects that need to be closed on disconnect.
-        self._client = self._task = self._session = None
+        self._client = self._task = None
         self._starting = Condition()
 
     async def start(self):
         await super().start()
-        if self.config["webhooks"]:
-            self._session = ClientSession()
         log.debug("Starting client")
         self._client = DiscordClient(self)
         self._task = ensure_future(self._client.start(self.config["token"], bot=self.config["bot"]))
@@ -431,10 +428,6 @@ class DiscordPlug(immp.Plug):
             log.debug("Closing client")
             await self._client.close()
             self._client = None
-        if self._session:
-            log.debug("Closing session")
-            await self._session.close()
-            self._session = None
 
     async def user_from_id(self, id_):
         user = await self._client.fetch_user(id_)
@@ -515,7 +508,7 @@ class DiscordPlug(immp.Plug):
         webhook = None
         for label, host_channel in self.host.channels.items():
             if channel == host_channel and label in self.config["webhooks"]:
-                adapter = discord.AsyncWebhookAdapter(self._session)
+                adapter = discord.AsyncWebhookAdapter(self.session)
                 webhook = discord.Webhook.from_url(self.config["webhooks"][label], adapter=adapter)
                 break
         return dc_channel, webhook
@@ -538,7 +531,7 @@ class DiscordPlug(immp.Plug):
             image = msg.user.avatar
         for i, attach in enumerate(msg.attachments or []):
             if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
-                async with (await attach.get_content(self._session)) as img_content:
+                async with (await attach.get_content(self.session)) as img_content:
                     # discord.py expects a file-like object with a synchronous read() method.
                     # NB. The whole file is read into memory by discord.py anyway.
                     files.append(discord.File(BytesIO(await img_content.read()),

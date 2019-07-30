@@ -2,11 +2,20 @@ from asyncio import Condition
 from enum import Enum
 from functools import reduce
 from importlib import import_module
+import logging
 import re
 import time
 
+try:
+    from aiohttp import ClientSession
+except ImportError:
+    ClientSession = None
+
 from .error import ConfigError
 from .schema import Schema
+
+
+log = logging.getLogger(__name__)
 
 
 def resolve_import(path):
@@ -277,3 +286,30 @@ class Openable:
         """
         Perform any operations needed to close this resource.
         """
+
+
+class HTTPOpenable(Openable):
+    """
+    Template openable including a :class:`aiohttp.ClientSession` instance for networking.
+
+    Attributes:
+        session (aiohttp.ClientSession):
+            Managed session object.
+    """
+
+    def __init__(self, name, config, host):
+        super().__init__(name, config, host)
+        self.session = None
+
+    async def start(self):
+        await super().start()
+        if not ClientSession:
+            raise ConfigError("'aiohttp' module not installed")
+        self.session = ClientSession()
+
+    async def stop(self):
+        await super().stop()
+        if self.session:
+            log.debug("Closing session")
+            await self.session.close()
+            self.session = None

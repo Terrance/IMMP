@@ -3,8 +3,7 @@ from datetime import datetime, timezone
 from enum import Enum
 import re
 
-import aiohttp
-
+from .error import PlugError
 from .util import _no_escape, escape, pretty_str, unescape
 
 
@@ -551,7 +550,7 @@ class File:
         self.type = type_
         self.source = source
 
-    async def get_content(self, sess=None):
+    async def get_content(self, sess):
         """
         Stream the contents of the file, suitable for writing to a file or uploading elsewhere.
 
@@ -567,8 +566,10 @@ class File:
             io.IOBase:
                 Readable stream of the raw file.
         """
-        sess = sess or aiohttp.ClientSession()
-        return await sess.get(self.source)
+        if self.source:
+            return await sess.get(self.source)
+        else:
+            raise PlugError("No accessible URL to the file")
 
     def __str__(self):
         if self.title and self.source:

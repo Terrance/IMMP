@@ -169,7 +169,7 @@ class GitHubPlug(immp.Plug):
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
-        self._session = self.ctx = None
+        self.ctx = None
 
     def on_load(self):
         log.debug("Registering webhook route")

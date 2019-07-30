@@ -374,7 +374,7 @@ class HangoutsMessage(immp.Message):
                                 raw=event)
 
 
-class HangoutsPlug(immp.Plug):
+class HangoutsPlug(immp.HTTPOpenable, immp.Plug):
     """
     Plug for `Google Hangouts <https://hangouts.google.com>`_.
     """
@@ -390,12 +390,10 @@ class HangoutsPlug(immp.Plug):
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
-        self._client = None
-        self._looped = None
+        self._client = self._looped = None
         self._starting = Condition()
         self._closing = False
-        self._users = self._convs = None
-        self._bot_user = None
+        self._users = self._convs = self._bot_user = None
 
     async def _loop(self):
         while True:
@@ -634,7 +632,7 @@ class HangoutsPlug(immp.Plug):
             return None
 
     async def _upload(self, attach):
-        async with (await attach.get_content()) as img_content:
+        async with (await attach.get_content(self.session)) as img_content:
             # Hangups expects a file-like object with a synchronous read() method.
             # NB. The whole file is read into memory by Hangups anyway.
             # Filename must be present, else Hangups will try (and fail) to read the path.

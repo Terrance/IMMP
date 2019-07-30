@@ -31,7 +31,7 @@ from json import dumps as json_dumps
 import logging
 import re
 
-from aiohttp import ClientResponseError, ClientSession, FormData
+from aiohttp import ClientResponseError, FormData
 from emoji import emojize
 
 import immp
@@ -402,10 +402,9 @@ class SlackFile(immp.File):
         # Private source as the URL is not publicly accessible.
         self._source = source
 
-    async def get_content(self, sess=None):
-        sess = sess or self.slack._session
+    async def get_content(self, sess):
         headers = {"Authorization": "Bearer {}".format(self.slack.config["token"])}
-        return await sess.get(self._source, headers=headers)
+        return await self.slack.session.get(self._source, headers=headers)
 
     @classmethod
     def from_file(cls, slack, json):
@@ -641,7 +640,7 @@ class SlackMessage(immp.Message):
         return quote
 
 
-class SlackPlug(immp.Plug):
+class SlackPlug(immp.HTTPOpenable, immp.Plug):
     """
     Plug for a `Slack <https://slack.com>`_ team.
     """
@@ -662,7 +661,7 @@ class SlackPlug(immp.Plug):
         self._users = self._channels = self._directs = None
         self._bots = self._bot_to_user = self._members = None
         # Connection objects that need to be closed on disconnect.
-        self._session = self._socket = self._receive = None
+        self._socket = self._receive = None
         self._closing = False
 
     def same_team(self, other):
@@ -683,8 +682,8 @@ class SlackPlug(immp.Plug):
         params = params or {}
         params["token"] = self.config["token"]
         log.debug("Making API request to %r", endpoint)
-        async with self._session.post("https://slack.com/api/{}".format(endpoint),
-                                      params=params, **kwargs) as resp:
+        async with self.session.post("https://slack.com/api/{}".format(endpoint),
+                                     params=params, **kwargs) as resp:
             try:
                 resp.raise_for_status()
             except ClientResponseError as e:
@@ -725,13 +724,12 @@ class SlackPlug(immp.Plug):
         self._members = {}
         # Create a map of bot IDs to users, as the bot cache doesn't contain references to them.
         self._bot_to_user = {user.bot_id: user.id for user in self._users.values() if user.bot_id}
-        self._socket = await self._session.ws_connect(rtm["url"], heartbeat=60.0)
+        self._socket = await self.session.ws_connect(rtm["url"], heartbeat=60.0)
         log.debug("Connected to websocket")
 
     async def start(self):
         await super().start()
         self._closing = False
-        self._session = ClientSession()
         await self._rtm()
         self._receive = ensure_future(self._poll())
 
@@ -745,10 +743,6 @@ class SlackPlug(immp.Plug):
             log.debug("Closing websocket")
             await self._socket.close()
             self._socket = None
-        if self._session:
-            log.debug("Closing session")
-            await self._session.close()
-            self._session = None
         self._team = self._bot_user = None
 
     async def user_from_id(self, id_):
@@ -898,7 +892,7 @@ class SlackPlug(immp.Plug):
                     comment = immp.RichText([immp.Segment(name, bold=True, italic=True),
                                              immp.Segment(" uploaded this file", italic=True)])
                     data.add_field("initial_comment", SlackRichText.to_mrkdwn(self, comment))
-                img_resp = await attach.get_content(self._session)
+                img_resp = await attach.get_content(self.session)
                 data.add_field("file", img_resp.content, filename="file")
                 upload = await self._api("files.upload", _Schema.upload, data=data)
                 uploads += 1
