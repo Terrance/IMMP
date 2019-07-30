@@ -26,6 +26,11 @@
           var editor = new JSONEditor(document.getElementById(field.dataset.editor), {
             name: field.name,
             modes: ["tree", "code"],
+            onModeChange: function(newMode, oldMode) {
+              if (newMode === "code") {
+                editor.aceEditor.setOption("maxLines", 24);
+              }
+            },
             schema: field.dataset.schema ? JSON.parse(field.dataset.schema) : null
           });
           field.style.display = "none";
