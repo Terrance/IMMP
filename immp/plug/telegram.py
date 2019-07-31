@@ -129,9 +129,11 @@ class _Schema:
     _message.update({immp.Optional("reply_to_message"): immp.Nullable(_message),
                      immp.Optional("pinned_message"): immp.Nullable(_message)})
 
-    update = immp.Schema({"update_id": int,
-                          immp.Optional(immp.Any("message", "edited_message",
-                                                 "channel_post", "edited_channel_post")): message})
+    update = immp.Schema(immp.Any({"update_id": int, "message": _message},
+                                  {"update_id": int, "edited_message": _message},
+                                  {"update_id": int, "channel_post": _message},
+                                  {"update_id": int, "edited_channel_post": _message},
+                                  {"update_id": int}))
 
     def api(result=None):
         success = {"ok": True}
