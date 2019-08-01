@@ -1,42 +1,48 @@
+from collections import defaultdict
+from reprlib import recursive_repr
+
+
 class Any:
     """
-    Allow values to match from a choice of schemas.  :class:`TypeError` will be raised if none of
+    Allow values to match from a choice of schemas.  :class:`Invalid` will be raised if none of
     them are valid for a given value.
 
     If no schemas are defined, this acts as a wildcard, i.e. it will match *any* value given.
+
+    When used as a dictionary key, exactly one choice must be present.  To allow any number of keys,
+    use :class:`.Optional` instead.
 
     Attributes:
         choices (.Schema list):
             Set of valid schemas, or an empty set to match any possible value.
     """
 
-    __slots__ = ("_choices",)
+    __slots__ = ("choices",)
 
     def __init__(self, *choices):
         self.choices = choices
 
-    @property
-    def choices(self):
-        return list(self._choices)
+    def __eq__(self, other):
+        return (self.choices == other.choices if isinstance(other, self.__class__)
+                else tuple(self.choices) == other)
 
-    @choices.setter
-    def choices(self, value):
-        if None in value:
-            raise SchemaError("Use Nullable() instead of None as a choice")
-        self._choices = value
+    def __hash__(self):
+        return hash(tuple(self.choices))
 
-    def __repr__(self, seen=None):
+    @recursive_repr()
+    def __repr__(self):
         return "<{}{}>".format(self.__class__.__name__,
-                               ": {}".format(", ".join(_render(choice, True, seen)
-                                                       for choice in self.choices))
+                               ": {}".format(", ".join(repr(choice) for choice in self.choices))
                                if self.choices else "")
 
 
 class Nullable:
     """
-    Allow values tested against the inner schema to hold a null value.  By default, ``None`` will
-    not be accepted by a schema and will raise :class:`TypeError`, whereas ``Nullable(str)``
-    matches both ``"foo"`` and ``None``.
+    Allow values tested against the inner schema to hold a null value.  Without this wrapper,
+    ``None`` will not be accepted by a schema and will raise :class:`Invalid`, whereas
+    ``Nullable(str)`` matches both ``"foo"`` and ``None``.
+
+    This object evaluates equally to its inner schema.
 
     Attributes:
         schema (.Schema):
@@ -63,14 +69,23 @@ class Nullable:
     def __init__(self, schema):
         self.schema = schema
 
-    def __repr__(self, seen=None):
-        return "<{}: {}>".format(self.__class__.__name__, _render(self.schema, True, seen))
+    def __eq__(self, other):
+        return self.schema == (other.schema if isinstance(other, self.__class__) else other)
+
+    def __hash__(self):
+        return hash(self.schema)
+
+    @recursive_repr()
+    def __repr__(self):
+        return "<{}: {!r}>".format(self.__class__.__name__, self.schema)
 
 
 class Optional:
     """
-    Allows keys matching the inner schema to not be present in the source :class:`dict`.  By
-    default, :class:`KeyError` will be raised.
+    Allows keys matching the inner schema to not be present in the source :class:`dict`.  Without
+    this wrapper, :class:`Invalid` will be raised if the corresponding key is missing.
+
+    This object evaluates equally to its inner schema.
 
     Attributes:
         schema (.Schema):
@@ -86,7 +101,7 @@ class Optional:
 
     MISSING = object()
 
-    __slots__ = ("schema", "_default")
+    __slots__ = ("schema", "default")
 
     @classmethod
     def unwrap(cls, key):
@@ -107,21 +122,15 @@ class Optional:
         self.schema = schema
         self.default = default
 
-    @property
-    def default(self):
-        return self._default() if callable(self._default) else self._default
+    def __eq__(self, other):
+        return self.schema == (other.schema if isinstance(other, self.__class__) else other)
 
-    @default.setter
-    def default(self, value):
-        if isinstance(value, (list, dict)):
-            raise SchemaError("Can't reuse {} object, pass class directly or a lambda to customise"
-                              .format(type(value).__name__))
-        self._default = value
+    def __hash__(self):
+        return hash(self.schema)
 
-    def __repr__(self, seen=None):
-        return "<{}: {} -> {}>".format(self.__class__.__name__,
-                                       _render(self.schema, True, seen),
-                                       _render(self.default, True, seen))
+    @recursive_repr()
+    def __repr__(self):
+        return "<{}: {!r} -> {!r}>".format(self.__class__.__name__, self.schema, self.default)
 
 
 class SchemaError(Exception):
@@ -130,33 +139,474 @@ class SchemaError(Exception):
     """
 
 
-def _render(item, full=False, seen=None):
-    if item is None:
-        return "None"
-    elif isinstance(item, type):
-        return item.__name__
-    elif isinstance(item, (list, dict)):
-        if not full:
-            return item.__class__.__name__
-        if not seen:
-            seen = []
-        elif item in seen:
-            return "(recursion: {})".format(_render(item))
-        seen = seen + [item]
-        if isinstance(item, dict):
-            return "{{{}}}".format(", ".join("{}: {}".format(_render(key, full, seen),
-                                                             _render(value, full, seen))
-                                             for key, value in item.items()))
+class Invalid(Exception):
+    """
+    Error with input data not matching the corresponding schema.
+    """
+
+
+class Walker:
+    """
+    Base class for stepping through all nodes of a :class:`.Schema` instance.
+    """
+
+    STATIC = (int, float, bool, str)
+
+    RECURSE = object()
+
+    @classmethod
+    def _at_path(cls, text, path):
+        return "{}{}".format(text, " (path: {})".format(path) if path else "")
+
+    @classmethod
+    def _has(cls, item, objs):
+        return any(item is obj for obj in objs)
+
+    @classmethod
+    def recurse(cls, obj, path, seen, *args):
+        """
+        Handle recursion of the schema.  By default, raises :class:`RecursionError` when a node is
+        discovered again during a single call.
+
+        If :attr:`.Walker.RECURSE` is returned, the node will be processed again.  Otherwise, the
+        resulting value (including ``None``) will be used for the inner repeat of this node without
+        any further processing.
+
+        Arguments:
+            obj (.Schema):
+                Schema node.
+            path (str):
+                Path taken through the schema from the root.
+            seen (.Schema list):
+                Nodes already visited in the schema.
+
+        Raises:
+            RecursionError:
+                To block looping through the same portion of the schema.
+        """
+        raise RecursionError(cls._at_path(repr(obj), path))
+
+    @classmethod
+    def static(cls, obj, path, seen, *args):
+        """
+        Handle a static object or type, as defined by :attr:`.Walker.STATIC`.
+
+        Arguments:
+            obj (int, float, bool, str):
+                Schema node.
+            path (str):
+                Path taken through the schema from the root.
+            seen (.Schema list):
+                Nodes already visited in the schema.
+        """
+        return obj
+
+    @classmethod
+    def nullable(cls, obj, path, seen, *args):
+        """
+        Handle a nullable wrapper.
+
+        Arguments:
+            obj (.Nullable):
+                Schema node.
+            path (str):
+                Path taken through the schema from the root.
+            seen (.Schema list):
+                Nodes already visited in the schema.
+        """
+        return cls.dispatch(Nullable.unwrap(obj)[0], path, seen, *args)
+
+    @classmethod
+    def any(cls, obj, path, seen, *args):
+        """
+        Handle a multiple-choice wrapper.
+
+        Arguments:
+            obj (.Nullable):
+                Schema node.
+            path (str):
+                Path taken through the schema from the root.
+            seen (.Schema list):
+                Nodes already visited in the schema.
+        """
+        static = tuple(choice for choice in obj.choices if cls._has(choice, cls.STATIC))
+        for choice in obj.choices:
+            if choice is None or isinstance(choice, Nullable):
+                raise SchemaError(cls._at_path("Use outer Nullable() instead of None", path))
+            elif isinstance(choice, Optional):
+                raise SchemaError(cls._at_path("Use Optional() outside of Any()", path))
+            elif isinstance(choice, static):
+                raise SchemaError(cls._at_path("Useless static value duplicated by type", path))
+        return Any(*(cls.dispatch(item, "{}:any({})".format(path, pos), seen, *args)
+                     for pos, item in enumerate(obj.choices)))
+
+    @classmethod
+    def list(cls, obj, path, seen, *args):
+        """
+        Handle a list.  Multiple list members are considered equivalent to an :class:`.Any`.
+
+        Arguments:
+            obj (list):
+                Schema node.
+            path (str):
+                Path taken through the schema from the root.
+            seen (.Schema list):
+                Nodes already visited in the schema.
+        """
+        if obj is list or not obj:
+            return obj
+        elif len(obj) == 1:
+            return [cls.dispatch(obj[0], "{}[0]".format(path), seen, *args)]
         else:
-            return "[{}]".format(", ".join(_render(value, full, seen) for value in item))
-    elif isinstance(item, (Any, Nullable, Optional)):
-        return item.__repr__(seen)
-    else:
-        return "{} {!r}".format(type(item).__name__, item)
+            # [int, str] == [Any(int, str)]
+            return cls.any(Any(*obj), path, seen, *args).choices
+
+    @classmethod
+    def dict(cls, obj, path, seen, *args):
+        """
+        Handle a dictionary.
+
+        Arguments:
+            obj (dict):
+                Schema node.
+            path (str):
+                Path taken through the schema from the root.
+            seen (.Schema list):
+                Nodes already visited in the schema.
+        """
+        if obj is dict or not obj:
+            return dict
+        for key in obj:
+            if isinstance(key, Optional):
+                item, default = Optional.unwrap(key)
+                if isinstance(default, (list, dict)):
+                    raise SchemaError(cls._at_path("Use constructor instead of {} instance"
+                                                   .format(type(obj).__name__), path))
+            else:
+                item = key
+            choices = item.choices if isinstance(item, Any) else [item]
+            for choice in choices:
+                if not isinstance(choice, str) and choice is not str:
+                    raise SchemaError(cls._at_path("Dictionary keys must be str, not {}"
+                                                   .format(type(choice).__name__), path))
+        return {key: cls.dispatch(value, "{}.{}".format(path, key), seen, *args)
+                for key, value in obj.items()}
+
+    @classmethod
+    def dispatch(cls, obj, path, seen, *args):
+        """
+        Defer to other helper methods based on the input type.
+
+        Arguments:
+            obj (.Schema):
+                Schema node.
+            path (str):
+                Path taken through the schema from the root.
+            seen (.Schema list):
+                Nodes already visited in the schema.
+        """
+        if seen is None:
+            seen = []
+        elif cls._has(obj, seen):
+            recursed = cls.recurse(obj, path, seen, *args)
+            if recursed is not cls.RECURSE:
+                return recursed
+        elif not isinstance(obj, cls.STATIC + (type,)) and obj is not None:
+            seen = seen + [obj]
+        if cls._has(obj, cls.STATIC) or isinstance(obj, cls.STATIC):
+            return cls.static(obj, path, seen, *args)
+        elif isinstance(obj, Nullable):
+            return cls.nullable(obj, path, seen, *args)
+        elif isinstance(obj, Any):
+            return cls.any(obj, path, seen, *args)
+        elif obj is list or isinstance(obj, list):
+            return cls.list(obj, path, seen, *args)
+        elif obj is dict or isinstance(obj, dict):
+            return cls.dict(obj, path, seen, *args)
+        elif isinstance(obj, Schema):
+            return cls.dispatch(Schema.unwrap(obj), path, seen, *args)
+        else:
+            raise SchemaError(cls._at_path("Unknown type {}".format(type(obj).__name__), path))
+
+    @classmethod
+    def walk(cls, obj, *args):
+        """
+        Main entrypoint to the walk.
+
+        Arguments:
+            obj (.Schema):
+                Schema node.
+
+        Raises:
+            SchemaError:
+                When the schema is misconfigured.
+        """
+        return cls.dispatch(obj, "", [], *args)
 
 
-def _at_path(text, path):
-    return "{}{}".format(text, " (path: {})".format(path) if path else "")
+class Validator(Walker):
+    """
+    Validation of schemas against input data.
+    """
+
+    @classmethod
+    def _short(cls, obj):
+        if obj is None:
+            return "None"
+        elif isinstance(obj, type):
+            return obj.__name__
+        else:
+            return "{} {!r}".format(type(obj).__name__, obj)
+
+    @classmethod
+    def recurse(cls, obj, path, seen, data):
+        return cls.RECURSE
+
+    @classmethod
+    def static(cls, obj, path, seen, data):
+        # Don't allow the usual subclassing of ints as bools.
+        if obj is int and isinstance(data, int) and not isinstance(data, bool):
+            return data
+        elif obj in (float, bool, str) and isinstance(data, obj):
+            return data
+        elif isinstance(obj, int) and obj == data and not isinstance(data, bool):
+            return data
+        elif isinstance(obj, (float, bool, str)) and obj == data:
+            return data
+        else:
+            raise Invalid(cls._at_path("Expecting {} but got {}"
+                                       .format(cls._short(obj), cls._short(data)), path))
+
+    @classmethod
+    def nullable(cls, obj, path, seen, data):
+        if data is None:
+            return data
+        else:
+            return super().nullable(obj, path, seen, data)
+
+    @classmethod
+    def any(cls, obj, path, seen, data):
+        if not obj.choices:
+            return data
+        excs = []
+        for pos, choice in enumerate(obj.choices):
+            try:
+                return cls.dispatch(choice, "{}:any({})".format(path, pos), seen, data)
+            except Invalid as e:
+                excs.append(e)
+        else:
+            # No schemas matched the data.
+            raise Invalid(cls._at_path("No matches for Any()", path), *excs)
+
+    @classmethod
+    def list(cls, obj, path, seen, data):
+        if not isinstance(data, list):
+            raise Invalid(cls._at_path("Expecting list but got {}"
+                                       .format(cls._short(data)), path))
+        elif obj is list:
+            return data
+        elif len(obj) == 1:
+            return [cls.dispatch(obj[0], "{}[{}]".format(path, pos), seen, item)
+                    for pos, item in enumerate(data)]
+        else:
+            multi = Any(*obj)
+            return [cls.any(multi, "{}[{}]".format(path, pos), seen, item)
+                    for pos, item in enumerate(data)]
+
+    @classmethod
+    def dict(cls, obj, path, seen, data):
+        if not isinstance(data, dict):
+            raise Invalid(cls._at_path("Expecting dict but got {}"
+                                       .format(cls._short(data)), path))
+        elif obj is dict or not obj:
+            return dict(data)
+        parsed = {}
+        optional = dict(Optional.unwrap(key) for key in obj if isinstance(key, Optional))
+        for item in obj:
+            key, default = Optional.unwrap(item)
+            if isinstance(key, Any):
+                matches = [choice for choice in key.choices if cls._has(choice, data)]
+                if len(matches) > 1:
+                    raise Invalid(cls._at_path("Multiple matches for Any()", path))
+                elif matches:
+                    parsed[matches[0]] = cls.dispatch(obj[item], "{}.{}".format(path, matches[0]),
+                                                      seen, data[matches[0]])
+                elif not cls._has(key, optional):
+                    raise Invalid(cls._at_path("No matches for Any()", path))
+        for key in obj:
+            if isinstance(key, cls.STATIC) and key not in data:
+                if key in optional:
+                    parsed[key] = optional[key]
+                else:
+                    raise Invalid(cls._at_path("Missing key {!r}".format(key), path))
+        typed = tuple(key for key in obj if isinstance(key, type))
+        fixed = {key for key in obj if not isinstance(key, type)}
+        for key, value in data.items():
+            here = "{}.{}".format(path, key)
+            if key in fixed:
+                parsed[key] = cls.dispatch(obj[key], here, seen, value)
+                continue
+            for match in typed:
+                if isinstance(key, match):
+                    parsed[key] = cls.dispatch(obj[match], here, seen, value)
+                    break
+            else:
+                # Unmatched keys are passed through without further validation.
+                parsed[key] = value
+        for key in optional:
+            here = "{}.{}".format(path, key)
+            if key in data or isinstance(key, Any):
+                continue
+            # Missing but optional keys are filled in and validated.
+            default = optional[key]
+            if callable(default):
+                default = default()
+            parsed[key] = cls.dispatch(obj[key], here, seen, default)
+        return parsed
+
+    @classmethod
+    def dispatch(cls, obj, path, seen, data):
+        if isinstance(data, type):
+            raise Invalid(cls._at_path("Expecting instance but got {} type"
+                                       .format(data.__name__), path))
+        else:
+            return super().dispatch(obj, path, seen, data)
+
+    @classmethod
+    def walk(cls, obj, data):
+        """
+        Validate the given data against a schema.
+
+        Args:
+            obj (.Schema):
+                Description of the data format.
+            data:
+                Input data to validate.
+
+        Raises:
+            Invalid:
+                When a key or value doesn't match the accepted type for that field.
+
+        Returns:
+            Parsed data with optional values filled in.
+        """
+        return super().walk(obj, data)
+
+
+class JSONSchema(Walker):
+    """
+    Generator of `JSON Schema <https://json-schema.org>`_ objects, suitable for external validation
+    of schemas in JSON.
+    """
+
+    TYPES = {int: "number", float: "number", bool: "boolean", str: "string"}
+
+    @classmethod
+    def _make_anyof(cls, choices):
+        types = []
+        anys = []
+        consts = defaultdict(set)
+        for choice in choices:
+            if not choice:
+                return {}
+            elif isinstance(choice, dict) and "type" in choice:
+                if len(choice) == 1:
+                    types.append(choice["type"])
+                elif len(choice) == 2 and "const" in choice:
+                    consts[choice["type"]].add(choice["const"])
+                elif len(choice) == 2 and "enum" in choice:
+                    consts[choice["type"]].update(choice["enum"])
+                else:
+                    anys.append(choice)
+            else:
+                anys.append(choice)
+        for type_, values in consts.items():
+            if type_ in types or not values:
+                continue
+            elif len(values) == 1:
+                anys.append({"type": type_, "const": next(iter(values))})
+            else:
+                anys.append({"type": type_, "enum": list(values)})
+        if len(types) == 1:
+            anys.append({"type": types[0]})
+        elif types:
+            anys.append({"type": types})
+        if len(anys) == 1:
+            return anys[0]
+        elif anys:
+            return {"anyOf": anys}
+        else:
+            return {}
+
+    @classmethod
+    def static(cls, obj, path, seen):
+        if isinstance(obj, type):
+            return {"type": cls.TYPES[obj]}
+        else:
+            return {"type": cls.TYPES[type(obj)], "const": obj}
+
+    @classmethod
+    def nullable(cls, obj, path, seen):
+        return cls._make_anyof([{"type": "null"}, super().nullable(obj, path, seen)])
+
+    @classmethod
+    def any(cls, obj, path, seen):
+        return cls._make_anyof(super().any(obj, path, seen).choices)
+
+    @classmethod
+    def list(cls, obj, path, seen):
+        root = {"type": "array"}
+        if obj is list or not obj:
+            return root
+        elif len(obj) > 1:
+            root["items"] = cls._make_anyof(super().list(obj, path, seen))
+        else:
+            root["items"] = cls.dispatch(obj[0], path, seen)
+        return root
+
+    @classmethod
+    def dict(cls, obj, path, seen):
+        root = {"type": "object"}
+        if obj is dict or not obj:
+            return root
+        optional = dict(Optional.unwrap(key) for key in obj if isinstance(key, Optional))
+        fixed = {key for key in obj if not isinstance(key, type)}
+        if fixed:
+            root["properties"] = {}
+            for key in fixed:
+                if isinstance(key, Any):
+                    raise SchemaError(cls._at_path("Any() in dictionary keys not supported", path))
+                item = Optional.unwrap(key)[0]
+                here = "{}.{}".format(path, item)
+                prop = cls.dispatch(obj[key], here, seen)
+                root["properties"][item] = prop
+                if key in optional:
+                    default = optional[key]
+                    prop["default"] = default() if callable(default) else default
+            required = [key for key in fixed if key not in optional]
+            if required:
+                root["required"] = required
+        typed = tuple(key for key in obj if isinstance(key, type))
+        if typed:
+            root["additonalItems"] = cls.any(Any(*(obj[key] for key in typed)), path, seen)
+        return root
+
+    @classmethod
+    def walk(cls, obj):
+        """
+        Convert a schema structure into a `JSON Schema <https://json-schema.org>`_ representation.
+
+        Args:
+            schema (.Schema):
+                Input schema or structure.
+
+        Returns:
+            dict:
+                Equivalent JSON Schema data.
+        """
+        schema = super().walk(obj)
+        schema["$schema"] = "http://json-schema.org/schema#"
+        return schema
 
 
 class Schema:
@@ -179,242 +629,41 @@ class Schema:
 
     Pass a structure representing the expected data format to the constructor, along with an
     optional :data:`base` to extend from, then validate some given data against the schema by
-    calling the instance -- see :meth:`validate`.
+    calling the instance -- see :class:`Validator`.
 
     Attributes:
+        raw:
+            Root schema item, including any base items.
         json (dict):
             `JSON Schema <https://json-schema.org>`_ data corresponding to this schema -- see
-            :meth:`to_json`.
+            :cls:`JSONSchema`.
     """
 
     STATIC = (int, float, bool, str)
     JSON_TYPES = {int: "number", float: "number", bool: "boolean", str: "string"}
 
-    __slots__ = ("_raw",)
+    __slots__ = ("raw",)
 
     @classmethod
-    def _validate_static(cls, schema, data, path):
-        # Don't allow the usual subclassing of ints as bools.
-        if schema is int and isinstance(data, int) and not isinstance(data, bool):
-            return data
-        elif schema in (float, bool, str) and isinstance(data, schema):
-            return data
-        elif isinstance(schema, int) and schema == data and not isinstance(data, bool):
-            return data
-        elif isinstance(schema, (float, bool, str)) and schema == data:
-            return data
-        else:
-            raise TypeError(_at_path("Expecting {} but got {}"
-                                     .format(_render(schema), _render(data)), path))
-
-    @classmethod
-    def _validate_nullable(cls, schema, data, path):
-        item = Nullable.unwrap(schema)[0]
-        return None if data is None else cls.validate(item, data, path)
-
-    @classmethod
-    def _validate_any(cls, schema, data, path):
-        if not schema.choices:
-            return data
-        excs = []
-        for choice in schema.choices:
-            if isinstance(choice, Nullable):
-                raise SchemaError("Top-level Nullable() makes entire Any() nullable")
-            try:
-                return cls.validate(choice, data, path)
-            except (KeyError, ValueError, TypeError) as e:
-                excs.append(e)
-        else:
-            # No schemas matched the data.
-            raise TypeError(_at_path("No matches for Any()", path), excs)
-
-    @classmethod
-    def _validate_list(cls, schema, data, path):
-        if not isinstance(data, list):
-            raise TypeError(_at_path("Expecting list but got {}"
-                                     .format(_render(data)), path))
-        if schema is list or not schema:
-            return list(data)
-        # [str, int] == [Any(str, int)]
-        multi = Any(*schema) if len(schema) > 1 else schema[0]
-        return [cls.validate(multi, item, "{}[{}]".format(path, i))
-                for i, item in enumerate(data)]
-
-    @classmethod
-    def _validate_dict(cls, schema, data, path):
-        if not isinstance(data, dict):
-            raise ValueError(_at_path("Expecting dict but got {}"
-                                      .format(_render(data)), path))
-        if schema is dict or not schema:
-            return dict(data)
-        optional = dict(Optional.unwrap(key) for key in schema if isinstance(key, Optional))
-        unwrapped = {Optional.unwrap(key)[0]: value for key, value in schema.items()}
-        typed = tuple(key for key in unwrapped if isinstance(key, type))
-        fixed = {key for key in unwrapped if key not in typed}
-        parsed = {}
-        for key in unwrapped:
-            if isinstance(key, cls.STATIC) and key not in data:
-                if key in optional:
-                    parsed[key] = optional[key]
-                else:
-                    raise KeyError(_at_path("Missing key {!r}".format(key), path))
-        for key, value in data.items():
-            here = "{}.{}".format(path, key)
-            if key in fixed:
-                parsed[key] = cls.validate(unwrapped[key], value, here)
-                continue
-            for match in typed:
-                if isinstance(key, match):
-                    parsed[key] = cls.validate(unwrapped[match], value, here)
-                    break
-            else:
-                # Unmatched keys are passed through without further validation.
-                parsed[key] = value
-        for key in optional:
-            if key not in data:
-                # Missing but optional keys are filled in and validated.
-                parsed[key] = cls.validate(unwrapped[key], optional[key], "{}.{}".format(path, key))
-        return parsed
-
-    @classmethod
-    def validate(cls, schema, data, path=""):
-        """
-        Validate the given data against a schema.
-
-        Args:
-            schema (.Schema):
-                Description of the data format.
-            data:
-                Input data to validate.
-            path (str):
-                Route through the data structure, shown in error messages to trace violations.
-
-        Raises:
-            SchemaError:
-                When the schema is misconfigured.
-            KeyError:
-                When a required dict value is missing, unless marked with :class:`.Optional`.
-            TypeError:
-                When a key or value doesn't match the accepted type for that field, unless the
-                value is ``None`` and the key is marked with :class:`.Nullable`.
-
-        Returns:
-            Parsed data with optional values filled in.
-        """
-        if isinstance(data, type):
-            raise TypeError(_at_path("Expecting instance but got {} type"
-                                     .format(_render(data)), path))
-        if isinstance(schema, Schema):
-            schema = schema._raw
-        if schema in cls.STATIC or isinstance(schema, cls.STATIC):
-            return cls._validate_static(schema, data, path)
-        elif isinstance(schema, Nullable):
-            return cls._validate_nullable(schema, data, path)
-        elif isinstance(schema, Any):
-            return cls._validate_any(schema, data, path)
-        elif schema is list or isinstance(schema, list):
-            return cls._validate_list(schema, data, path)
-        elif schema is dict or isinstance(schema, dict):
-            return cls._validate_dict(schema, data, path)
-        else:
-            raise SchemaError(_at_path("Unknown schema type {}".format(_render(schema)), path))
-
-    @classmethod
-    def _make_anyof(cls, choices):
-        types = []
-        anys = []
-        for choice in choices:
-            if isinstance(choice, dict) and len(choice) == 1 and "type" in choice:
-                types.append(choice["type"])
-            else:
-                anys.append(choice)
-        if len(types) == 1:
-            types = types[0]
-        if types and anys:
-            return {"anyOf": anys + [{"type": types}]}
-        elif anys:
-            return {"anyOf": anys}
-        elif types:
-            return {"type": types}
-        else:
-            return {}
-
-    @classmethod
-    def to_json(cls, schema, top=True):
-        """
-        Convert a :class:`.Schema` into a `JSON Schema <https://json-schema.org>`_ representation.
-
-        Args:
-            schema (.Schema):
-                Input schema instance.
-
-        Returns:
-            dict:
-                Equivalent JSON Schema data.
-        """
-        if isinstance(schema, Schema):
-            schema = schema._raw
-        if schema in Schema.STATIC:
-            root = {"type": cls.JSON_TYPES[schema]}
-        elif isinstance(schema, Schema.STATIC):
-            root = {"type": cls.JSON_TYPES[type(schema)], "const": schema}
-        elif isinstance(schema, Nullable):
-            root = cls._make_anyof([{"type": "null"}, cls.to_json(schema.schema, False)])
-        elif isinstance(schema, Any):
-            root = cls._make_anyof(cls.to_json(choice, False) for choice in schema.choices)
-        elif schema is list or isinstance(schema, list):
-            root = {"type": "array"}
-            if isinstance(schema, list):
-                if len(schema) > 1:
-                    root["items"] = cls._make_anyof([cls.to_json(item, False) for item in schema])
-                elif schema:
-                    root["items"] = cls.to_json(schema[0], False)
-        elif schema is dict or isinstance(schema, dict):
-            root = {"type": "object"}
-            if isinstance(schema, dict) and schema:
-                optional = dict(Optional.unwrap(key) for key in schema if isinstance(key, Optional))
-                unwrapped = {Optional.unwrap(key)[0]: value for key, value in schema.items()}
-                typed = tuple(key for key in unwrapped if isinstance(key, type))
-                fixed = {key for key in unwrapped if key not in typed}
-                if fixed:
-                    root["properties"] = {}
-                    for key in fixed:
-                        prop = cls.to_json(unwrapped[key], False)
-                        root["properties"][key] = prop
-                        if key in optional:
-                            prop["default"] = optional[key]
-                    required = [key for key in fixed if key not in optional]
-                    if required:
-                        root["required"] = required
-                for key in typed:
-                    if key is not str:
-                        raise SchemaError("Object keys must be str in JSON")
-                    root["additonalItems"] = cls.to_json(unwrapped[key], False)
-        else:
-            raise SchemaError("Unknown schema type {}".format(_render(schema)))
-        if top:
-            root["$schema"] = "http://json-schema.org/schema#"
-        return root
+    def unwrap(cls, schema):
+        return schema.raw if isinstance(schema, cls) else schema
 
     def __init__(self, raw, base=None):
-        if isinstance(base, Schema):
-            merged = dict(base._raw)
-            merged.update(raw)
-        elif isinstance(base, dict):
-            merged = dict(base)
+        if base:
+            merged = dict(Schema.unwrap(base))
             merged.update(raw)
         elif base:
             raise SchemaError("Base schema must be a dict")
         else:
             merged = raw
-        self._raw = merged
+        self.raw = merged
 
     def __call__(self, data):
-        return self.validate(self._raw, data)
+        return Validator.walk(self, data)
 
     @property
     def json(self):
-        return self.__class__.to_json(self)
+        return JSONSchema.walk(self)
 
     def __repr__(self):
-        return "<{}: {}>".format(self.__class__.__name__, _render(self._raw, True))
+        return "<{}: {!r}>".format(self.__class__.__name__, self.raw)
