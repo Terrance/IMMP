@@ -424,6 +424,14 @@ class SyncPlug(immp.Plug):
 
 class _SyncHookBase(immp.Hook):
 
+    schema = immp.Schema({"channels": {str: [str]},
+                          immp.Optional("joins", False): bool,
+                          immp.Optional("renames", False): bool,
+                          immp.Optional("identities"): immp.Nullable(str),
+                          immp.Optional("reset-author", False): bool,
+                          immp.Optional("name-format"): immp.Nullable(str),
+                          immp.Optional("strip-name-emoji", False): bool})
+
     _identities = immp.ConfigProperty(IdentityProvider)
 
     def _accept(self, msg):
@@ -507,51 +515,6 @@ class _SyncHookBase(immp.Hook):
             return (channel, [])
 
 
-class ForwardHook(_SyncHookBase):
-    """
-    Hook to propagate messages from a source channel to one or more destination channels.
-    """
-
-    schema = immp.Schema({"channels": {str: [str]},
-                          immp.Optional("joins", False): bool,
-                          immp.Optional("renames", False): bool,
-                          immp.Optional("identities"): immp.Nullable(str),
-                          immp.Optional("name-format"): immp.Nullable(str),
-                          immp.Optional("strip-name-emoji", False): bool})
-
-    @property
-    def _channels(self):
-        try:
-            return {self.host.channels[key]: tuple(self.host.channels[label] for label in value)
-                    for key, value in self.config["channels"].items()}
-        except KeyError as e:
-            raise immp.ConfigError("No such channel '{}'".format(repr(e.args[0])))
-
-    async def send(self, channel, msg):
-        """
-        Send a message to all channels in this sync.
-
-        Args:
-            channel (.Channel):
-                Source channel that defines the underlying forwarding channels to send to.
-            msg (.Message):
-                External message to push.
-        """
-        queue = []
-        for synced in self._channels[channel]:
-            clone = copy(msg)
-            await self._replace_name(clone)
-            await self._replace_identity_mentions(clone, synced)
-            queue.append(self._send(synced, clone))
-        # Send all the messages in parallel.
-        await gather(*queue)
-
-    async def on_receive(self, sent, source, primary):
-        await super().on_receive(sent, source, primary)
-        if primary and sent.channel in self._channels and self._accept(source):
-            await self.send(sent.channel, source)
-
-
 class SyncHook(_SyncHookBase):
     """
     Hook to propagate messages between two or more channels.
@@ -563,7 +526,7 @@ class SyncHook(_SyncHookBase):
 
     schema = immp.Schema({immp.Optional("joins", True): bool,
                           immp.Optional("renames", True): bool,
-                          immp.Optional("plug"): immp.Nullable(str)}, ForwardHook.schema)
+                          immp.Optional("plug"): immp.Nullable(str)}, _SyncHookBase.schema)
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
@@ -792,3 +755,41 @@ class SyncHook(_SyncHookBase):
     async def before_send(self, channel, msg):
         await super().before_send(channel, msg)
         return (channel, self._replace_all(channel, copy(msg)))
+
+
+class ForwardHook(_SyncHookBase):
+    """
+    Hook to propagate messages from a source channel to one or more destination channels.
+    """
+
+    @property
+    def _channels(self):
+        try:
+            return {self.host.channels[key]: tuple(self.host.channels[label] for label in value)
+                    for key, value in self.config["channels"].items()}
+        except KeyError as e:
+            raise immp.ConfigError("No such channel '{}'".format(repr(e.args[0])))
+
+    async def send(self, channel, msg):
+        """
+        Send a message to all channels in this sync.
+
+        Args:
+            channel (.Channel):
+                Source channel that defines the underlying forwarding channels to send to.
+            msg (.Message):
+                External message to push.
+        """
+        queue = []
+        for synced in self._channels[channel]:
+            clone = copy(msg)
+            await self._replace_name(clone)
+            await self._replace_identity_mentions(clone, synced)
+            queue.append(self._send(synced, clone))
+        # Send all the messages in parallel.
+        await gather(*queue)
+
+    async def on_receive(self, sent, source, primary):
+        await super().on_receive(sent, source, primary)
+        if primary and sent.channel in self._channels and self._accept(source):
+            await self.send(sent.channel, source)
