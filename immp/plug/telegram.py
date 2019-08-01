@@ -86,54 +86,51 @@ class _Schema:
 
     _location = {"latitude": float, "longitude": float}
 
-    _message = {"message_id": int,
-                "chat": {"id": int},
-                "date": int,
-                immp.Optional("edit_date"): immp.Nullable(int),
-                immp.Optional("from"): immp.Nullable(user),
-                immp.Optional("forward_from"): immp.Nullable(user),
-                immp.Optional("forward_date"): immp.Nullable(int),
-                immp.Optional("forward_from_chat"): immp.Nullable(channel),
-                immp.Optional("forward_from_message_id"): immp.Nullable(int),
-                immp.Optional("forward_signature"): immp.Nullable(str),
-                immp.Optional("text"): immp.Nullable(str),
-                immp.Optional("caption"): immp.Nullable(str),
-                immp.Optional("entities", list): [entity],
-                immp.Optional("caption_entities", list): [entity],
-                immp.Optional("photo", list): [_file],
-                immp.Optional("sticker"): immp.Nullable({immp.Optional("emoji"): immp.Nullable(str),
-                                                         "file_id": str}),
-                immp.Optional("animation"): immp.Nullable(_file),
-                immp.Optional("video"): immp.Nullable(_file),
-                immp.Optional("video_note"): immp.Nullable(_file),
-                immp.Optional("audio"): immp.Nullable(_file),
-                immp.Optional("voice"): immp.Nullable(_file),
-                immp.Optional("document"): immp.Nullable(_file),
-                immp.Optional("location"): immp.Nullable(_location),
-                immp.Optional("venue"): immp.Nullable({"location": _location,
-                                                       "title": str,
-                                                       "address": str}),
-                immp.Optional("poll"): immp.Nullable({"question": str,
-                                                      "is_closed": bool}),
-                immp.Optional("group_chat_created", False): bool,
-                immp.Optional("new_chat_members", list): [user],
-                immp.Optional("left_chat_member"): immp.Nullable(user),
-                immp.Optional("new_chat_title"): immp.Nullable(str),
-                immp.Optional("new_chat_photo", list): [_file],
-                immp.Optional("delete_chat_photo", False): bool,
-                immp.Optional("migrate_to_chat_id"): immp.Nullable(int)}
-
-    message = immp.Schema(_message)
+    message = immp.Schema({"message_id": int,
+                           "chat": {"id": int},
+                           "date": int,
+                           immp.Optional("edit_date"): immp.Nullable(int),
+                           immp.Optional("from"): immp.Nullable(user),
+                           immp.Optional("forward_from"): immp.Nullable(user),
+                           immp.Optional("forward_date"): immp.Nullable(int),
+                           immp.Optional("forward_from_chat"): immp.Nullable(channel),
+                           immp.Optional("forward_from_message_id"): immp.Nullable(int),
+                           immp.Optional("forward_signature"): immp.Nullable(str),
+                           immp.Optional("text"): immp.Nullable(str),
+                           immp.Optional("caption"): immp.Nullable(str),
+                           immp.Optional("entities", list): [entity],
+                           immp.Optional("caption_entities", list): [entity],
+                           immp.Optional("photo", list): [_file],
+                           immp.Optional("sticker"): immp.Nullable({immp.Optional("emoji"):
+                                                                        immp.Nullable(str),
+                                                                    "file_id": str}),
+                           immp.Optional("animation"): immp.Nullable(_file),
+                           immp.Optional("video"): immp.Nullable(_file),
+                           immp.Optional("video_note"): immp.Nullable(_file),
+                           immp.Optional("audio"): immp.Nullable(_file),
+                           immp.Optional("voice"): immp.Nullable(_file),
+                           immp.Optional("document"): immp.Nullable(_file),
+                           immp.Optional("location"): immp.Nullable(_location),
+                           immp.Optional("venue"): immp.Nullable({"location": _location,
+                                                                  "title": str,
+                                                                  "address": str}),
+                           immp.Optional("poll"): immp.Nullable({"question": str,
+                                                                 "is_closed": bool}),
+                           immp.Optional("group_chat_created", False): bool,
+                           immp.Optional("new_chat_members", list): [user],
+                           immp.Optional("left_chat_member"): immp.Nullable(user),
+                           immp.Optional("new_chat_title"): immp.Nullable(str),
+                           immp.Optional("new_chat_photo", list): [_file],
+                           immp.Optional("delete_chat_photo", False): bool,
+                           immp.Optional("migrate_to_chat_id"): immp.Nullable(int)})
 
     # Circular references to embedded messages.
-    _message.update({immp.Optional("reply_to_message"): immp.Nullable(_message),
-                     immp.Optional("pinned_message"): immp.Nullable(_message)})
+    message.raw.update({immp.Optional("reply_to_message"): immp.Nullable(message),
+                        immp.Optional("pinned_message"): immp.Nullable(message)})
 
-    update = immp.Schema(immp.Any({"update_id": int, "message": _message},
-                                  {"update_id": int, "edited_message": _message},
-                                  {"update_id": int, "channel_post": _message},
-                                  {"update_id": int, "edited_channel_post": _message},
-                                  {"update_id": int}))
+    update = immp.Schema({"update_id": int,
+                          immp.Optional(immp.Any("message", "edited_message",
+                                                 "channel_post", "edited_channel_post")): message})
 
     def api(result=None):
         success = {"ok": True}
@@ -1251,6 +1248,8 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                         return
                     else:
                         self.queue(sent)
+                else:
+                    log.debug("Ignoring update with unknown keys: %s", ", ".join(update.keys()))
                 self._offset = max(update["update_id"] + 1, self._offset)
 
     async def _handle_raw(self, event):

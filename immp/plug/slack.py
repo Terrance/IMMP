@@ -99,10 +99,8 @@ class _Schema:
                               immp.Optional("icons", dict): dict,
                               "text": str}, _base_msg)
 
-    _changed = {"subtype": "message_changed"}
-
     message = immp.Schema(immp.Any(immp.Schema({"subtype": "file_comment"}, _base_msg),
-                                   immp.Schema(_changed, _base_msg),
+                                   immp.Schema({"subtype": "message_changed"}, _base_msg),
                                    immp.Schema({"subtype": "message_deleted",
                                                 "deleted_ts": str}, _base_msg),
                                    immp.Schema({"subtype": immp.Any("channel_name", "group_name"),
@@ -111,7 +109,7 @@ class _Schema:
                                                     immp.Nullable(str)}, _plain_msg)))
 
     # Circular references to embedded messages.
-    _changed.update({"message": message, "previous_message": message})
+    message.raw.choices[1].raw.update({"message": message, "previous_message": message})
 
     event = immp.Schema(immp.Any(message,
                                  {"type": immp.Any("team_join", "user_change"),
