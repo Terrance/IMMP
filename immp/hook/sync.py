@@ -19,12 +19,20 @@ Config:
 
         If enabled, this will rewrite mentions for users identified in both the source and any sync
         target channels, to use their platform-native identity.
+    reset-author (bool):
+        ``True`` to create and attach a new user with just a name, ``False`` (default) to clone and
+        modify the existing user (thus keeping username, avatar etc.).
     name-format (str):
         Template to use for replacing real names on synced messages, parsed by :mod:`jinja2`.  If
         not set but the user is identified, it defaults to ``<real name> (<identity name>)``.
 
-        Available variables are ``user`` (:class:`.User`) and ``identity`` (if enabled as above --
-        :class:`.IdentityGroup`, or ``None`` if no link).
+        Context variables:
+            user (.User):
+                Message author, may be ``None`` for system messages or when ``reset-author`` is set.
+            identity (.IdentityGroup):
+                Connected identity, or ``None`` if no link or ``identities`` isn't set.
+            title (str):
+                Channel title.
     strip-name-emoji (bool):
         ``True`` to remove emoji characters from message authors' real names.
 
@@ -57,12 +65,20 @@ Config:
 
         If enabled, this will rewrite mentions for users identified in both the source and any sync
         target channels, to use their platform-native identity.
+    reset-author (bool):
+        ``True`` to create and attach a new user with just a name, ``False`` (default) to clone and
+        modify the existing user (thus keeping username, avatar etc.).
     name-format (str):
         Template to use for replacing real names on synced messages, parsed by :mod:`jinja2`.  If
         not set but the user is identified, it defaults to ``<real name> (<identity name>)``.
 
-        Available variables are ``user`` (:class:`.User`) and ``identity`` (if enabled as above --
-        :class:`.IdentityGroup`, or ``None`` if no link).
+        Context variables:
+            user (.User):
+                Message author, may be ``None`` for system messages or when ``reset-author`` is set.
+            identity (.IdentityGroup):
+                Connected identity, or ``None`` if no link or ``identities`` isn't set.
+            title (str):
+                Channel title.
     strip-name-emoji (bool):
         ``True`` to remove emoji characters from message authors' real names.
 
@@ -79,7 +95,6 @@ from collections import defaultdict
 from copy import copy
 from itertools import chain
 import logging
-import re
 
 from peewee import CharField
 
@@ -480,9 +495,9 @@ class _SyncHookBase(immp.Hook):
 
     async def _replace_name(self, msg):
         # Use name-format or identities to render a suitable author real name.
-        if not msg.user:
-            return
-        name = identity = None
+        name = user = identity = None
+        if not self.config["reset-author"]:
+            user = msg.user
         if self._identities:
             try:
                 identity = await self._identities.identity_from_user(msg.user)
@@ -492,18 +507,27 @@ class _SyncHookBase(immp.Hook):
         if self.config["name-format"]:
             if not Template:
                 raise immp.PlugError("'jinja2' module not installed")
-            tmpl = Template(self.config["name-format"])
-            name = tmpl.render(user=msg.user, identity=identity)
+            title = await msg.channel.title() if isinstance(msg, immp.Receipt) else None
+            context = {"user": msg.user, "identity": identity, "channel": title}
+            name = Template(self.config["name-format"]).render(**context)
+            if not name and self.config["reset-author"]:
+                msg.user = None
+        elif self.config["reset-author"]:
+            msg.user = None
         elif identity:
             name = "{} ({})".format(msg.user.real_name or msg.user.username, identity.name)
-        if name:
-            if self.config["strip-name-emoji"]:
-                if not EMOJI_REGEX:
-                    raise immp.PlugError("'emoji' module not installed")
-                name = EMOJI_REGEX.sub("", name)
-            name = re.sub(r"\s+", " ", name).strip()
-            msg.user = copy(msg.user)
-            msg.user.real_name = name
+        if not name:
+            return
+        if self.config["strip-name-emoji"]:
+            if not EMOJI_REGEX:
+                raise immp.PlugError("'emoji' module not installed")
+            name = EMOJI_REGEX.sub("", name).strip()
+        if user:
+            user = copy(user)
+            user.real_name = name
+        else:
+            user = immp.User(real_name=name)
+        msg.user = user
 
     async def _send(self, channel, msg):
         try:
