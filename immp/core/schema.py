@@ -20,7 +20,7 @@ class Any:
     __slots__ = ("choices",)
 
     def __init__(self, *choices):
-        self.choices = choices
+        self.choices = list(choices)
 
     def __eq__(self, other):
         return (self.choices == other.choices if isinstance(other, self.__class__)
@@ -229,13 +229,15 @@ class Walker:
             seen (.Schema list):
                 Nodes already visited in the schema.
         """
-        static = tuple(choice for choice in obj.choices if cls._has(choice, cls.STATIC))
+        static = tuple(choice for choice in obj.choices if choice in cls.STATIC)
         for choice in obj.choices:
             if choice is None or isinstance(choice, Nullable):
                 raise SchemaError(cls._at_path("Use outer Nullable() instead of None", path))
             elif isinstance(choice, Optional):
                 raise SchemaError(cls._at_path("Use Optional() outside of Any()", path))
             elif isinstance(choice, static):
+                if isinstance(choice, bool) and bool not in static:
+                    continue
                 raise SchemaError(cls._at_path("Useless static value duplicated by type", path))
         return Any(*(cls.dispatch(item, "{}:any({})".format(path, pos), seen, *args)
                      for pos, item in enumerate(obj.choices)))
@@ -305,9 +307,7 @@ class Walker:
             seen (.Schema list):
                 Nodes already visited in the schema.
         """
-        if seen is None:
-            seen = []
-        elif cls._has(obj, seen):
+        if cls._has(obj, seen):
             recursed = cls.recurse(obj, path, seen, *args)
             if recursed is not cls.RECURSE:
                 return recursed
@@ -369,9 +369,11 @@ class Validator(Walker):
             return data
         elif obj in (float, bool, str) and isinstance(data, obj):
             return data
-        elif isinstance(obj, int) and obj == data and not isinstance(data, bool):
+        elif (obj == data and isinstance(obj, int) and
+              not isinstance(obj, bool) and not isinstance(data, bool)):
             return data
-        elif isinstance(obj, (float, bool, str)) and obj == data:
+        elif (obj == data and isinstance(obj, (float, bool, str)) and
+              isinstance(data, (float, bool, str))):
             return data
         else:
             raise Invalid(cls._at_path("Expecting {} but got {}"
@@ -423,9 +425,9 @@ class Validator(Walker):
         parsed = {}
         optional = dict(Optional.unwrap(key) for key in obj if isinstance(key, Optional))
         for item in obj:
-            key, default = Optional.unwrap(item)
+            key = Optional.unwrap(item)[0]
             if isinstance(key, Any):
-                matches = [choice for choice in key.choices if cls._has(choice, data)]
+                matches = [choice for choice in key.choices if choice in data]
                 if len(matches) > 1:
                     raise Invalid(cls._at_path("Multiple matches for Any()", path))
                 elif matches:
@@ -434,7 +436,7 @@ class Validator(Walker):
                 elif not cls._has(key, optional):
                     raise Invalid(cls._at_path("No matches for Any()", path))
         for key in obj:
-            if isinstance(key, cls.STATIC) and key not in data:
+            if isinstance(key, str) and key not in data:
                 if key in optional:
                     parsed[key] = optional[key]
                 else:
@@ -451,8 +453,9 @@ class Validator(Walker):
                     parsed[key] = cls.dispatch(obj[match], here, seen, value)
                     break
             else:
-                # Unmatched keys are passed through without further validation.
-                parsed[key] = value
+                if key not in parsed:
+                    # Unmatched keys are passed through without further validation.
+                    parsed[key] = value
         for key in optional:
             here = "{}.{}".format(path, key)
             if key in data or isinstance(key, Any):
@@ -649,14 +652,15 @@ class Schema:
         return schema.raw if isinstance(schema, cls) else schema
 
     def __init__(self, raw, base=None):
-        if base:
-            merged = dict(Schema.unwrap(base))
+        raw = Schema.unwrap(raw)
+        if base is not None:
+            base = Schema.unwrap(base)
+            if not isinstance(raw, dict) or not isinstance(base, dict):
+                raise SchemaError("Input and base schemas must both be dicts")
+            merged = dict(base)
             merged.update(raw)
-        elif base:
-            raise SchemaError("Base schema must be a dict")
-        else:
-            merged = raw
-        self.raw = merged
+            raw.update(merged)
+        self.raw = raw
 
     def __call__(self, data):
         return Validator.walk(self, data)
