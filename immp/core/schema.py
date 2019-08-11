@@ -113,7 +113,7 @@ class Optional:
                 Plain or :class:`.Optional` key.
 
         Returns:
-            Tuple of ``(schema, default)``, where default is :attr:`.Optional.MISSING` if
+            Tuple of ``(schema, default)``, where ``default`` is :attr:`.Optional.MISSING` if
             :data:`key` is not an :class:`.Optional` instance.
         """
         return (key.schema, key.default) if isinstance(key, cls) else (key, cls.MISSING)
@@ -623,7 +623,7 @@ class Schema:
             "numbers": [int],
             "nullable": Nullable(str),
             "nested": {
-                Optional("maybe"): int,
+                Optional("defaulted", 1): int,
                 "multiple": Any(int, str)
             }
         })
@@ -639,7 +639,7 @@ class Schema:
             Root schema item, including any base items.
         json (dict):
             `JSON Schema <https://json-schema.org>`_ data corresponding to this schema -- see
-            :cls:`JSONSchema`.
+            :class:`JSONSchema`.
     """
 
     STATIC = (int, float, bool, str)
