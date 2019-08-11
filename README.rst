@@ -63,6 +63,6 @@ Prepare a config file in a format of your choosing, e.g. in YAML:
 All labels under the top-level names are effectively free text, and are used to reference from
 other sections.
 
-Then run IMMP via Python as a module::
+Then start the built-in runner::
 
-    $ python -m immp config.yaml
+    $ immp config.yaml
