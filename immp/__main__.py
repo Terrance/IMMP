@@ -60,14 +60,14 @@ def config_to_host(config, path, write):
 
 
 def init(logs, paths):
+    for search in paths:
+        sys.path.append(search)
     if logs:
         logging.config.dictConfig(logs)
     else:
         logging.basicConfig(level=logging.INFO)
         for handler in logging.root.handlers:
             handler.addFilter(LocalFilter())
-    for search in paths:
-        sys.path.append(search)
 
 
 def main(path, write=False):
