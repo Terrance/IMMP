@@ -4,11 +4,11 @@ Recallable per-channel lists of text items.
 Commands:
     note-add <text>:
         Add a new note for this channel.
-    note-edit <pos> <text>:
+    note-edit <num> <text>:
         Update an existing note from this channel with new text.
-    note-remove <pos>:
+    note-remove <num>:
         Delete an existing note from this channel by its position.
-    note-show <pos>:
+    note-show <num>:
         Recall a single note in this channel.
     note-list:
         Recall all notes for this channel.
@@ -22,7 +22,7 @@ import time
 from peewee import CharField, IntegerField
 
 import immp
-from immp.hook.command import CommandParser, command
+from immp.hook.command import BadUsage, CommandParser, command
 from immp.hook.database import BaseModel, DatabaseHook
 
 
@@ -60,10 +60,22 @@ class Note(BaseModel):
                             .order_by(cls.timestamp))
 
     @classmethod
-    def select_position(cls, channel, pos):
+    def select_position(cls, channel, num):
+        if num < 1:
+            raise ValueError
         try:
             # ModelSelect.get() ignores the offset clause, use an index instead.
-            return cls.select_channel(channel).limit(1).offset(pos - 1)[0]
+            return cls.select_channel(channel).limit(1).offset(num - 1)[0]
+        except IndexError:
+            raise Note.DoesNotExist from None
+
+    @classmethod
+    def select_position_multi(cls, channel, *nums):
+        if any(num < 1 for num in nums):
+            raise ValueError
+        notes = list(cls.select_channel(channel))
+        try:
+            return [notes[num - 1] for num in nums]
         except IndexError:
             raise Note.DoesNotExist from None
 
@@ -115,16 +127,14 @@ class NotesHook(immp.Hook):
         await msg.channel.send(immp.Message(text="{} Added #{}".format(TICK, count)))
 
     @command("note-edit", parser=CommandParser.hybrid)
-    async def edit(self, msg, pos, text):
+    async def edit(self, msg, num, text):
         """
         Update an existing note from this channel with new text.
         """
         try:
-            pos = int(pos)
+            note = Note.select_position(msg.channel, int(num))
         except ValueError:
-            return
-        try:
-            note = Note.select_position(msg.channel, pos)
+            raise BadUsage from None
         except Note.DoesNotExist:
             text = "{} Does not exist".format(CROSS)
         else:
@@ -134,38 +144,37 @@ class NotesHook(immp.Hook):
         await msg.channel.send(immp.Message(text=text))
 
     @command("note-remove")
-    async def remove(self, msg, pos):
+    async def remove(self, msg, *nums):
         """
-        Delete an existing note from this channel by its position.
+        Delete one or more notes from this channel by their positions.
         """
+        if not nums:
+            raise BadUsage
         try:
-            pos = int(pos)
+            nums = [int(num) for num in nums]
+            notes = Note.select_position_multi(msg.channel, *nums)
         except ValueError:
-            return
-        try:
-            note = Note.select_position(msg.channel, pos)
+            raise BadUsage from None
         except Note.DoesNotExist:
             text = "{} Does not exist".format(CROSS)
         else:
-            note.delete_instance()
-            text = "{} Removed".format(TICK)
+            count = Note.delete().where(Note.id.in_(tuple(note.id for note in notes))).execute()
+            text = "{} Removed {} note{}".format(TICK, count, "" if count == 1 else "s")
         await msg.channel.send(immp.Message(text=text))
 
     @command("note-show")
-    async def show(self, msg, pos):
+    async def show(self, msg, num):
         """
         Recall a single note in this channel.
         """
         try:
-            pos = int(pos)
+            note = Note.select_position(msg.channel, int(num))
         except ValueError:
-            return
-        try:
-            note = Note.select_position(msg.channel, pos)
+            raise BadUsage from None
         except Note.DoesNotExist:
             text = "{} Does not exist".format(CROSS)
         else:
-            text = immp.RichText([immp.Segment("{}.".format(pos), bold=True),
+            text = immp.RichText([immp.Segment("{}.".format(num), bold=True),
                                   immp.Segment("\t"),
                                   *immp.RichText.unraw(note.text, self.host),
                                   immp.Segment("\t"),
@@ -187,11 +196,11 @@ class NotesHook(immp.Hook):
                  .format(count, " matching" if query else "",
                          "" if count == 1 else "s", ":" if count else "."))
         text = immp.RichText([immp.Segment(title, bold=bool(notes))])
-        for pos, note in enumerate(notes, 1):
+        for num, note in enumerate(notes, 1):
             if query and note not in matches:
                 continue
             text.append(immp.Segment("\n"),
-                        immp.Segment("{}.".format(pos), bold=True),
+                        immp.Segment("{}.".format(num), bold=True),
                         immp.Segment("\t"),
                         *immp.RichText.unraw(note.text, self.host),
                         immp.Segment("\t"),
