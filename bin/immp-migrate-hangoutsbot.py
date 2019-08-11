@@ -24,8 +24,8 @@ import re
 import anyconfig
 from playhouse.db_url import connect
 from requests import Session
-from voluptuous import REMOVE_EXTRA, Any, Optional, Schema
 
+from immp import Nullable, Optional, Schema
 from immp.hook.database import BaseModel
 from immp.hook.identitylocal import IdentityGroup, IdentityLink
 from immp.hook.notes import Note
@@ -38,8 +38,8 @@ class _Schema:
 
     config = Schema({
         "plugins": [str],
-        Optional("sync_rooms", default=list): Any([[str]], []),
-        Optional("slackrtm", default=None): Any({  # rewrite
+        Optional("sync_rooms", list): [[str]],
+        Optional("slackrtm"): Nullable({  # rewrite
             "syncs": [{
                 "channel": [str, str],
                 "hangout": str
@@ -48,39 +48,41 @@ class _Schema:
                 "token": str,
                 "admins": [str]
             }}
-        }, None),
-        Optional("telesync", default=None): Any({
+        }),
+        Optional("telesync"): Nullable({
             "api_key": str
-        }, None),
-        Optional("forwarding", default=dict): Any({str: {
+        }),
+        Optional("forwarding", default=dict): {str: {
             "targets": [str]
-        }}, {})
-    }, extra=REMOVE_EXTRA, required=True)
+        }}
+    })
 
     memory = Schema({
         "convmem": {str: {
             "title": str
         }},
         "user_data": {str: {
-            Optional("_hangups", default=lambda: {"is_self": False}): {"is_self": bool},
-            Optional("nickname", default=""): str
+            Optional("_hangups", lambda: {"is_self": False}): {
+                "is_self": bool
+            },
+            Optional("nickname", ""): str
         }},
-        Optional("slackrtm", default=dict): Any({str: {
+        Optional("slackrtm", dict): {str: {
             "identities": {
                 "hangouts": {str: str},
                 "slack": {str: str}
             }
-        }}, {}),
-        Optional("profilesync", default=lambda: {"ho2tg": {}}): {  # telesync
-            "ho2tg": Any({str: str}, {})  # HO: TG or HO: "VERIFY000..."
+        }},
+        Optional("profilesync", lambda: {"ho2tg": {}}): {  # telesync
+            "ho2tg": {str: str}  # HO: TG or HO: "VERIFY000..."
         },
-        Optional("telesync", default=lambda: {"ho2tg": {}}): {
-            "ho2tg": Any({str: str}, {})  # HO: TG
+        Optional("telesync", lambda: {"ho2tg": {}}): {
+            "ho2tg": {str: str}  # HO: TG
         },
-        Optional("tldr", default=dict): Any({  # HO: timestamp: text
-            str: Any({str: str}, {})
-        }, {})
-    }, extra=REMOVE_EXTRA, required=True)
+        Optional("tldr", dict): {  # HO: timestamp: text
+            str: {str: str}
+        }
+    })
 
 
 class RevDict(dict):
