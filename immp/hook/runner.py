@@ -8,7 +8,11 @@ Commands:
         Force a write of the live config out to the configured file.
 """
 
+from asyncio import get_event_loop
 import logging
+import logging.config
+import signal
+import sys
 
 import anyconfig
 
@@ -17,6 +21,84 @@ from immp.hook.command import CommandRole, CommandScope, command
 
 
 log = logging.getLogger(__name__)
+
+
+class _Schema:
+
+    _plugs = {str: {"path": str, immp.Optional("config", dict): dict}}
+
+    _hooks = {str: {"path": str,
+                    immp.Optional("priority"): immp.Nullable(int),
+                    immp.Optional("config", dict): dict}}
+
+    _channels = {str: {"plug": str, "source": str}}
+
+    _logging = {immp.Optional("disable_existing_loggers", False): bool}
+
+    config = immp.Schema({immp.Optional("path", list): [str],
+                          immp.Optional("plugs", dict): _plugs,
+                          immp.Optional("channels", dict): _channels,
+                          immp.Optional("groups", dict): {str: dict},
+                          immp.Optional("hooks", dict): _hooks,
+                          immp.Optional("logging"): immp.Nullable(_logging)})
+
+
+def config_to_host(config, path, write):
+    host = immp.Host()
+    for name, spec in config["plugs"].items():
+        cls = immp.resolve_import(spec["path"])
+        host.add_plug(cls(name, spec["config"], host))
+    for name, spec in config["channels"].items():
+        plug = host.plugs[spec["plug"]]
+        host.add_channel(name, immp.Channel(plug, spec["source"]))
+    for name, group in config["groups"].items():
+        host.add_group(immp.Group(name, group, host))
+    for name, spec in config["hooks"].items():
+        cls = immp.resolve_import(spec["path"])
+        host.add_hook(cls(name, spec["config"], host), spec["priority"])
+    try:
+        host.add_hook(RunnerHook("runner", {}, host))
+    except immp.ConfigError:
+        # Prefer existing hook defined within the config itself.
+        pass
+    host.resources[RunnerHook].load(config, path, write)
+    host.loaded()
+    return host
+
+
+def _handle_signal(signum, loop, task):
+    # Gracefully accept a signal once, then revert to the default handler.
+    def handler(_signum, _frame):
+        log.info("Closing on signal")
+        task.cancel()
+        signal.signal(signum, original)
+    original = signal.getsignal(signum)
+    signal.signal(signum, handler)
+
+
+def main(path, write=False):
+    config = _Schema.config(anyconfig.load(path))
+    for search in config["path"]:
+        sys.path.append(search)
+    if config["logging"]:
+        logging.config.dictConfig(config["logging"])
+    else:
+        logging.basicConfig(level=logging.INFO)
+        for handler in logging.root.handlers:
+            handler.addFilter(immp.LocalFilter())
+    log.info("Creating plugs and hooks")
+    host = config_to_host(config, path, write)
+    loop = get_event_loop()
+    task = loop.create_task(host.run())
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        _handle_signal(signum, loop, task)
+    try:
+        log.info("Starting host")
+        loop.run_until_complete(task)
+    finally:
+        loop.close()
+        if write:
+            host.resources[RunnerHook].write_config()
 
 
 class RunnerHook(immp.ResourceHook):

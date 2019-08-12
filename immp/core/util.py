@@ -187,6 +187,15 @@ class IDGen:
         return "<{}: {} -> {}>".format(self.__class__.__name__, self.last, self())
 
 
+class LocalFilter(logging.Filter):
+    """
+    Logging filter that restricts capture to loggers within the ``immp`` namespace.
+    """
+
+    def filter(self, record):
+        return record.name == "__main__" or record.name.split(".", 1)[0] == "immp"
+
+
 class OpenState(Enum):
     """
     Readiness status for instances of :class:`Openable`.
