@@ -107,7 +107,6 @@ class WebUIHook(immp.ResourceHook):
             name = post["name"]
         except KeyError:
             raise web.HTTPBadRequest
-        config = post.get("config")
         if not path or not name:
             raise web.HTTPBadRequest
         try:
@@ -115,13 +114,15 @@ class WebUIHook(immp.ResourceHook):
         except ImportError:
             raise web.HTTPNotFound
         if "schema" in post:
+            config = post.get("config") or ""
             return {"path": path, "name": name, "config": config, "class": cls}
-        config = None
         if cls.schema:
             try:
-                config = json.loads(config)
-            except ValueError:
+                config = json.loads(post["config"])
+            except (KeyError, ValueError):
                 raise web.HTTPBadRequest
+        else:
+            config = None
         path = "{}.{}".format(cls.__module__, cls.__name__)
         if issubclass(cls, immp.Plug):
             inst = cls(name, config, self.host)
@@ -168,6 +169,8 @@ class WebUIHook(immp.ResourceHook):
 
     async def plug_config(self, request):
         plug = self._resolve_plug(request)
+        if not plug.schema:
+            raise web.HTTPNotFound
         post = await request.post()
         if "config" not in post:
             raise web.HTTPBadRequest
@@ -405,6 +408,8 @@ class WebUIHook(immp.ResourceHook):
 
     async def hook_config(self, request):
         hook = self._resolve_hook(request)
+        if not hook.schema:
+            raise web.HTTPNotFound
         post = await request.post()
         if "config" not in post:
             raise web.HTTPBadRequest
