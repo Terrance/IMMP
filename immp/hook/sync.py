@@ -56,6 +56,9 @@ Forward
 Config:
     channels ((str, str list) dict):
         Mapping from source channel names to lists of channel names to forward to.
+    users (str list):
+        Whitelist of user IDs to accept source messages from.  If set, messages from anyone else in
+        the source channel will be ignored.
     joins (bool):
         Whether to forward join and part messages.
     renames (bool):
@@ -786,6 +789,8 @@ class ForwardHook(_SyncHookBase):
     Hook to propagate messages from a source channel to one or more destination channels.
     """
 
+    schema = immp.Schema({immp.Optional("users"): immp.Nullable([str])}, _SyncHookBase.schema)
+
     @property
     def _channels(self):
         try:
@@ -812,6 +817,15 @@ class ForwardHook(_SyncHookBase):
             queue.append(self._send(synced, clone))
         # Send all the messages in parallel.
         await gather(*queue)
+
+    def _accept(self, msg):
+        if not super()._accept(msg):
+            return False
+        if self.config["users"] is not None:
+            if not msg.user or msg.user.id not in self.config["users"]:
+                log.debug("Not syncing message from non-whitelisted user: %r", msg.user.id)
+                return False
+        return True
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
