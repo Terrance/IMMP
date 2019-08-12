@@ -107,7 +107,7 @@ class SubExclude(BaseModel):
             Channel's own identifier.
     """
 
-    trigger = ForeignKeyField(model=SubTrigger, related_name="excludes")
+    trigger = ForeignKeyField(model=SubTrigger, backref="excludes")
     network = CharField()
     channel = CharField()
 

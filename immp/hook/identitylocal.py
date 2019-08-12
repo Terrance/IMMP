@@ -110,7 +110,7 @@ class IdentityLink(BaseModel):
             User identifier as given by the plug.
     """
 
-    group = ForeignKeyField(IdentityGroup, related_name="links", on_delete="cascade")
+    group = ForeignKeyField(IdentityGroup, backref="links", on_delete="cascade")
     network = CharField()
     user = CharField()
 
@@ -130,7 +130,7 @@ class IdentityRole(BaseModel):
             Plain role identifier.
     """
 
-    group = ForeignKeyField(IdentityGroup, related_name="roles", on_delete="cascade")
+    group = ForeignKeyField(IdentityGroup, backref="roles", on_delete="cascade")
     role = CharField()
 
     def __repr__(self):
