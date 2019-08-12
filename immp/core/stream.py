@@ -7,14 +7,19 @@ log = logging.getLogger(__name__)
 
 class PlugStream:
     """
-    Message multiplexer, reads messages from multiple asynchronous generators in parallel.
+    Message multiplexer, to read messages from multiple asynchronous generators in parallel.
 
-    Instances of this class are async-iterable, producing for each incoming message a tuple
-    (:class:`.SentMessage`, :class:`.Message`, :class:`bool`): the physical message received by the
-    plug, a source message if originating from within the system, and a primary flag.
+    Instances of this class are async-iterable -- for each incoming message, a tuple is produced:
+    the physical message received by the plug, a source message if originating from within the
+    system, and a primary flag to indicate supplementary messages created when a system-sourced
+    message can't be represented in a single plug message.
 
     .. warning::
         As per :meth:`.Plug.stream`, only one iterator of this class should be used at once.
+
+    Yields:
+        (.SentMessage, .Message, bool) tuple:
+            Messages received and processed by any connected plug.
     """
 
     __slots__ = ("_agens", "_tasks", "_sync", "_close")
@@ -78,17 +83,9 @@ class PlugStream:
             self._sync.clear()
             self._tasks[ensure_future(self._sync.wait())] = self._sync
 
-    async def _stream(self):
-        """
-        Combined generator to produce messages from all connected plugs as they arrive.  See
-        :meth:`.Plug.receive` for more details.  Only a single stream may be active at once.
-
-        Yields:
-            (.SentMessage, .Message, bool) tuple:
-                Messages received and processed by any connected plug.
-        """
+    async def __aiter__(self):
+        log.info("Ready for first message")
         while True:
-            log.debug("Waiting for next message")
             try:
                 await self._queue()
                 done, _ = await wait(self._tasks, return_when=FIRST_COMPLETED)
@@ -112,9 +109,7 @@ class PlugStream:
                 else:
                     log.info("Received: %r", sent)
                     yield (sent, source, primary)
-
-    def __aiter__(self):
-        return self._stream()
+            log.debug("Waiting for next message")
 
     def __repr__(self):
         done = sum(1 for task in self._tasks if task.done())
