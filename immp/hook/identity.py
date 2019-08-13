@@ -2,11 +2,11 @@
 Identity protocol backbone, and a generic user lookup command.
 
 Config:
-    identities (int):
+    identities (str list):
         List of identity provider names from which to allow lookups.
     public (bool):
         ``True`` to allow anyone with access to the ``who`` command to do a lookup, without
-        necessarily being identified themselves.
+        necessarily being identified themselves (defaults to ``False``).
 
 Commands:
     who <name>:
