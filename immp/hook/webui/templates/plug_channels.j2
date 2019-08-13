@@ -12,7 +12,7 @@
       {%- elif not public %}
       <p>No channels available.</p>
       {%- else %}
-      <table class="table">
+      <table class="table is-hoverable">
         <tbody>
         {%- for channel, name in zipped(public, titles) %}
           <tr>
@@ -42,7 +42,7 @@
       {%- elif not private %}
       <p>No channels available.</p>
       {%- else %}
-      <table class="table">
+      <table class="table is-hoverable">
         <tbody>
         {%- for channel, users in zipped(private, users) %}
           <tr>

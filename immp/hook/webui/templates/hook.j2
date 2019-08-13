@@ -38,21 +38,30 @@
       </div>
     </div>
   </nav>
+  <h3 class="title">Edit</h3>
   {%- if hook.schema %}
-  <h3 class="title">Config</h3>
-  {%- if runner and not runner.writeable %}
-  <article class="message is-danger">
-    <div class="message-body">
-      <p>A config file is being used, but will not be written to.  Changes will only apply to the current session.</p>
-    </div>
-  </article>
-  {%- endif %}
   <form action="{{ hook_url_for(hook, "config") }}" method="post">
     <div class="field">
+      <label class="label" for="config">Config</label>
       <div class="control">
         <div id="config-editor"></div>
         <textarea name="config" class="textarea is-small json-editor" data-editor="config-editor" data-schema="{{ hook.schema.json|json }}">{{ hook.config|json(indent=2) }}</textarea>
       </div>
+      {%- if runner and not runner.writeable %}
+      <article class="message is-danger">
+        <div class="message-body">
+          <p>A config file is being used, but will not be written to.  Changes will only apply to the current session.</p>
+        </div>
+      </article>
+      {%- endif %}
+    </div>
+    {%- endif %}
+    <div class="field">
+      <label class="label" for="priority">Priority</label>
+      <div class="control">
+        <input type="number" class="input" id="priority" name="priority" value="{{ priority }}" min="1">
+      </div>
+      <p class="help">Optional ordering constraint.  If set, this hook will process messages ahead of unordered hooks, and relative to other ordered hooks.</p>
     </div>
     <div class="field is-grouped">
       <div class="control">
@@ -63,6 +72,5 @@
       </div>
     </div>
   </form>
-  {% endif %}
 </div>
 {%- endblock %}

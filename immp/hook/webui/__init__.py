@@ -104,7 +104,6 @@ class WebUIHook(immp.ResourceHook):
         post = await request.post()
         try:
             path = post["path"]
-            name = post["name"]
         except KeyError:
             raise web.HTTPBadRequest
         if not path:
@@ -115,10 +114,17 @@ class WebUIHook(immp.ResourceHook):
             raise web.HTTPNotFound
         if "schema" in post:
             config = post.get("config") or ""
-            return {"path": path, "name": name, "config": config, "class": cls}
+            return {"path": path,
+                    "config": config,
+                    "class": cls,
+                    "hook": issubclass(cls, immp.Hook)}
+        try:
+            name = post["name"]
+        except KeyError:
+            raise web.HTTPBadRequest
         if not name:
             raise web.HTTPBadRequest
-        if name in self.host:
+        elif name in self.host:
             raise web.HTTPConflict
         if cls.schema:
             try:
@@ -137,7 +143,11 @@ class WebUIHook(immp.ResourceHook):
             self.host.add_plug(inst)
             raise web.HTTPFound(self.ctx.url_for("plug", name=name))
         elif issubclass(cls, immp.Hook):
-            self.host.add_hook(inst)
+            try:
+                priority = int(post["priority"]) if post["priority"] else None
+            except (KeyError, ValueError):
+                raise web.HTTPBadRequest
+            self.host.add_hook(inst, priority)
             if issubclass(cls, immp.ResourceHook):
                 raise web.HTTPFound(self.ctx.url_for("resource", cls=path))
             else:
@@ -182,7 +192,11 @@ class WebUIHook(immp.ResourceHook):
         try:
             config = json.loads(post["config"])
         except ValueError:
-            raise web.HTTPBadRequest
+            raise web.HTTPNotAcceptable
+        try:
+            plug.schema(config)
+        except immp.Invalid:
+            raise web.HTTPNotAcceptable
         plug.config.clear()
         plug.config.update(config)
         raise web.HTTPFound(self.ctx.url_for("plug", name=plug.name))
@@ -396,6 +410,7 @@ class WebUIHook(immp.ResourceHook):
         can_stop = not isinstance(hook, (WebHook, WebUIHook))
         return {"hook": hook,
                 "resource": isinstance(hook, immp.ResourceHook),
+                "priority": self.host.priority.get(hook.name),
                 "can_stop": can_stop}
 
     async def hook_stop(self, request):
@@ -413,17 +428,25 @@ class WebUIHook(immp.ResourceHook):
 
     async def hook_config(self, request):
         hook = self._resolve_hook(request)
-        if not hook.schema:
-            raise web.HTTPNotFound
         post = await request.post()
-        if "config" not in post:
-            raise web.HTTPBadRequest
         try:
-            config = json.loads(post["config"])
-        except ValueError:
+            priority = int(post["priority"]) if post["priority"] else None
+        except (KeyError, ValueError):
             raise web.HTTPBadRequest
-        hook.config.clear()
-        hook.config.update(config)
+        self.host.prioritise_hook(hook.name, priority)
+        if hook.schema:
+            if "config" not in post:
+                raise web.HTTPBadRequest
+            try:
+                config = json.loads(post["config"])
+            except ValueError:
+                raise web.HTTPNotAcceptable
+            try:
+                hook.schema(config)
+            except immp.Invalid:
+                raise web.HTTPNotAcceptable
+            hook.config.clear()
+            hook.config.update(config)
         raise web.HTTPFound(self.hook_url_for(hook, None))
 
     async def hook_remove(self, request):

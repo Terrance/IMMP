@@ -43,7 +43,7 @@
   </nav>
   {%- if not plug.virtual %}
   <h3 class="title">Channels</h3>
-  <table class="table">
+  <table class="table is-hoverable">
     <tbody>
       {%- for name, channel in channels.items() %}
       <tr>
@@ -95,20 +95,21 @@
   </table>
   {%- endif %}
   {%- if plug.schema %}
-  <h3 class="title">Config</h3>
-  {%- if runner and not runner.writeable %}
-  <article class="message is-danger">
-    <div class="message-body">
-      <p>A config file is being used, but will not be written to.  Changes will only apply to the current session.</p>
-    </div>
-  </article>
-  {%- endif %}
+  <h3 class="title">Edit</h3>
   <form action="{{ ctx.url_for("plug_config", name=plug.name) }}" method="post">
     <div class="field">
+      <label class="label" for="config">Config</label>
       <div class="control">
         <div id="config-editor"></div>
         <textarea name="config" class="textarea is-small json-editor" data-editor="config-editor" data-schema="{{ plug.schema.json|json }}">{{ plug.config|json(indent=2) }}</textarea>
       </div>
+      {%- if runner and not runner.writeable %}
+      <article class="message is-danger">
+        <div class="message-body">
+          <p>A config file is being used, but will not be written to.  Changes will only apply to the current session.</p>
+        </div>
+      </article>
+      {%- endif %}
     </div>
     <div class="field is-grouped">
       <div class="control">
