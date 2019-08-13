@@ -1,4 +1,5 @@
 from asyncio import CancelledError, ensure_future, gather, wait
+from collections import defaultdict
 from itertools import chain
 import logging
 
@@ -53,6 +54,9 @@ class Host:
             As above, but excluding resources.
         resources ((class, .ResourceHook) dict):
             Collection of all registered resource hooks, keyed by class.
+        priority ((str, int) dict):
+            Mapping from hook names to their configured ordering.  Unordered (lowest priority)
+            hooks are not present.
         running (bool):
             Whether messages from plugs are being processed by the host.
     """
@@ -70,7 +74,8 @@ class Host:
     channels = HostGetter(Channel)
     groups = HostGetter(Group)
     hooks = HostGetter(Hook)
-    resources = property(lambda self: self._resources)
+    resources = property(lambda self: dict(self._resources))
+    priority = property(lambda self: dict(self._priority))
 
     @property
     def plain_hooks(self):
@@ -82,14 +87,23 @@ class Host:
         Sort all registered hooks by priority.
 
         Returns:
-            (.Hook tuple, .Hook tuple) tuple:
-                Prioritised and unsorted hooks.
+            (.Hook set) list:
+                Hooks grouped by their relative order -- one set for each ascending priority,
+                followed by unordered hooks at the end.
         """
-        ordered = tuple(hook for _, hook in sorted(self._priority.items())
-                        if hook.state == OpenState.active)
-        rest = tuple(hook for hook in chain(self.resources.values(), self.plain_hooks.values())
-                     if hook not in ordered and hook.state == OpenState.active)
-        return ordered, rest
+        prioritised = defaultdict(set)
+        rest = set()
+        for hook in chain(self._resources.values(), self.plain_hooks.values()):
+            if hook.state != OpenState.active:
+                continue
+            try:
+                prioritised[self._priority[hook.name]].add(hook)
+            except KeyError:
+                rest.add(hook)
+        ordered = [hooks for _, hooks in sorted(prioritised.items())]
+        if rest:
+            ordered.append(rest)
+        return ordered
 
     def __contains__(self, key):
         return key in self._objects
@@ -98,7 +112,7 @@ class Host:
         if isinstance(key, str):
             return self._objects[key]
         elif isinstance(key, type) and issubclass(key, ResourceHook):
-            return self.resources[key]
+            return self._resources[key]
         else:
             raise TypeError(key)
 
@@ -150,7 +164,7 @@ class Host:
             .Plug:
                 Removed plug instance.
         """
-        if not isinstance(self._objects.get(name), Plug):
+        if name not in self.plugs:
             raise RuntimeError("Plug '{}' not registered to host".format(name))
         log.info("Removing plug: %s", name)
         plug = self._objects.pop(name)
@@ -186,7 +200,7 @@ class Host:
             name (str):
                 Name of a previously registered channel instance to remove.
         """
-        if not isinstance(self._objects.get(name), Channel):
+        if name not in self.channels:
             raise RuntimeError("Channel '{}' not registered to host".format(name))
         log.info("Removing channel: %s", name)
         return self._objects.pop(name)
@@ -227,7 +241,7 @@ class Host:
             .Group:
                 Removed group instance.
         """
-        if not isinstance(self._objects.get(name), Group):
+        if name not in self.groups:
             raise RuntimeError("Group '{}' not registered to host".format(name))
         log.info("Removing group: %s", name)
         return self._objects.pop(name)
@@ -241,9 +255,9 @@ class Host:
                 Existing hook instance to add.
             priority (int):
                 Optional ordering constraint, applied to send and receive events.  Hooks registered
-                with a priority will be processed first in serial.  Those without will execute
-                afterwards, in parallel (in the case of on-receive) or in registration order (for
-                before-send and before-receive).
+                with a priority will be processed in ascending priority order, followed by those
+                without prioritisation.  Where multiple hooks share a priority value, events may be
+                processed in parallel (e.g. on-receive is dispatched to all hooks simultaneously).
 
         Returns:
             str:
@@ -253,7 +267,7 @@ class Host:
             raise TypeError(hook)
         elif hook.name in self._objects:
             raise ConfigError("Hook name '{}' already registered".format(hook.name))
-        elif hook.__class__ in self.resources:
+        elif hook.__class__ in self._resources:
             raise ConfigError("Resource class '{}' already registered"
                               .format(hook.__class__.__name__))
         elif priority is not None and priority in self._priority:
@@ -262,12 +276,31 @@ class Host:
         self._objects[hook.name] = hook
         if isinstance(hook, ResourceHook):
             log.info("Adding resource: %r (%s)", hook.name, hook.__class__.__name__)
-            self.resources[hook.__class__] = hook
+            self._resources[hook.__class__] = hook
         if priority is not None:
-            self._priority[priority] = hook
+            self._priority[hook.name] = priority
         if self._loaded:
             hook.on_load()
         return hook.name
+
+    def prioritise_hook(self, name, priority):
+        """
+        Re-prioritise an existing hook.
+
+        Args:
+            name (str):
+                Name of a previously registered hook instance to prioritise.
+            priority (int):
+                Optional ordering constraint -- see :meth:`add_hook`.
+        """
+        if name not in self.hooks:
+            raise RuntimeError("Hook '{}' not registered to host".format(name))
+        if priority is None:
+            self._priority.pop(name, None)
+        elif isinstance(priority, int) and priority >= 1:
+            self._priority[name] = priority
+        else:
+            raise ValueError("Hook priority must be a positive integer")
 
     def remove_hook(self, name):
         """
@@ -285,24 +318,21 @@ class Host:
             .Hook:
                 Removed hook instance.
         """
-        for priority, hook in self._priority.items():
-            if hook.name == name:
-                del self._priority[priority]
-                break
-        if not isinstance(self._objects.get(name), Hook):
+        if name not in self.hooks:
             raise RuntimeError("Hook '{}' not registered to host".format(name))
+        self._priority.pop(name, None)
         log.info("Removing hook: %s", name)
         hook = self._objects.pop(name)
         if isinstance(hook, ResourceHook):
             log.info("Removing resource: %r (%s)", name, hook.__class__.__name__)
-            del self.resources[hook.__class__]
+            del self._resources[hook.__class__]
         return hook
 
     def loaded(self):
         """
         Trigger the on-load event for all plugs and hooks.
         """
-        for hook in self.resources.values():
+        for hook in self._resources.values():
             hook.on_load()
         for plug in self.plugs.values():
             plug.on_load()
@@ -316,8 +346,8 @@ class Host:
         """
         if not self._loaded:
             raise RuntimeError("On-load event must be sent before opening")
-        if self.resources:
-            await wait([hook.open() for hook in self.resources.values()])
+        if self._resources:
+            await wait([hook.open() for hook in self._resources.values()])
         if self.plugs:
             await wait([plug.open() for plug in self.plugs.values()])
         if self.plain_hooks:
@@ -331,8 +361,8 @@ class Host:
             await wait([hook.close() for hook in self.plain_hooks.values()])
         if self.plugs:
             await wait([plug.close() for plug in self.plugs.values()])
-        if self.resources:
-            await wait([hook.close() for hook in self.resources.values()])
+        if self._resources:
+            await wait([hook.close() for hook in self._resources.values()])
 
     async def _safe_receive(self, hook, sent, source, primary):
         try:
@@ -341,22 +371,21 @@ class Host:
             log.exception("Hook %r failed on-receive event", hook.name)
 
     async def _callback(self, sent, source, primary):
-        ordered, rest = self.ordered_hooks()
-        for hook in ordered + rest:
-            try:
-                result = await hook.before_receive(sent, source, primary)
-            except Exception:
-                log.exception("Hook %r failed before-receive event", hook.name)
-                continue
-            if result:
-                sent = result
-            else:
-                # Message has been suppressed by a hook.
-                return
-        for hook in ordered:
-            await self._safe_receive(hook, sent, source, primary)
-        if rest:
-            await gather(*(self._safe_receive(hook, sent, source, primary) for hook in rest))
+        ordered = self.ordered_hooks()
+        for hooks in ordered:
+            for hook in hooks:
+                try:
+                    result = await hook.before_receive(sent, source, primary)
+                except Exception:
+                    log.exception("Hook %r failed before-receive event", hook.name)
+                    continue
+                if result:
+                    sent = result
+                else:
+                    # Message has been suppressed by a hook.
+                    return
+        for hooks in ordered:
+            await gather(*(self._safe_receive(hook, sent, source, primary) for hook in hooks))
 
     async def channel_migrate(self, old, new):
         """
@@ -423,5 +452,5 @@ class Host:
     def __repr__(self):
         return "<{}: {}P {}C {}G {}R {}H{}>".format(self.__class__.__name__, len(self.plugs),
                                                     len(self.channels), len(self.groups),
-                                                    len(self.resources), len(self.plain_hooks),
+                                                    len(self._resources), len(self.plain_hooks),
                                                     " running" if self.running else "")

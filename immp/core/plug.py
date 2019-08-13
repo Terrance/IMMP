@@ -322,18 +322,19 @@ class Plug(Configurable, Openable):
             raise PlugError("Can't send messages when not active")
         # Allow any hooks to modify the outgoing message before sending.
         original = channel
-        ordered, rest = self.host.ordered_hooks()
-        for hook in ordered + rest:
-            try:
-                result = await hook.before_send(channel, msg)
-            except Exception:
-                log.exception("Hook %r failed before-send event", hook.name)
-                continue
-            if result:
-                channel, msg = result
-            else:
-                # Message has been suppressed by a hook.
-                return []
+        ordered = self.host.ordered_hooks()
+        for hooks in ordered:
+            for hook in hooks:
+                try:
+                    result = await hook.before_send(channel, msg)
+                except Exception:
+                    log.exception("Hook %r failed before-send event", hook.name)
+                    continue
+                if result:
+                    channel, msg = result
+                else:
+                    # Message has been suppressed by a hook.
+                    return []
         if not original == channel:
             log.debug("Redirecting message to new channel: %r", channel)
             # Restart sending with the new channel, including a new round of before-send.
