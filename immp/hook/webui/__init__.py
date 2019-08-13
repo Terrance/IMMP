@@ -107,7 +107,7 @@ class WebUIHook(immp.ResourceHook):
             name = post["name"]
         except KeyError:
             raise web.HTTPBadRequest
-        if not path or not name:
+        if not path:
             raise web.HTTPBadRequest
         try:
             cls = immp.resolve_import(path)
@@ -116,6 +116,10 @@ class WebUIHook(immp.ResourceHook):
         if "schema" in post:
             config = post.get("config") or ""
             return {"path": path, "name": name, "config": config, "class": cls}
+        if not name:
+            raise web.HTTPBadRequest
+        if name in self.host:
+            raise web.HTTPConflict
         if cls.schema:
             try:
                 config = json.loads(post["config"])
@@ -123,20 +127,21 @@ class WebUIHook(immp.ResourceHook):
                 raise web.HTTPBadRequest
         else:
             config = None
-        path = "{}.{}".format(cls.__module__, cls.__name__)
-        if issubclass(cls, immp.Plug):
+        if not issubclass(cls, (immp.Plug, immp.Hook)):
+            raise web.HTTPNotFound
+        try:
             inst = cls(name, config, self.host)
+        except immp.Invalid:
+            raise web.HTTPNotAcceptable
+        if issubclass(cls, immp.Plug):
             self.host.add_plug(inst)
             raise web.HTTPFound(self.ctx.url_for("plug", name=name))
         elif issubclass(cls, immp.Hook):
-            inst = cls(name, config, self.host)
             self.host.add_hook(inst)
             if issubclass(cls, immp.ResourceHook):
                 raise web.HTTPFound(self.ctx.url_for("resource", cls=path))
             else:
                 raise web.HTTPFound(self.ctx.url_for("hook", name=name))
-        else:
-            raise web.HTTPNotFound
 
     def _resolve_plug(self, request):
         try:
@@ -239,8 +244,8 @@ class WebUIHook(immp.ResourceHook):
             raise web.HTTPBadRequest
         if not (plug and name and source):
             raise web.HTTPBadRequest
-        if name in self.host.channels:
-            raise web.HTTPBadRequest
+        if name in self.host:
+            raise web.HTTPConflict
         if plug not in self.host.plugs:
             raise web.HTTPNotFound
         self.host.add_channel(name, immp.Channel(self.host.plugs[plug], source))
@@ -342,8 +347,8 @@ class WebUIHook(immp.ResourceHook):
             raise web.HTTPBadRequest
         if not name:
             raise web.HTTPBadRequest
-        if name in self.host.groups:
-            raise web.HTTPBadRequest
+        if name in self.host:
+            raise web.HTTPConflict
         self.host.add_group(immp.Group(name, {}, self.host))
         raise web.HTTPFound(self.ctx.url_for("group", name=name))
 

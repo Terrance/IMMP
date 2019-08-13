@@ -91,6 +91,9 @@ class Host:
                      if hook not in ordered and hook.state == OpenState.active)
         return ordered, rest
 
+    def __contains__(self, key):
+        return key in self._objects
+
     def __getitem__(self, key):
         if isinstance(key, str):
             return self._objects[key]
