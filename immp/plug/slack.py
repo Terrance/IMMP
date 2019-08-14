@@ -195,16 +195,22 @@ class SlackUser(immp.User):
                          raw=raw)
         self._display_name = display_name
         self._real_name = real_name
+        self._real_name_override = None
         self.bot_id = bot_id
         self.app = app
 
     @property
     def real_name(self):
-        return self._real_name if self.plug._use_real_names else self._display_name
+        if self._real_name_override:
+            return self._real_name_override
+        elif self.plug._use_real_names:
+            return self._real_name or self._display_name
+        else:
+            return self._display_name or self._real_name
 
     @real_name.setter
     def real_name(self, value):
-        pass
+        self._real_name_override = value
 
     @property
     def link(self):
