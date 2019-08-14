@@ -2,7 +2,7 @@
 Self-serve Discord roles for users.
 
 Config:
-    roles (dict):
+    roles ((str, int) dict):
         Mapping from user-facing role names to Discord role IDs.
 
 Commands:

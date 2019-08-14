@@ -2,10 +2,10 @@
 History and link-join setting locks for Hangouts.
 
 Config:
-    history (dict):
+    history ((str, bool) dict):
         Mapping from channel names to desired conversation history settings -- ``True`` to keep
         history enabled, ``False`` to keep it disabled.
-    linkjoin (dict):
+    linkjoin ((str, bool) dict):
         Mapping from channel names to desired link join settings -- ``True`` to enable joining the
         hangout via link, ``False`` to disable it.
 """

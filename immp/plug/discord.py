@@ -6,7 +6,7 @@ Config:
         Discord token for the bot user.
     bot (bool):
         Whether the token represents a bot user (true by default).
-    webhooks (dict):
+    webhooks ((str, str) dict):
         Mapping from Discord channel IDs to webhook URLs, needed for custom message author
         names and avatars.
     playing (str):

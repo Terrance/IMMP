@@ -56,7 +56,7 @@ class Line:
             Additional arguments for this message.
         source (str list):
             Optional source of this message.
-        tags (dict):
+        tags ((str, str) dict):
             Any tags attached to the message.
     """
 

@@ -3,7 +3,7 @@ Provider of database access to other hooks.
 
 Config:
     url (str):
-        Database connection URL, passed to :func:`playhouse.db_url.connect`.
+        Database connection string, as defined by Peewee's :ref:`db_url`.
 
 This hook provides persistent storage via a database.  Any database types supported by Peewee can
 be used, though the usual caveats apply: if a hook requires fields specific to a single database

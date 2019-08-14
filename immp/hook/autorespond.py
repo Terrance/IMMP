@@ -4,7 +4,7 @@ Basic text request/response handler.
 Config:
     channels (str list):
         List of channels to process responses in.
-    responses (dict):
+    responses ((str, str) dict):
         Mapping from match regex to response text.
 
 Commands:
