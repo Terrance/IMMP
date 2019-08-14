@@ -26,6 +26,7 @@ from playhouse.db_url import connect
 from requests import Session
 
 from immp import Nullable, Optional, Schema
+from immp.hook.alerts import SubTrigger
 from immp.hook.database import BaseModel
 from immp.hook.identitylocal import IdentityGroup, IdentityLink
 from immp.hook.notes import Note
@@ -57,16 +58,17 @@ class _Schema:
         }}
     })
 
+    user = Schema({
+        Optional("_hangups", lambda: {"is_self": False}): {"is_self": bool},
+        Optional("nickname", ""): str,
+        Optional("keywords", list): [str]
+    })
+
     memory = Schema({
         "convmem": {str: {
             "title": str
         }},
-        "user_data": {str: {
-            Optional("_hangups", lambda: {"is_self": False}): {
-                "is_self": bool
-            },
-            Optional("nickname", ""): str
-        }},
+        "user_data": {str: user},
         Optional("slackrtm", dict): {str: {
             "identities": {
                 "hangouts": {str: str},
@@ -154,6 +156,7 @@ class Data:
         self.identities = MultiRevDict()
         self.syncs = MultiRevDict()
         self.forwards = defaultdict(list)
+        self.subs = {}
         # Internal counters for unique name generation.
         self.user_count = 0
         self.session = Session()
@@ -165,7 +168,7 @@ class Data:
             nick = self.memory["user_data"][uid]["nickname"]
         except KeyError:
             log.warning("User missing from user_data: {}".format(uid))
-            self.memory["user_data"][uid] = {}
+            self.memory["user_data"][uid] = _Schema.user({})
             nick = None
         if nick:
             log.debug("Got existing nickname: {} -> {}".format(uid, nick))
@@ -370,6 +373,25 @@ class Data:
             log.debug("Adding forward: {} -> {} channel(s)".format(hname, len(channels)))
             self.add_forward(hname, *channels)
 
+    # Migrate subscription keywords to Hangouts users.
+
+    def keywords(self):
+        tg_network_id = self.telegram_network_id()
+        for uid, user in self.memory["user_data"].items():
+            if not user["keywords"]:
+                continue
+            key = (self.network_id, uid)
+            try:
+                nick = self.identities[key]
+            except KeyError:
+                identities = [key]
+            else:
+                identities = [(network, uid) for network, uid in self.identities.inverse[nick]
+                              if network in (self.network_id, tg_network_id)]
+            for identity in identities:
+                self.subs[identity] = filter(None, (re.sub(r"[^\w ]", "", sub).lower()
+                                                    for sub in user["keywords"]))
+
     # Migrate tldrs, assign to synced conversations if relevant.
 
     def tldr(self):
@@ -413,6 +435,7 @@ class Data:
             self.telesync_identities()
         if self.config["forwarding"]:
             self.forwarding()
+        self.keywords()
         if self.memory["tldr"]:
             self.tldr()
 
@@ -434,12 +457,22 @@ class Data:
         if self.syncs:
             self.hooks["sync"] = {"path": "immp.hook.sync.SyncHook",
                                   "config": {"plug": "sync-migrated",
-                                             "channels": self.syncs.inverse,
+                                             "channels": dict(self.syncs.inverse),
                                              "identities": identities}}
         if self.forwards:
             self.hooks["forward"] = {"path": "immp.hook.sync.ForwardHook",
                                      "config": {"channels": dict(self.forwards),
                                                 "identities": identities}}
+
+    def compile_subs(self):
+        self.database.drop_tables([SubTrigger], safe=True)
+        self.database.create_tables([SubTrigger], safe=True)
+        self.hooks["subs"] = {"path": "immp.hook.alerts.SubscriptionsHook",
+                              "config": {"groups": ["migrated"]}}
+        with self.database.atomic():
+            for (network, user), subs in self.subs.items():
+                for text in subs:
+                    SubTrigger.create(network=network, user=user, text=text)
 
     def compile_commands(self):
         commands = {"groups": ["migrated"],
@@ -453,6 +486,8 @@ class Data:
             self.compile_identities()
         if self.syncs or self.forwards:
             self.compile_syncs()
+        if self.subs:
+            self.compile_subs()
         self.compile_commands()
         return {"plugs": self.plugs,
                 "channels": {name: {"plug": plug, "source": source}
