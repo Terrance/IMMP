@@ -52,6 +52,12 @@ class _Schema:
                           immp.Optional("fallback-image"): immp.Nullable(str),
                           immp.Optional("thread-broadcast", False): bool})
 
+    team = immp.Schema({"id": str,
+                        "name": str,
+                        "domain": str,
+                        "prefs": {immp.Optional("display_real_names", False): bool,
+                                  str: immp.Any()}})
+
     user = immp.Schema({"id": str,
                         "name": str,
                         "profile": {immp.Optional("real_name"): immp.Nullable(str),
@@ -112,6 +118,9 @@ class _Schema:
     message.raw.choices[1].raw.update({"message": message, "previous_message": message})
 
     event = immp.Schema(immp.Any(message,
+                                 {"type": "team_pref_change",
+                                  "name": "str",
+                                  "value": immp.Any()},
                                  {"type": immp.Any("team_join", "user_change"),
                                   "user": user},
                                  {"type": immp.Any("channel_created", "channel_joined",
@@ -178,16 +187,24 @@ class SlackUser(immp.User):
             Reference to the Slack integration app for a bot user.
     """
 
-    def __init__(self, id_=None, plug=None, username=None, real_name=None, avatar=None,
+    def __init__(self, id_=None, plug=None, display_name=None, real_name=None, avatar=None,
                  bot_id=None, app=False, raw=None):
         super().__init__(id_=id_,
                          plug=plug,
-                         username=username,
-                         real_name=real_name,
                          avatar=avatar,
                          raw=raw)
+        self._display_name = display_name
+        self._real_name = real_name
         self.bot_id = bot_id
         self.app = app
+
+    @property
+    def real_name(self):
+        return self._real_name if self.plug._use_real_names else self._display_name
+
+    @real_name.setter
+    def real_name(self, value):
+        pass
 
     @property
     def link(self):
@@ -223,7 +240,7 @@ class SlackUser(immp.User):
         member = _Schema.user(json)
         return cls(id_=member["id"],
                    plug=slack,
-                   username=member["name"],
+                   display_name=member["profile"]["display_name"],
                    real_name=member["profile"]["real_name"],
                    avatar=cls._best_image(member["profile"]),
                    bot_id=member["profile"]["bot_id"],
@@ -679,6 +696,10 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
         """
         return isinstance(other, self.__class__) and self._team["id"] == other._team["id"]
 
+    @property
+    def _use_real_names(self):
+        return bool(self._team["prefs"]["display_real_names"])
+
     async def _api(self, endpoint, schema=_Schema.api, params=None, **kwargs):
         params = params or {}
         params["token"] = self.config["token"]
@@ -714,7 +735,7 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
         rtm = await self._api("rtm.start", _Schema.rtm)
         # Cache useful information about users and channels, to save on queries later.
         self._bot_user = rtm["self"]
-        self._team = rtm["team"]
+        self._team = _Schema.team(rtm["team"])
         self._users = {u["id"]: SlackUser.from_member(self, u) for u in rtm["users"]}
         self._channels = {c["id"]: c for c in rtm["channels"] + rtm["groups"]}
         self._directs = {c["id"]: c for c in rtm["ims"]}
@@ -985,7 +1006,10 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
                 continue
             event = _Schema.event(json)
             log.debug("Received a %r event", event["type"])
-            if event["type"] in ("team_join", "user_change"):
+            if event["type"] == "team_pref_change":
+                # A setting changed, update the team-wide preference cache.
+                self._team["prefs"][event["name"]] = event["value"]
+            elif event["type"] in ("team_join", "user_change"):
                 # A user appeared or changed, update our cache.
                 self._users[event["user"]["id"]] = SlackUser.from_member(self, event["user"])
             elif event["type"] in ("channel_created", "channel_joined", "channel_rename",
