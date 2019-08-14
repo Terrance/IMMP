@@ -92,6 +92,10 @@ class HangoutsUser(immp.User):
     def link(self):
         return "https://hangouts.google.com/chat/person/{}".format(self.id)
 
+    @link.setter
+    def link(self, value):
+        pass
+
 
 class HangoutsSegment(immp.Segment):
     """

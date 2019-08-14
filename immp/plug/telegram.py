@@ -284,6 +284,10 @@ class TelegramUser(immp.User):
         else:
             return "tg://user?id={}".format(self.id)
 
+    @link.setter
+    def link(self, value):
+        pass
+
 
 class TelegramSegment(immp.Segment):
     """
