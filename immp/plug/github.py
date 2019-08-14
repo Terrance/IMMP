@@ -58,6 +58,10 @@ class GitHubUser(immp.User):
     def link(self):
         return "https://github.com/{}".format(self.username)
 
+    @link.setter
+    def link(self, value):
+        pass
+
 
 class GitHubMessage(immp.Message):
     """
