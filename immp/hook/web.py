@@ -125,7 +125,7 @@ class WebContext:
         outer = aiohttp_jinja2.template("{}/{}".format(self.module, path))
         return outer(inner)
 
-    def url_for(self, name, **kwargs):
+    def url_for(self, name_, **kwargs):
         """
         Generate an absolute URL for the named route.
 
@@ -137,7 +137,7 @@ class WebContext:
             str:
                 Relative URL to the corresponding page.
         """
-        return self._routes[name].url_for(**kwargs)
+        return self._routes[name_].url_for(**kwargs)
 
     def __repr__(self):
         return "<{}: {}>".format(self.__class__.__name__, self.prefix)
