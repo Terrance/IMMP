@@ -1,7 +1,8 @@
-from asyncio import CancelledError, ensure_future, gather, wait
+from asyncio import CancelledError, Task, ensure_future, gather, wait
 from collections import defaultdict
 from itertools import chain
 import logging
+from operator import attrgetter
 
 from .channel import Channel, Group
 from .error import ConfigError
@@ -340,29 +341,45 @@ class Host:
             hook.on_load()
         self._loaded = True
 
+    async def _try_state(self, state, objs, timeout=None):
+        if not objs:
+            return
+        action = "open" if state == OpenState.active else "close"
+        getter = attrgetter(action)
+        tasks = {Task(getter(obj)()): obj for obj in objs}
+        done, pending = await wait(tasks.keys(), timeout=timeout)
+        for task in done:
+            exc = task.exception()
+            if exc:
+                obj = tasks[task]
+                log.error("Failed to %s %r", action, obj.name, exc_info=exc)
+        for task in pending:
+            obj = tasks[task]
+            log.warning("Failed to %s %r after %s seconds", action, obj.name, timeout)
+
     async def open(self):
         """
         Connect all open plugs and start all hooks.
         """
         if not self._loaded:
             raise RuntimeError("On-load event must be sent before opening")
-        if self._resources:
-            await wait([hook.open() for hook in self._resources.values()])
-        if self.plugs:
-            await wait([plug.open() for plug in self.plugs.values()])
-        if self.plain_hooks:
-            await wait([hook.open() for hook in self.plain_hooks.values()])
+        log.debug("Opening resources")
+        await self._try_state(OpenState.active, self._resources.values(), 30)
+        log.debug("Opening plugs")
+        await self._try_state(OpenState.active, self.plugs.values(), 30)
+        log.debug("Opening remaining hooks")
+        await self._try_state(OpenState.active, self.plain_hooks.values(), 30)
 
     async def close(self):
         """
         Disconnect all open plugs and stop all hooks.
         """
-        if self.plain_hooks:
-            await wait([hook.close() for hook in self.plain_hooks.values()])
-        if self.plugs:
-            await wait([plug.close() for plug in self.plugs.values()])
-        if self._resources:
-            await wait([hook.close() for hook in self._resources.values()])
+        log.debug("Closing non-resource hooks")
+        await self._try_state(OpenState.inactive, self.plain_hooks.values(), 30)
+        log.debug("Closing plugs")
+        await self._try_state(OpenState.inactive, self.plugs.values(), 30)
+        log.debug("Closing resources")
+        await self._try_state(OpenState.inactive, self._resources.values(), 30)
 
     async def _safe_receive(self, hook, sent, source, primary):
         try:
