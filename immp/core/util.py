@@ -204,6 +204,7 @@ class OpenState(Enum):
     starting = 1
     active = 2
     stopping = 3
+    failed = 4
 
 
 class Configurable:
@@ -267,11 +268,16 @@ class Openable:
         """
         if self.state == OpenState.active:
             return
-        elif self.state != OpenState.inactive:
-            raise RuntimeError("Can't open when already closing")
+        elif self.state not in (OpenState.inactive, OpenState.failed):
+            raise RuntimeError("Can't open when already opening/closing")
         self.state = OpenState.starting
-        await self.start()
-        self.state = OpenState.active
+        try:
+            await self.start()
+        except Exception:
+            self.state = OpenState.failed
+            raise
+        else:
+            self.state = OpenState.active
 
     async def start(self):
         """
@@ -288,8 +294,13 @@ class Openable:
         elif self.state != OpenState.active:
             raise RuntimeError("Can't close when already opening/closing")
         self.state = OpenState.stopping
-        await self.stop()
-        self.state = OpenState.inactive
+        try:
+            await self.start()
+        except Exception:
+            self.state = OpenState.failed
+            raise
+        else:
+            self.state = OpenState.inactive
 
     async def stop(self):
         """
