@@ -405,7 +405,8 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
 
     @property
     def network_id(self):
-        return "discord:{}".format(self._client.user.id) if self._client else None
+        return ("discord:{}".format(self._client.user.id)
+                if self._client and self._client.user else None)
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
