@@ -3,6 +3,8 @@
   circle
   {%- elif state == immp.OpenState.inactive -%}
   ban
+  {%- elif state == immp.OpenState.failed -%}
+  exclamation-triangle
   {%- else -%}
   hourglass-half
   {%- endif -%}
@@ -13,5 +15,7 @@
   success
   {%- elif state == immp.OpenState.inactive -%}
   danger
+  {%- elif state == immp.OpenState.failed -%}
+  warning
   {%- endif -%}
 {%- endmacro -%}

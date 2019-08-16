@@ -22,7 +22,7 @@
             <i class="fas fa-fw fa-stop"></i> Stop
           </button>
         </form>
-        {%- elif plug.state == immp.OpenState.inactive %}
+        {%- elif plug.state in (immp.OpenState.inactive, immp.OpenState.failed) %}
         <form action="{{ ctx.url_for("plug_start", name=plug.name) }}" method="post">
           <button type="submit" class="button is-success">
             <i class="fas fa-fw fa-play"></i> Start
