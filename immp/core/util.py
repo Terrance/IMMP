@@ -295,7 +295,7 @@ class Openable:
             raise RuntimeError("Can't close when already opening/closing")
         self.state = OpenState.stopping
         try:
-            await self.start()
+            await self.stop()
         except Exception:
             self.state = OpenState.failed
             raise
