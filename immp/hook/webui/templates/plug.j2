@@ -16,16 +16,29 @@
         </span>
       </div>
       <div class="level-item">
-        {%- if plug.state == immp.OpenState.active %}
-        <form action="{{ ctx.url_for("plug_stop", name=plug.name) }}" method="post">
-          <button type="submit" class="button is-danger">
-            <i class="fas fa-fw fa-stop"></i> Stop
+        {%- if plug.state == immp.OpenState.disabled %}
+        <form action="{{ ctx.url_for("plug_enable", name=plug.name) }}" method="post">
+          <button type="submit" class="button is-info">
+            <i class="fas fa-fw fa-eye"></i> Enable
           </button>
         </form>
         {%- elif plug.state in (immp.OpenState.inactive, immp.OpenState.failed) %}
         <form action="{{ ctx.url_for("plug_start", name=plug.name) }}" method="post">
           <button type="submit" class="button is-success">
             <i class="fas fa-fw fa-play"></i> Start
+          </button>
+        </form>
+      </div>
+      <div class="level-item">
+        <form action="{{ ctx.url_for("plug_disable", name=plug.name) }}" method="post">
+          <button type="submit" class="button">
+            <i class="fas fa-fw fa-eye-slash"></i> Disable
+          </button>
+        </form>
+        {%- elif plug.state == immp.OpenState.active %}
+        <form action="{{ ctx.url_for("plug_stop", name=plug.name) }}" method="post">
+          <button type="submit" class="button is-danger">
+            <i class="fas fa-fw fa-stop"></i> Stop
           </button>
         </form>
         {%- endif %}

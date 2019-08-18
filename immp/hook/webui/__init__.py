@@ -62,6 +62,8 @@ class WebUIHook(immp.ResourceHook):
         self.ctx.route("POST", "add", self.add, "add.j2", "add:post")
         # Plugs:
         self.ctx.route("GET", "plug/{name}", self.plug, "plug.j2")
+        self.ctx.route("POST", "plug/{name}/disable", self.plug_disable)
+        self.ctx.route("POST", "plug/{name}/enable", self.plug_enable)
         self.ctx.route("POST", "plug/{name}/stop", self.plug_stop)
         self.ctx.route("POST", "plug/{name}/start", self.plug_start)
         self.ctx.route("POST", "plug/{name}/config", self.plug_config)
@@ -83,6 +85,8 @@ class WebUIHook(immp.ResourceHook):
         self.ctx.route("POST", "group/{name}/config", self.group_config)
         # Hooks:
         self.ctx.route("GET", "resource/{cls}", self.hook, "hook.j2", "resource")
+        self.ctx.route("POST", "resource/{cls}/disable", self.hook_disable, name="resource_disable")
+        self.ctx.route("POST", "resource/{cls}/enable", self.hook_enable, name="resource_enable")
         self.ctx.route("POST", "resource/{cls}/stop", self.hook_stop, name="resource_stop")
         self.ctx.route("POST", "resource/{cls}/start", self.hook_start, name="resource_start")
         self.ctx.route("POST", "resource/{cls}/config", self.hook_config, name="resource_config")
@@ -91,6 +95,8 @@ class WebUIHook(immp.ResourceHook):
         self.ctx.route("POST", "resource/{cls}/remove", self.hook_remove,
                        name="resource_remove:post")
         self.ctx.route("GET", "hook/{name}", self.hook, "hook.j2")
+        self.ctx.route("POST", "hook/{name}/disable", self.hook_disable)
+        self.ctx.route("POST", "hook/{name}/enable", self.hook_enable)
         self.ctx.route("POST", "hook/{name}/stop", self.hook_stop)
         self.ctx.route("POST", "hook/{name}/start", self.hook_start)
         self.ctx.route("POST", "hook/{name}/config", self.hook_config)
@@ -171,6 +177,16 @@ class WebUIHook(immp.ResourceHook):
                 "add_source": source,
                 "channels": {name: channel for name, channel in self.host.channels.items()
                              if channel.plug == plug}}
+
+    async def plug_disable(self, request):
+        plug = self._resolve_plug(request)
+        plug.disable()
+        raise web.HTTPFound(self.ctx.url_for("plug", name=plug.name))
+
+    async def plug_enable(self, request):
+        plug = self._resolve_plug(request)
+        plug.enable()
+        raise web.HTTPFound(self.ctx.url_for("plug", name=plug.name))
 
     async def plug_stop(self, request):
         plug = self._resolve_plug(request)
@@ -412,6 +428,16 @@ class WebUIHook(immp.ResourceHook):
                 "resource": isinstance(hook, immp.ResourceHook),
                 "priority": self.host.priority.get(hook.name),
                 "can_stop": can_stop}
+
+    async def hook_disable(self, request):
+        hook = self._resolve_hook(request)
+        hook.disable()
+        raise web.HTTPFound(self.hook_url_for(hook, None))
+
+    async def hook_enable(self, request):
+        hook = self._resolve_hook(request)
+        hook.enable()
+        raise web.HTTPFound(self.hook_url_for(hook, None))
 
     async def hook_stop(self, request):
         hook = self._resolve_hook(request)

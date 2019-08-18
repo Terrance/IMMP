@@ -1,5 +1,7 @@
 {%- macro open_icon(state) -%}
-  {%- if state == immp.OpenState.active -%}
+  {%- if state == immp.OpenState.disabled -%}
+  eye-slash
+  {%- elif state == immp.OpenState.active -%}
   circle
   {%- elif state == immp.OpenState.inactive -%}
   ban

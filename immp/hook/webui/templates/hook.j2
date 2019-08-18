@@ -13,16 +13,29 @@
         </span>
       </div>
       <div class="level-item">
-        {%- if hook.state == immp.OpenState.active %}
-        <form action="{{ hook_url_for(hook, "stop") }}" method="post">
-          <button type="submit" class="button is-danger"{% if not can_stop %} disabled{% endif %}>
-            <i class="fas fa-fw fa-stop"></i> Stop
+        {%- if hook.state == immp.OpenState.disabled %}
+        <form action="{{ hook_url_for(hook, "enable") }}" method="post">
+          <button type="submit" class="button is-info">
+            <i class="fas fa-fw fa-eye }}"></i> Enable
           </button>
         </form>
         {%- elif hook.state in (immp.OpenState.inactive, immp.OpenState.failed) %}
         <form action="{{ hook_url_for(hook, "start") }}" method="post">
           <button type="submit" class="button is-success">
             <i class="fas fa-fw fa-play }}"></i> Start
+          </button>
+        </form>
+      </div>
+      <div class="level-item">
+        <form action="{{ hook_url_for(hook, "disable") }}" method="post">
+          <button type="submit" class="button">
+            <i class="fas fa-fw fa-eye-slash }}"></i> Disable
+          </button>
+        </form>
+        {%- elif hook.state == immp.OpenState.active %}
+        <form action="{{ hook_url_for(hook, "stop") }}" method="post">
+          <button type="submit" class="button is-danger"{% if not can_stop %} disabled{% endif %}>
+            <i class="fas fa-fw fa-stop"></i> Stop
           </button>
         </form>
         {%- endif %}
