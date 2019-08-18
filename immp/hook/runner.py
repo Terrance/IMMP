@@ -25,11 +25,13 @@ log = logging.getLogger(__name__)
 
 class _Schema:
 
-    _plugs = {str: {"path": str, immp.Optional("config", dict): dict}}
+    _openable = {"path": str,
+                 immp.Optional("enabled", True): bool,
+                 immp.Optional("config", dict): dict}
 
-    _hooks = {str: {"path": str,
-                    immp.Optional("priority"): immp.Nullable(int),
-                    immp.Optional("config", dict): dict}}
+    _plugs = {str: _openable}
+
+    _hooks = {str: immp.Schema({immp.Optional("priority"): immp.Nullable(int)}, _openable)}
 
     _channels = {str: {"plug": str, "source": str}}
 
@@ -47,7 +49,7 @@ def config_to_host(config, path, write):
     host = immp.Host()
     for name, spec in config["plugs"].items():
         cls = immp.resolve_import(spec["path"])
-        host.add_plug(cls(name, spec["config"], host))
+        host.add_plug(cls(name, spec["config"], host), spec["enabled"])
     for name, spec in config["channels"].items():
         plug = host.plugs[spec["plug"]]
         host.add_channel(name, immp.Channel(plug, spec["source"]))
@@ -55,7 +57,7 @@ def config_to_host(config, path, write):
         host.add_group(immp.Group(name, group, host))
     for name, spec in config["hooks"].items():
         cls = immp.resolve_import(spec["path"])
-        host.add_hook(cls(name, spec["config"], host), spec["priority"])
+        host.add_hook(cls(name, spec["config"], host), spec["enabled"], spec["priority"])
     try:
         host.add_hook(RunnerHook("runner", {}, host))
     except immp.ConfigError:
@@ -149,7 +151,8 @@ class RunnerHook(immp.ResourceHook):
     def _config_feature(section, name, obj, priority=None):
         if obj.virtual:
             return
-        feature = {"path": "{}.{}".format(obj.__class__.__module__, obj.__class__.__name__)}
+        feature = {"path": "{}.{}".format(obj.__class__.__module__, obj.__class__.__name__),
+                   "enabled": obj.state != immp.OpenState.disabled}
         if obj.schema and obj.config:
             feature["config"] = obj.config
         if priority:

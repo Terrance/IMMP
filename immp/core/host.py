@@ -122,7 +122,7 @@ class Host:
         # This is the "public" status that external code can query.
         return self._stream is not None
 
-    def add_plug(self, plug):
+    def add_plug(self, plug, enabled=True):
         """
         Register a plug to the host.
 
@@ -132,6 +132,8 @@ class Host:
         Args:
             plug (.Plug):
                 Existing plug instance to add.
+            enabled (bool):
+                ``True`` to connect this plug at startup.
 
         Returns:
             str:
@@ -143,10 +145,13 @@ class Host:
             raise ConfigError("Plug name '{}' already registered".format(plug.name))
         log.info("Adding plug: %r (%s)", plug.name, plug.__class__.__name__)
         self._objects[plug.name] = plug
-        if self._loaded:
-            plug.on_load()
-        if self._stream:
-            self._stream.add(plug)
+        if enabled:
+            if self._loaded:
+                plug.on_load()
+            if self._stream:
+                self._stream.add(plug)
+        else:
+            plug.disable()
         return plug.name
 
     def remove_plug(self, name):
@@ -247,13 +252,15 @@ class Host:
         log.info("Removing group: %s", name)
         return self._objects.pop(name)
 
-    def add_hook(self, hook, priority=None):
+    def add_hook(self, hook, enabled=True, priority=None):
         """
         Register a hook to the host.
 
         Args:
             hook (.Hook):
                 Existing hook instance to add.
+            enabled (bool):
+                ``True`` to connect this plug at startup.
             priority (int):
                 Optional ordering constraint, applied to send and receive events.  Hooks registered
                 with a priority will be processed in ascending priority order, followed by those
@@ -280,8 +287,11 @@ class Host:
             self._resources[hook.__class__] = hook
         if priority is not None:
             self._priority[hook.name] = priority
-        if self._loaded:
-            hook.on_load()
+        if enabled:
+            if self._loaded:
+                hook.on_load()
+        else:
+            hook.disable()
         return hook.name
 
     def prioritise_hook(self, name, priority):
@@ -342,6 +352,7 @@ class Host:
         self._loaded = True
 
     async def _try_state(self, state, objs, timeout=None):
+        objs = [obj for obj in objs if obj.state != OpenState.disabled]
         if not objs:
             return
         action = "open" if state == OpenState.active else "close"

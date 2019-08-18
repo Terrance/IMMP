@@ -199,7 +199,22 @@ class LocalFilter(logging.Filter):
 class OpenState(Enum):
     """
     Readiness status for instances of :class:`Openable`.
+
+    Attributes:
+        disabled:
+            Not currently in use, and won't be started by the host.
+        inactive:
+            Hasn't been started yet.
+        starting:
+            Currently starting up (during :meth:`.Openable.start`).
+        active:
+            Currently running.
+        stopping:
+            Currently closing down (during :meth:`.Openable.stop`).
+        failed:
+            Exception occurred during starting or stopping phases.
     """
+    disabled = -1
     inactive = 0
     starting = 1
     active = 2
@@ -256,9 +271,11 @@ class Openable:
             Current status of this resource.
     """
 
+    state = property(lambda self: self._state)
+
     def __init__(self):
         super().__init__()
-        self.state = OpenState.inactive
+        self._state = OpenState.inactive
         self._changing = Condition()
 
     async def open(self):
@@ -266,18 +283,18 @@ class Openable:
         Open this resource ready for use.  Does nothing if already open, but raises
         :class:`RuntimeError` if currently changing state.
         """
-        if self.state == OpenState.active:
+        if self._state == OpenState.active:
             return
-        elif self.state not in (OpenState.inactive, OpenState.failed):
+        elif self._state not in (OpenState.inactive, OpenState.failed):
             raise RuntimeError("Can't open when already opening/closing")
-        self.state = OpenState.starting
+        self._state = OpenState.starting
         try:
             await self.start()
         except Exception:
-            self.state = OpenState.failed
+            self._state = OpenState.failed
             raise
         else:
-            self.state = OpenState.active
+            self._state = OpenState.active
 
     async def start(self):
         """
@@ -289,23 +306,41 @@ class Openable:
         Close this resource after it's used.  Does nothing if already closed, but raises
         :class:`RuntimeError` if currently changing state.
         """
-        if self.state == OpenState.inactive:
+        if self._state == OpenState.inactive:
             return
-        elif self.state != OpenState.active:
+        elif self._state != OpenState.active:
             raise RuntimeError("Can't close when already opening/closing")
-        self.state = OpenState.stopping
+        self._state = OpenState.stopping
         try:
             await self.stop()
         except Exception:
-            self.state = OpenState.failed
+            self._state = OpenState.failed
             raise
         else:
-            self.state = OpenState.inactive
+            self._state = OpenState.inactive
 
     async def stop(self):
         """
         Perform any operations needed to close this resource.
         """
+
+    def disable(self):
+        """
+        Prevent this openable from being run by the host.
+        """
+        if self._state == OpenState.disabled:
+            return
+        elif self._state in (OpenState.inactive, OpenState.failed):
+            self._state = OpenState.disabled
+        else:
+            raise RuntimeError("Can't disable when currently running")
+
+    def enable(self):
+        """
+        Restore normal operation of this openable.
+        """
+        if self._state == OpenState.disabled:
+            self._state = OpenState.inactive
 
 
 class HTTPOpenable(Openable):
