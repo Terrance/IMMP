@@ -522,6 +522,9 @@ class SlackMessage(immp.Message):
             elif event["bot_id"] in slack._bots:
                 # Slack app with no bot presence, use the app metadata.
                 user = slack._bots[event["bot_id"]]
+                if event["username"]:
+                    user = copy(user)
+                    user.real_name = event["username"]
             elif event["username"]:
                 # Bot has no associated user, just create a dummy user with the username.
                 user = immp.User(real_name=event["username"])
