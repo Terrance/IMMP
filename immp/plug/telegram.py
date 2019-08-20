@@ -271,10 +271,14 @@ class TelegramUser(immp.User):
                 Parsed user object.
         """
         id_, username, name = entity
+        avatar = None
+        if username:
+            avatar = "https://t.me/i/userpic/320/{}.jpg".format(username)
         return cls(id_=id_,
                    plug=telegram,
                    username=username,
                    real_name=name,
+                   avatar=avatar,
                    raw=entity)
 
     @property
@@ -868,6 +872,10 @@ if SQLiteSession:
         def get_entity(self, id_):
             return self._execute("SELECT id, username, name FROM entities WHERE id = ?", id_)
 
+        def get_entity_username(self, username):
+            return self._execute("SELECT id, username, name FROM entities WHERE username = ?",
+                                 username)
+
 
 class TelegramPlug(immp.HTTPOpenable, immp.Plug):
     """
@@ -958,11 +966,13 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         if not self._client:
             log.debug("Client auth required to look up users")
             return None
+        entity = self._client.session.get_entity(id_)
+        if entity:
+            return TelegramUser.from_entity(self, entity)
         try:
             data = await self._client(tl.functions.users.GetFullUserRequest(int(id_)))
         except BadRequestError:
-            entity = self._client.session.get_entity(id_)
-            return TelegramUser.from_entity(self, entity) if entity else None
+            return None
         else:
             return TelegramUser.from_proto_user(self, data.user)
 
@@ -970,6 +980,9 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         if not self._client:
             log.debug("Client auth required to look up users")
             return None
+        entity = self._client.session.get_entity_username(username)
+        if entity:
+            return TelegramUser.from_entity(self, entity)
         try:
             data = await self._client(tl.functions.contacts.ResolveUsernameRequest(username))
         except BadRequestError:
@@ -1014,9 +1027,9 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         if await channel.is_private():
             return None
         if self._client:
-            row = self._client.session.get_entity(channel.source)
-            if row and row[2]:
-                return row[2]
+            entity = self._client.session.get_entity(channel.source)
+            if entity:
+                return entity[2]
         try:
             data = await self._api("getChat", _Schema.chat, params={"chat_id": channel.source})
         except TelegramAPIRequestError as e:
@@ -1032,6 +1045,15 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         if not self._client:
             log.debug("Client auth required to list channel members")
             return None
+        # Private channels should just contain the bot and the corresponding user.
+        if await channel.is_private():
+            if channel.source == str(self._bot_user["id"]):
+                return [TelegramUser.from_bot_user(self, self._bot_user)]
+            elif int(channel.source) > 0:
+                entity = self._client.session.get_entity(channel.source)
+                if entity:
+                    return [TelegramUser.from_bot_user(self, self._bot_user),
+                            await self.user_from_id(channel.source)]
         # Channel and supergroup chat IDs have a bot-API-only prefix to distinguish them.
         if channel.source.startswith("-100"):
             chat = int(channel.source[4:])
@@ -1053,16 +1075,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             try:
                 data = await self._client(tl.functions.messages.GetFullChatRequest(chat))
             except BadRequestError:
-                # Private channels should just contain the bot and the corresponding user.
-                if channel.source == str(self._bot_user["id"]):
-                    return [TelegramUser.from_bot_user(self, self._bot_user)]
-                elif int(channel.source) > 0:
-                    entity = self._client.session.get_entity(channel.source)
-                    if entity:
-                        return [TelegramUser.from_bot_user(self, self._bot_user),
-                                await self.user_from_id(channel.source)]
-                    else:
-                        return None
+                return None
             else:
                 return [TelegramUser.from_proto_user(self, user) for user in data.users]
 
