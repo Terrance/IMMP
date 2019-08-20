@@ -163,11 +163,14 @@ class SyncBackRef(BaseModel):
             ((str, str), .SyncBackRef) dict:
                 Generated reference mapping.
         """
-        alias = cls.alias()
-        key = alias.select(alias.key).where(alias.network == sent.channel.plug.network_id,
-                                            alias.channel == sent.channel.source,
-                                            alias.message == str(sent.id))
-        return cls.map_from_key(key)
+        try:
+            key = cls.select(cls.key).where(cls.network == sent.channel.plug.network_id,
+                                            cls.channel == sent.channel.source,
+                                            cls.message == str(sent.id)).get().key
+        except cls.DoesNotExist:
+            raise KeyError
+        else:
+            return cls.map_from_key(key)
 
     @classmethod
     def map_from_key(cls, key):
@@ -530,9 +533,11 @@ class _SyncHookBase(immp.Hook):
                 raise immp.PlugError("'emoji' module not installed")
             name = EMOJI_REGEX.sub(" ", name).strip()
         if user:
+            log.debug("Replacing real name: %r -> %r", user.real_name, name)
             user = copy(user)
             user.real_name = name
         else:
+            log.debug("Adding real name: %r", name)
             user = immp.User(real_name=name)
         msg.user = user
 
@@ -714,14 +719,13 @@ class SyncHook(_SyncHookBase):
         if not isinstance(msg, immp.Receipt):
             return msg
         try:
-            # Given message was a resync of the source message from a synced channel.
             ref = self._cache[msg]
         except KeyError:
-            # No match for this source, replace with the unqualified message.
+            log.debug("No match for source message: %r", msg)
             return base
-        log.debug("Found reference to previously synced message: %r", ref.key)
+        # Given message was a resync of the source message from a synced channel.
         if ref.ids.get(channel):
-            # Return a reference to the transport-native copy of the message.
+            log.debug("Found reference to previously synced message: %r", ref.key)
             at = ref.source.at if isinstance(ref.source, immp.Receipt) else None
             best = ref.source or msg
             return immp.SentMessage(id_=ref.ids[channel][0], channel=channel, at=at,
@@ -729,9 +733,10 @@ class SyncHook(_SyncHookBase):
                                     reply_to=best.reply_to, joined=best.joined, left=best.left,
                                     title=best.title, attachments=best.attachments, raw=best.raw)
         elif channel.plug == msg.channel.plug:
-            # Same network, so let the plug handle it.
+            log.debug("Referenced message has origin plug, not modifying: %r", msg)
             return msg
         else:
+            log.debug("Origin message not referenced in the target channel: %r", msg)
             return base
 
     def _replace_all(self, channel, msg):
