@@ -778,6 +778,26 @@ class Message(_SentMessageSlots):
                 output.prepend(*(quoted.indent("\N{BOX DRAWINGS LIGHT VERTICAL} ")), Segment("\n"))
         return output
 
+    def clone(self):
+        """
+        Make a shallow copy of this message, but recursively cloning replies and attachments.
+
+        Returns:
+            .Message:
+                Copied message.
+        """
+        clone = copy(self)
+        if isinstance(self.reply_to, Message):
+            clone.reply_to = self.reply_to.clone()
+        attachments = []
+        for attach in self.attachments:
+            if isinstance(attach, Message):
+                attachments.append(attach.clone())
+            else:
+                attachments.append(attach)
+        clone.attachments = attachments
+        return clone
+
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
             return False

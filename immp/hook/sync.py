@@ -472,7 +472,29 @@ class _SyncHookBase(immp.Hook):
             return False
         return True
 
-    async def _replace_identity_mentions(self, msg, channel):
+    def _replace_recurse(self, msg, func, *args):
+        # Switch out entire messages for copies or replacements.
+        if msg.reply_to:
+            msg.reply_to = func(msg.reply_to, *args)
+        attachments = []
+        for attach in msg.attachments:
+            if isinstance(attach, immp.Message):
+                attachments.append(func(attach, *args))
+            else:
+                attachments.append(attach)
+        msg.attachments = attachments
+        return msg
+
+    async def _alter_recurse(self, msg, func, *args):
+        # Alter properties on existing cloned message objects.
+        await func(msg, *args)
+        if msg.reply_to:
+            await func(msg.reply_to, *args)
+        for attach in msg.attachments:
+            if isinstance(attach, immp.Message):
+                await func(attach, *args)
+
+    async def _alter_identities(self, msg, channel):
         # Replace mentions for identified users in the target channel.
         if not msg.text:
             return
@@ -507,7 +529,7 @@ class _SyncHookBase(immp.Hook):
                     log.debug("Removing foreign mention: %r", segment.mention)
                 segment.mention = None
 
-    async def _replace_name(self, msg):
+    async def _alter_name(self, msg):
         # Use name-format or identities to render a suitable author real name.
         name = user = identity = None
         if not self.config["reset-author"]:
@@ -682,17 +704,17 @@ class SyncHook(_SyncHookBase):
         """
         # Note that `origin` corresponds to the enriched message (i.e. `sent` in on_receive()),
         # and `msg` refers to the canonical copy (i.e. `source`).
-        queue = []
-        # Just like with plugs, when sending a new (external) message to all channels in a sync, we
-        # need to wait for all plugs to complete before processing further messages.
-        clone = copy(msg)
-        await self._replace_name(clone)
         async with self._lock:
+            # Just like with plugs, when sending a new (external) message to all channels in a
+            # sync, we need to wait for all plugs to complete before processing further messages.
+            queue = []
             for synced in self.channels[label]:
                 if origin and synced == origin.channel:
                     continue
-                local = copy(clone)
-                await self._replace_identity_mentions(local, synced)
+                local = msg.clone()
+                self._replace_recurse(local, self._replace_ref, synced)
+                await self._alter_recurse(local, self._alter_name)
+                await self._alter_recurse(local, self._alter_identities, synced)
                 queue.append(self._send(synced, local))
             # Send all the messages in parallel, and match the resulting IDs up by channel.
             ids = dict(await gather(*queue))
@@ -716,14 +738,15 @@ class SyncHook(_SyncHookBase):
         if queue:
             await gather(*queue)
 
-    def _replace_msg(self, channel, msg):
+    def _replace_ref(self, msg, channel):
+        if not isinstance(msg, immp.Receipt):
+            log.debug("Not replacing non-receipt message: %r", msg)
+            return msg
         base = None
         if isinstance(msg, immp.SentMessage):
             base = immp.Message(text=msg.text, user=msg.user, action=msg.action,
                                 reply_to=msg.reply_to, joined=msg.joined, left=msg.left,
                                 title=msg.title, attachments=msg.attachments, raw=msg.raw)
-        if not isinstance(msg, immp.Receipt):
-            return msg
         try:
             ref = self._cache[msg]
         except KeyError:
@@ -745,22 +768,9 @@ class SyncHook(_SyncHookBase):
             log.debug("Origin message not referenced in the target channel: %r", msg)
             return base
 
-    def _replace_all(self, channel, msg):
-        msg.reply_to = self._replace_msg(channel, msg.reply_to)
-        attachments = []
-        for attach in msg.attachments:
-            if isinstance(attach, immp.Message):
-                replaced = self._replace_msg(channel, attach)
-                if replaced:
-                    attachments.append(replaced)
-            else:
-                attachments.append(attach)
-        msg.attachments = attachments
-        return msg
-
     async def before_receive(self, sent, source, primary):
         await super().before_receive(sent, source, primary)
-        return self._replace_all(sent.channel, copy(sent))
+        return self._replace_recurse(sent.clone(), self._replace_ref, sent.channel)
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
@@ -794,10 +804,6 @@ class SyncHook(_SyncHookBase):
         log.debug("Sending message to synced channel %r: %r", label, sent.id)
         await self.send(label, source, sent)
 
-    async def before_send(self, channel, msg):
-        await super().before_send(channel, msg)
-        return (channel, self._replace_all(channel, copy(msg)))
-
 
 class ForwardHook(_SyncHookBase):
     """
@@ -825,11 +831,12 @@ class ForwardHook(_SyncHookBase):
                 External message to push.
         """
         queue = []
+        clone = msg.clone()
+        await self._alter_recurse(clone, self._alter_name)
         for synced in self._channels[channel]:
-            clone = copy(msg)
-            await self._replace_name(clone)
-            await self._replace_identity_mentions(clone, synced)
-            queue.append(self._send(synced, clone))
+            local = clone.clone()
+            await self._alter_recurse(local, self._alter_identities, synced)
+            queue.append(self._send(synced, local))
         # Send all the messages in parallel.
         await gather(*queue)
 
