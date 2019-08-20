@@ -118,11 +118,17 @@ try:
 except ImportError:
     EMOJI_REGEX = None
 else:
-    EMOJI_REGEX_RAW = get_emoji_regexp()
-    EMOJI_REGEX = re.compile(r"\s*({})+\s*".format(EMOJI_REGEX_RAW.pattern))
+    _EMOJI_REGEX_RAW = get_emoji_regexp()
+    EMOJI_REGEX = re.compile(r"(\s*)({})+(\s*)".format(_EMOJI_REGEX_RAW.pattern))
 
 
 log = logging.getLogger(__name__)
+
+
+def _emoji_replace(match):
+    # Add correct spacing around removed emoji in a string.
+    left, *_, right = match.groups()
+    return " " if left and right else ""
 
 
 class SyncBackRef(BaseModel):
@@ -531,7 +537,7 @@ class _SyncHookBase(immp.Hook):
         if self.config["strip-name-emoji"]:
             if not EMOJI_REGEX:
                 raise immp.PlugError("'emoji' module not installed")
-            name = EMOJI_REGEX.sub(" ", name).strip()
+            name = EMOJI_REGEX.sub(_emoji_replace, name).strip()
         if user:
             log.debug("Replacing real name: %r -> %r", user.real_name, name)
             user = copy(user)
