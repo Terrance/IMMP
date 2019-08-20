@@ -98,6 +98,7 @@ from collections import defaultdict
 from copy import copy
 from itertools import chain
 import logging
+import re
 
 from peewee import CharField
 
@@ -117,7 +118,8 @@ try:
 except ImportError:
     EMOJI_REGEX = None
 else:
-    EMOJI_REGEX = get_emoji_regexp()
+    EMOJI_REGEX_RAW = get_emoji_regexp()
+    EMOJI_REGEX = re.compile(r"\s*({})+\s*".format(EMOJI_REGEX_RAW.pattern))
 
 
 log = logging.getLogger(__name__)
@@ -519,12 +521,14 @@ class _SyncHookBase(immp.Hook):
             msg.user = None
         elif identity:
             name = "{} ({})".format(msg.user.real_name or msg.user.username, identity.name)
+        elif self.config["strip-name-emoji"]:
+            name = msg.user.real_name or msg.user.username
         if not name:
             return
         if self.config["strip-name-emoji"]:
             if not EMOJI_REGEX:
                 raise immp.PlugError("'emoji' module not installed")
-            name = EMOJI_REGEX.sub("", name).strip()
+            name = EMOJI_REGEX.sub(" ", name).strip()
         if user:
             user = copy(user)
             user.real_name = name
