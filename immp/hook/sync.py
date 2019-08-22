@@ -552,7 +552,7 @@ class _SyncHookBase(immp.Hook):
             msg.user = None
         elif identity:
             name = "{} ({})".format(msg.user.real_name or msg.user.username, identity.name)
-        elif self.config["strip-name-emoji"]:
+        elif self.config["strip-name-emoji"] and msg.user:
             name = msg.user.real_name or msg.user.username
         if not name:
             return
