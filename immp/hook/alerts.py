@@ -194,6 +194,27 @@ class MentionsHook(_AlertHookBase):
         else:
             return set()
 
+    async def before_receive(self, sent, source, primary):
+        await super().on_receive(sent, source, primary)
+        if not primary or not source.text or await sent.channel.is_private():
+            return sent
+        try:
+            _, members = await self._get_members(sent)
+        except _Skip:
+            return sent
+        for match in re.finditer(r"@\S+", str(source.text)):
+            mention = match.group(0)
+            matches = self.match(mention, members)
+            if len(matches) == 1:
+                target = next(iter(matches))
+                log.debug("Exact match for mention %r: %r", mention, target)
+                text = sent.text[match.start():match.end():True]
+                for segment in text:
+                    segment.mention = target
+                    sent.text = (sent.text[:match.start():True] + text +
+                                 sent.text[match.end()::True])
+        return sent
+
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
         if not primary or not source.text or await sent.channel.is_private():

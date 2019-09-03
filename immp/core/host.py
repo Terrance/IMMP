@@ -408,6 +408,8 @@ class Host:
                     log.exception("Hook %r failed before-receive event", hook.name)
                     continue
                 if result:
+                    if sent is source:
+                        source = result
                     sent = result
                 else:
                     # Message has been suppressed by a hook.
