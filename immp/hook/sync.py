@@ -708,12 +708,13 @@ class SyncHook(_SyncHookBase):
             # Just like with plugs, when sending a new (external) message to all channels in a
             # sync, we need to wait for all plugs to complete before processing further messages.
             queue = []
+            clone = msg.clone()
+            await self._alter_recurse(clone, self._alter_name)
             for synced in self.channels[label]:
                 if origin and synced == origin.channel:
                     continue
-                local = msg.clone()
+                local = clone.clone()
                 self._replace_recurse(local, self._replace_ref, synced)
-                await self._alter_recurse(local, self._alter_name)
                 await self._alter_recurse(local, self._alter_identities, synced)
                 queue.append(self._send(synced, local))
             # Send all the messages in parallel, and match the resulting IDs up by channel.
