@@ -454,21 +454,31 @@ class RichText:
     def __len__(self):
         return sum(len(segment) for segment in self._segments)
 
+    def _getitem_pos(self, pos, default=None):
+        end = len(self)
+        if pos is None:
+            return end if default is None else default
+        elif 0 <= pos <= end:
+            return pos
+        elif -end <= pos < 0:
+            return end + pos
+        elif pos > end:
+            return end
+        elif pos < -end:
+            return 0
+
     def __getitem__(self, key):
         if isinstance(key, slice):
             if key.step is not None and not isinstance(key.step, bool):
                 raise TypeError("RichText slice step must be boolean")
             elif not key.step:
                 return RichText(self._segments[key.start:key.stop])
-            start, end = key.start, key.stop
-            if start is None and end is None:
+            start = self._getitem_pos(key.start, 0)
+            end = self._getitem_pos(key.stop)
+            if start == 0 and end == len(self):
                 return self.clone()
-            elif start is None:
-                start = 0
-            elif end is None:
-                end = len(self)
-            start_segment, start_offset = self.offset(start % len(self))
-            end_segment, end_offset = self.offset(((end - 1) % len(self)) + 1)
+            start_segment, start_offset = self.offset(start)
+            end_segment, end_offset = self.offset(end)
             stop_segment = end_segment + 1 if end_offset else end_segment
             stop_offset = end_offset - start_offset if start_segment == end_segment else end_offset
             clone = RichText()
