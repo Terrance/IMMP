@@ -461,80 +461,50 @@ class SlackMessage(immp.Message):
     """
 
     @classmethod
-    async def from_event(cls, slack, json, parent=True):
-        """
-        Convert an API event :class:`dict` to a :class:`.Message`.
-
-        Args:
-            slack (.SlackPlug):
-                Related plug instance that provides the event.
-            json (dict):
-                Slack API `message <https://api.slack.com/events/message>`_ event data.
-            parent (bool):
-                ``True`` (default) to retrieve the thread parent if one exists.
-
-        Returns:
-            .SlackMessage:
-                Parsed message object.
-        """
-        event = _Schema.message(json)
-        if event["is_ephemeral"]:
-            # Ignore user-private messages from Slack (e.g. over quota warnings, link unfurling
-            # opt-in prompts etc.) which shouldn't be served to message processors.
-            raise NotImplementedError
-        id_ = revision = event["ts"]
+    def _parse_meta(cls, slack, event):
+        id_ = event["ts"]
         at = datetime.fromtimestamp(float(event["ts"]), timezone.utc)
-        edited = False
-        deleted = False
-        author = user = None
-        action = False
-        reply_to = None
-        joined = None
-        left = None
-        title = None
-        attachments = []
-        if event["subtype"] == "file_comment":
-            raise NotImplementedError
-        elif event["subtype"] == "message_changed":
-            if event["message"]["text"] == event["previous_message"]["text"]:
-                # Message remains unchanged.  Can be caused by link unfurling (adds an attachment)
-                # or deleting replies (reply is removed from event.replies in new *and old*).
-                raise NotImplementedError
-            # Original message details are under a nested "message" key.
-            id_ = event["message"]["ts"]
-            edited = True
-            text = event["message"]["text"]
-            if event["message"]["subtype"] == "me_message":
-                action = True
-            # NB: Editing user may be different to the original sender.
-            author = event["message"]["edited"]["user"] or event["message"]["user"]
-        elif event["subtype"] == "message_deleted":
-            id_ = event["deleted_ts"]
-            deleted = True
-            author = None
-            text = None
-        else:
-            if event["user"]:
-                author = event["user"]
-            elif event["bot_id"] in slack._bot_to_user:
-                # Event has the bot's app ID, not user ID.
-                author = slack._bot_to_user[event["bot_id"]]
-            elif event["bot_id"] in slack._bots:
-                # Slack app with no bot presence, use the app metadata.
-                user = slack._bots[event["bot_id"]]
-                if event["username"]:
-                    user = copy(user)
-                    user.real_name = event["username"]
-            elif event["username"]:
-                # Bot has no associated user, just create a dummy user with the username.
-                user = immp.User(real_name=event["username"])
-            text = event["text"]
+        return id_, at
+
+    @classmethod
+    async def _parse_author(cls, slack, event=None, author=None):
+        user = None
+        if author:
+            pass
+        elif not event:
+            raise TypeError("Need either event or author")
+        elif event["user"]:
+            author = event["user"]
+        elif event["bot_id"] in slack._bot_to_user:
+            # Event has the bot's app ID, not user ID.
+            author = slack._bot_to_user[event["bot_id"]]
+        elif event["bot_id"] in slack._bots:
+            # Slack app with no bot presence, use the app metadata.
+            user = slack._bots[event["bot_id"]]
+            if event["username"]:
+                user = copy(user)
+                user.real_name = event["username"]
+        elif event["username"]:
+            # Bot has no associated user, just create a dummy user with the username.
+            user = immp.User(real_name=event["username"])
         if author:
             user = await slack.user_from_id(author) or SlackUser(id_=author, plug=slack)
-            if text and re.match(r"<@{}(\|.*?)?> ".format(author), text):
-                # Own username at the start of the message, assume it's an action.
-                action = True
-                text = re.sub(r"^<@{}(\|.*?)?> ".format(author), "", text)
+        return user
+
+    @classmethod
+    async def _parse_main(cls, slack, json, event, channel, parent=True, revision=None):
+        id_, at = cls._parse_meta(slack, event)
+        edited = bool(revision)
+        deleted = False
+        text = event["text"]
+        user = await cls._parse_author(slack, event)
+        action = False
+        reply_to = joined = left = title = None
+        attachments = []
+        if user and text and re.match(r"<@{}(\|.*?)?> ".format(user.id), text):
+            # Own username at the start of the message, assume it's an action.
+            action = True
+            text = re.sub(r"^<@{}(\|.*?)?> ".format(user.id), "", text)
         if event["subtype"] in ("channel_join", "group_join"):
             action = True
             joined = [user]
@@ -551,7 +521,7 @@ class SlackMessage(immp.Message):
             thread = immp.Receipt(event["thread_ts"], immp.Channel(slack, event["channel"]))
         if thread and parent:
             try:
-                thread = await slack.get_message(event["channel"], thread.id, False)
+                thread = await slack.get_message(channel.source, thread.id, False)
             except MessageNotFound:
                 pass
         if isinstance(thread, immp.Message):
@@ -559,11 +529,11 @@ class SlackMessage(immp.Message):
                 if reply["ts"] not in (event["ts"], event["thread_ts"]):
                     # Reply to a thread with at least one other message, use the next most
                     # recent rather than the parent.
-                    recent = immp.Receipt(reply["ts"], immp.Channel(slack, event["channel"]))
+                    recent = immp.Receipt(reply["ts"], channel)
                     break
         if recent and parent:
             try:
-                recent = await slack.get_reply(event["channel"], event["thread_ts"],
+                recent = await slack.get_reply(channel.source, event["thread_ts"],
                                                recent.id, False)
             except MessageNotFound:
                 pass
@@ -608,7 +578,7 @@ class SlackMessage(immp.Message):
                         pass
             text = await SlackRichText.from_mrkdwn(slack, text)
         return immp.SentMessage(id_=id_,
-                                channel=immp.Channel(slack, event["channel"]),
+                                channel=channel,
                                 at=at,
                                 revision=revision,
                                 edited=edited,
@@ -622,6 +592,51 @@ class SlackMessage(immp.Message):
                                 title=title,
                                 attachments=attachments,
                                 raw=json)
+
+    @classmethod
+    async def from_event(cls, slack, json, parent=True):
+        """
+        Convert an API event :class:`dict` to a :class:`.Message`.
+
+        Args:
+            slack (.SlackPlug):
+                Related plug instance that provides the event.
+            json (dict):
+                Slack API `message <https://api.slack.com/events/message>`_ event data.
+            parent (bool):
+                ``True`` (default) to retrieve the thread parent if one exists.
+
+        Returns:
+            .SlackMessage:
+                Parsed message object.
+        """
+        event = _Schema.message(json)
+        if event["is_ephemeral"]:
+            # Ignore user-private messages from Slack (e.g. over quota warnings, link unfurling
+            # opt-in prompts etc.) which shouldn't be served to message processors.
+            raise NotImplementedError
+        if event["subtype"] == "file_comment":
+            # Deprecated in favour of file threads, but Slack may still emit these.
+            raise NotImplementedError
+        channel = immp.Channel(slack, event["channel"])
+        if event["subtype"] == "message_deleted":
+            id_, at = cls._parse_meta(slack, event)
+            return immp.SentMessage(id_=id_,
+                                    channel=channel,
+                                    at=at,
+                                    revision=event["ts"],
+                                    deleted=True,
+                                    raw=json)
+        elif event["subtype"] == "message_changed":
+            if event["message"]["text"] == event["previous_message"]["text"]:
+                # Message remains unchanged.  Can be caused by link unfurling (adds an attachment)
+                # or deleting replies (reply is removed from event.replies in new *and old*).
+                raise NotImplementedError
+            revision = event["ts"]
+            # Original message details are under a nested "message" key.
+            return await cls._parse_main(slack, json, event["message"], channel, parent, revision)
+        else:
+            return await cls._parse_main(slack, json, event, channel, parent)
 
     @classmethod
     def to_attachment(cls, slack, msg, reply=False):
