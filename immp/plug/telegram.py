@@ -1162,10 +1162,13 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             edited = msg.edited if isinstance(msg, immp.Receipt) else False
             rich = msg.render(edit=edited, quote_reply=quote)
             text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
+            no_link_preview = "true" if msg.user and msg.user.link else "false"
             requests.append(self._api("sendMessage", _Schema.send,
                                       params={"chat_id": chat,
                                               "text": text,
                                               "parse_mode": "HTML",
+                                              # Prevent linked user names generating previews.
+                                              "disable_web_page_preview": no_link_preview,
                                               "reply_to_message_id": reply_to}))
         for attach in msg.attachments:
             if isinstance(attach, immp.File):
