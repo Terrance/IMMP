@@ -1090,7 +1090,11 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             log.debug("Client auth required to retrieve messages")
             return []
         elif not before:
-            if self._last_id and not channel.source.startswith("-100"):
+            if channel.source.startswith("-100"):
+                request = tl.functions.channels.GetFullChannelRequest(int(channel.source))
+                chat = await self._client(request)
+                before = immp.Receipt("{}:{}".format(channel.source, chat.full_chat.pts), channel)
+            elif self._last_id:
                 before = immp.Receipt("{}:{}".format(channel.source, self._last_id), channel)
             else:
                 log.debug("Before message required to retrieve messages")
