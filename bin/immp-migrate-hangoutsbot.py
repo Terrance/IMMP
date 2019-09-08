@@ -25,7 +25,7 @@ import anyconfig
 from playhouse.db_url import connect
 from requests import Session
 
-from immp import Nullable, Optional, Schema
+from immp import Any, Nullable, Optional, Schema
 from immp.hook.alerts import SubTrigger
 from immp.hook.database import BaseModel
 from immp.hook.identitylocal import IdentityGroup, IdentityLink
@@ -76,7 +76,9 @@ class _Schema:
             }
         }},
         Optional("profilesync", lambda: {"ho2tg": {}}): {  # telesync
-            "ho2tg": {str: str}  # HO: TG or HO: "VERIFY000..."
+            "tg2ho": {str: Any(str, {  # ho2tg is unreliable
+                Optional("chat_id"): Nullable(str)  # ho_id is also unreliable
+            })}
         },
         Optional("telesync", lambda: {"ho2tg": {}}): {
             "ho2tg": {str: str}  # HO: TG
@@ -349,12 +351,14 @@ class Data:
 
     def telesync_identities(self):
         network = self.telegram_network_id()
-        for ho, tg in self.memory["profilesync"]["ho2tg"].items():
+        for tg, profile in self.memory["profilesync"]["tg2ho"].items():
             # Ignore incomplete profile syncs.
-            if not (ho.startswith("VERIFY") or tg.startswith("VERIFY")):
-                nick = self.get_nickname(ho)
-                log.debug("Adding Telegram identity: {} -> {}, {}".format(nick, ho, tg))
-                self.identities[(self.network_id, ho)] = self.identities[(network, tg)] = nick
+            if isinstance(profile, str) or not profile["chat_id"]:
+                continue
+            ho = profile["chat_id"]
+            nick = self.get_nickname(ho)
+            log.debug("Adding Telegram identity: {} -> {}, {}".format(nick, ho, tg))
+            self.identities[(self.network_id, ho)] = self.identities[(network, tg)] = nick
 
     # Migrate Hangouts forwarding.
 
