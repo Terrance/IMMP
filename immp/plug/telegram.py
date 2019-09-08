@@ -948,6 +948,19 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             self._receive = ensure_future(self._poll())
         if self._client:
             await self._client.start(bot_token=self.config["token"])
+            # Find the most recently received message, and therefore the current value of the shared
+            # ID sequence.  Fetch the current state, then subtract one from pts to make it replay
+            # the last message, which should appear in new_messages and other_updates.
+            state = await self._client(tl.functions.updates.GetStateRequest())
+            diff = await self._client(tl.functions.updates.GetDifferenceRequest(
+                state.pts - 1, datetime.utcnow(), state.qts))
+            if isinstance(diff, tl.types.updates.DifferenceEmpty):
+                # Unclear if this will happen with the given parameters.
+                pass
+            elif diff.new_messages:
+                self._last_id = diff.new_messages[-1].id
+            elif diff.other_updates:
+                self._last_id = diff.other_updates[-1].id
 
     async def stop(self):
         await super().stop()
@@ -962,6 +975,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             self._client = None
         self._bot_user = None
         self._offset = 0
+        self._last_id = None
         if self._migrations:
             log.warning("Chat migrations require a config update before next run")
 
@@ -1089,18 +1103,25 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         if not self._client:
             log.debug("Client auth required to retrieve messages")
             return []
-        elif not before:
-            if channel.source.startswith("-100"):
+        # Telegram channels (including supergroups) have their own message ID sequence starting from
+        # 1.  Each user has a shared ID sequence used for non-super groups and private chats.
+        private_seq = channel.source.startswith("-100")
+        if not before:
+            if private_seq:
                 request = tl.functions.channels.GetFullChannelRequest(int(channel.source))
                 chat = await self._client(request)
                 before = immp.Receipt("{}:{}".format(channel.source, chat.full_chat.pts), channel)
             elif self._last_id:
-                before = immp.Receipt("{}:{}".format(channel.source, self._last_id), channel)
+                before = immp.Receipt("{}:{}".format(channel.source, self._last_id + 1), channel)
             else:
                 log.debug("Before message required to retrieve messages")
                 return []
         chat, message = (int(field) for field in before.id.split(":", 1))
-        ids = list(range(max(message - 50, 1), message))
+        # For a channel-private sequence, we can just retrieve the last batch of messages.  For the
+        # shared sequence, we can't lookup for a specific chat, so we instead fetch a larger batch
+        # (maxes out at 200) and filter to messages from the target chat.
+        limit = 50 if private_seq else 200
+        ids = list(range(max(message - limit, 1), message))
         history = filter(None, await self._client.get_messages(entity=chat, ids=ids))
         tasks = (TelegramMessage.from_proto_message(self, message) for message in history)
         results = await gather(*tasks, return_exceptions=True)
