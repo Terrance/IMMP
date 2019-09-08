@@ -905,6 +905,9 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         self._migrations = {}
         # Update ID from which to retrieve the next batch.  Should be one higher than the max seen.
         self._offset = 0
+        # Private chats and non-super groups have a shared incremental message ID.  Cache the
+        # highest we've seen, so that we can attempt to fetch past messages with this as a base.
+        self._last_id = None
 
     async def _api(self, endpoint, schema=_Schema.api(), **kwargs):
         url = "https://api.telegram.org/bot{}/{}".format(self.config["token"], endpoint)
@@ -1087,8 +1090,11 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             log.debug("Client auth required to retrieve messages")
             return []
         elif not before:
-            log.debug("Before message required to retrieve messages")
-            return []
+            if self._last_id and not channel.source.startswith("-100"):
+                before = immp.Receipt("{}:{}".format(channel.source, self._last_id), channel)
+            else:
+                log.debug("Before message required to retrieve messages")
+                return []
         chat, message = (int(field) for field in before.id.split(":", 1))
         ids = list(range(max(message - 50, 1), message))
         history = filter(None, await self._client.get_messages(entity=chat, ids=ids))
@@ -1268,6 +1274,8 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                         return
                     else:
                         self.queue(sent)
+                        if not sent.channel.source.startswith("-100"):
+                            self._last_id = int(sent.id.split(":", 1)[1])
                 else:
                     log.debug("Ignoring update with unknown keys: %s", ", ".join(update.keys()))
                 self._offset = max(update["update_id"] + 1, self._offset)
@@ -1291,3 +1299,5 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             log.debug("Skipping message with no usable parts")
         else:
             self.queue(sent)
+            if not sent.channel.source.startswith("-100"):
+                self._last_id = int(sent.id.split(":", 1)[1])
