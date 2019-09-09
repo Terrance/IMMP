@@ -36,7 +36,7 @@ methods.  With a session file, you need only do this once, after which the refer
     Python module.
 """
 
-from asyncio import CancelledError, TimeoutError, ensure_future, gather, sleep
+from asyncio import CancelledError, TimeoutError, ensure_future, gather, sleep, wait
 from collections import defaultdict
 from datetime import datetime, timezone
 import logging
@@ -48,7 +48,7 @@ import immp
 
 try:
     from telethon import TelegramClient, events, tl
-    from telethon.errors import BadRequestError
+    from telethon.errors import BadRequestError, ChannelPrivateError
     from telethon.sessions import SQLiteSession
     from telethon.utils import pack_bot_file_id
 except ImportError:
@@ -166,7 +166,14 @@ class TelegramAPIRequestError(immp.PlugError):
 
 
 class _HiddenSender(Exception):
-    pass
+
+    channel_id = -1001228946795
+    chat_id = 1228946795
+
+    @classmethod
+    def check(cls, value):
+        if value in (cls.channel_id, cls.chat_id):
+            raise cls
 
 
 class TelegramUser(immp.User):
@@ -219,8 +226,7 @@ class TelegramUser(immp.User):
                 Parsed user object.
         """
         chat = _Schema.channel(json)
-        if chat["id"] == -1001228946795:
-            raise _HiddenSender
+        _HiddenSender.check(chat["id"])
         return cls(id_=chat["id"],
                    plug=telegram,
                    username=chat["username"],
@@ -903,6 +909,9 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         self._closing = False
         # Temporary tracking of migrated chats for the current session.
         self._migrations = {}
+        # Blacklist of channels we have an entity for but can't access.  Indexed at startup, with
+        # chats removed if we receive a message from that channel.
+        self._blacklist = self._blacklist_task = None
         # Update ID from which to retrieve the next batch.  Should be one higher than the max seen.
         self._offset = 0
         # Private chats and non-super groups have a shared incremental message ID.  Cache the
@@ -961,6 +970,9 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                 self._last_id = diff.new_messages[-1].id
             elif diff.other_updates:
                 self._last_id = diff.other_updates[-1].id
+            self._blacklist = {_HiddenSender.channel_id}
+            self._blacklist_task = ensure_future(wait([self._blacklist_users(),
+                                                       self._blacklist_chats()]))
 
     async def stop(self):
         await super().stop()
@@ -974,6 +986,10 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             await self._client.disconnect()
             self._client = None
         self._bot_user = None
+        self._blacklist = None
+        if self._blacklist_task:
+            self._blacklist_task.cancel()
+            self._blacklist_task = None
         self._offset = 0
         self._last_id = None
         if self._migrations:
@@ -1010,20 +1026,59 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
     async def user_is_system(self, user):
         return user.id == str(self._bot_user["id"])
 
+    async def _blacklist_users(self):
+        # For each user in the entity table, check the bot API for a corresponding chat, and
+        # blacklist those who haven't started a conversation with us yet.
+        log.debug("Finding users to blacklist")
+        for user in self._client.session.get_user_entities():
+            try:
+                await self._api("getChat", params={"chat_id": user[0]})
+            except TelegramAPIRequestError:
+                log.debug("Blacklisting user %d", user[0])
+                self._blacklist.add(user[0])
+        log.debug("Done blacklisting users")
+
+    async def _blacklist_chats(self):
+        # The entity cache is polluted with channels we've seen outside of participation (e.g.
+        # mentions and forwards).  Narrow down the list by excluding chats we can't access.
+        log.debug("Finding chats to blacklist")
+        lookup = []
+        for chat in self._client.session.get_chat_entities():
+            if chat[0] in self._blacklist:
+                continue
+            if str(chat[0]).startswith("-100"):
+                try:
+                    await self._client(tl.functions.channels.GetChannelsRequest([abs(chat[0])]))
+                except ChannelPrivateError:
+                    log.debug("Blacklisting channel %d", chat[0])
+                    self._blacklist.add(chat[0])
+            else:
+                lookup.append(abs(chat[0]))
+        if lookup:
+            chats = await self._client(tl.functions.messages.GetChatsRequest(lookup))
+            gone = [-chat.id for chat in chats.chats if isinstance(chat, tl.types.ChatForbidden)]
+            if gone:
+                log.debug("Blacklisting chats %s", ", ".join(str(id_) for id_ in gone))
+                self._blacklist.update(gone)
+        log.debug("Done blacklisting chats")
+
     async def public_channels(self):
         if not self._client:
             log.debug("Client auth required to look up channels")
             return None
         # Use the session cache to find all "seen" chats -- not guaranteed to be a complete list.
-        return [immp.Channel(self, chat[0]) for chat in self._client.session.get_chat_entities()]
+        # Filter out chats we're no longer a member of, or otherwise can't access.
+        ids = set(chat[0] for chat in self._client.session.get_chat_entities())
+        return [immp.Channel(self, chat) for chat in ids - self._blacklist]
 
     async def private_channels(self):
         if not self._client:
             log.debug("Client auth required to look up channels")
             return None
-        # Private channels just use user IDs, so return all users we know about.  Note that these
-        # channels aren't usable unless the user has messaged the bot first.
-        return [immp.Channel(self, chat[0]) for chat in self._client.session.get_user_entities()]
+        # Private channels just use user IDs, so return all users we know about, filtered to those
+        # we also have a valid chat for.
+        ids = set(chat[0] for chat in self._client.session.get_user_entities())
+        return [immp.Channel(self, chat) for chat in ids - self._blacklist]
 
     async def channel_for_user(self, user):
         if not isinstance(user, TelegramUser):
@@ -1248,8 +1303,8 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             if not result:
                 continue
             sent = await TelegramMessage.from_bot_message(self, result)
-            self.queue(sent)
             ids.append(sent.id)
+            self._post_recv(sent)
         return ids
 
     async def delete(self, sent):
@@ -1263,6 +1318,14 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             if channel.plug is self and channel.source == old:
                 log.debug("Updating named channel %r in place", name)
                 channel.source = new
+
+    def _post_recv(self, sent):
+        self.queue(sent)
+        chat, seq = (int(part) for part in sent.id.split(":", 1))
+        if self._blacklist:
+            self._blacklist.discard(chat)
+        if not str(chat).startswith("-100"):
+            self._last_id = seq
 
     async def _poll(self):
         while not self._closing:
@@ -1298,9 +1361,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                         log.debug("Cancel request for plug %r getter", self.name)
                         return
                     else:
-                        self.queue(sent)
-                        if not sent.channel.source.startswith("-100"):
-                            self._last_id = int(sent.id.split(":", 1)[1])
+                        self._post_recv(sent)
                 else:
                     log.debug("Ignoring update with unknown keys: %s", ", ".join(update.keys()))
                 self._offset = max(update["update_id"] + 1, self._offset)
@@ -1323,6 +1384,4 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         except NotImplementedError:
             log.debug("Skipping message with no usable parts")
         else:
-            self.queue(sent)
-            if not sent.channel.source.startswith("-100"):
-                self._last_id = int(sent.id.split(":", 1)[1])
+            self._post_recv(sent)
