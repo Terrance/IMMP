@@ -697,38 +697,40 @@ class SyncHook(_SyncHookBase):
             label (str):
                 Bridge that defines the underlying synced channels to send to.
             msg (.Message):
-                External message to push.
+                External message to push.  This should be the source copy when syncing a message
+                from another channel.
             origin (.Receipt):
                 Raw message that triggered this sync; if set and part of the sync, it will be
-                skipped (used to avoid retransmitting a message we just received).
+                skipped (used to avoid retransmitting a message we just received).  This should be
+                the plug-native copy of a message when syncing from another channel.
         """
-        # Note that `origin` corresponds to the enriched message (i.e. `sent` in on_receive()),
-        # and `msg` refers to the canonical copy (i.e. `source`).
+        base = immp.Message(text=msg.text, user=msg.user, action=msg.action,
+                            reply_to=msg.reply_to, joined=msg.joined, left=msg.left,
+                            title=msg.title, attachments=msg.attachments, raw=msg)
+        await self._alter_recurse(base, self._alter_name)
+        queue = []
+        for synced in self.channels[label]:
+            if origin and synced == origin.channel:
+                continue
+            local = base.clone()
+            self._replace_recurse(local, self._replace_ref, synced)
+            await self._alter_recurse(local, self._alter_identities, synced)
+            queue.append(self._send(synced, local))
+        # Just like with plugs, when sending a new (external) message to all channels in a sync, we
+        # need to wait for all plugs to complete and have their IDs cached before processing any
+        # further messages.
         async with self._lock:
-            # Just like with plugs, when sending a new (external) message to all channels in a
-            # sync, we need to wait for all plugs to complete before processing further messages.
-            queue = []
-            clone = msg.clone()
-            await self._alter_recurse(clone, self._alter_name)
-            for synced in self.channels[label]:
-                if origin and synced == origin.channel:
-                    continue
-                local = clone.clone()
-                self._replace_recurse(local, self._replace_ref, synced)
-                await self._alter_recurse(local, self._alter_identities, synced)
-                queue.append(self._send(synced, local))
-            # Send all the messages in parallel, and match the resulting IDs up by channel.
             ids = dict(await gather(*queue))
             ref = SyncRef(ids, source=msg, origin=origin)
             self._cache.add(ref)
-            # Push a copy of the message to the sync channel, if running.
-            if self.plug:
-                sent = immp.SentMessage(id_=ref.key, channel=immp.Channel(self.plug, label),
-                                        text=msg.text, user=msg.user, action=msg.action,
-                                        reply_to=msg.reply_to, joined=msg.joined, left=msg.left,
-                                        title=msg.title, attachments=msg.attachments, raw=msg)
-                self.plug.queue(sent)
-            return ref
+        # Push a copy of the message to the sync channel, if running.
+        if self.plug:
+            sent = immp.SentMessage(id_=ref.key, channel=immp.Channel(self.plug, label),
+                                    text=msg.text, user=msg.user, action=msg.action,
+                                    reply_to=msg.reply_to, joined=msg.joined, left=msg.left,
+                                    title=msg.title, attachments=msg.attachments, raw=msg)
+            self.plug.queue(sent)
+        return ref
 
     async def delete(self, ref, sent=None):
         queue = []
@@ -768,10 +770,6 @@ class SyncHook(_SyncHookBase):
         else:
             log.debug("Origin message not referenced in the target channel: %r", msg)
             return base
-
-    async def before_receive(self, sent, source, primary):
-        await super().before_receive(sent, source, primary)
-        return self._replace_recurse(sent.clone(), self._replace_ref, sent.channel)
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
