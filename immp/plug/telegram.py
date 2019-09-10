@@ -748,7 +748,11 @@ class TelegramMessage(immp.Message):
             revision = None
         text = await TelegramRichText.from_proto_entities(telegram, message.message,
                                                           message.entities)
-        user = TelegramUser.from_proto_user(telegram, await message.get_sender())
+        sender = await message.get_sender()
+        if isinstance(sender, tl.types.Channel):
+            user = TelegramUser.from_proto_channel(telegram, sender)
+        else:
+            user = TelegramUser.from_proto_user(telegram, sender)
         action = False
         reply_to = None
         joined = []
