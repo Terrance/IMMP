@@ -569,17 +569,21 @@ class SlackMessage(immp.Message):
             # Messages can be shared either in the UI, or by pasting an archive link.  The latter
             # unfurls async (it comes through as an edit, which we ignore), so instead we can look
             # up the message ourselves and embed it.
-            for channel_id, link in re.findall(r"https://{}.slack.com/archives/([^/]+)/p([0-9]+)"
-                                               .format(slack._team["domain"]), text):
+            regex = r"https://{}.slack.com/archives/([^/]+)/p([0-9]+)".format(slack._team["domain"])
+            for channel_id, link in re.findall(regex, text):
                 # Archive links are strange and drop the period from the ts value.
                 ts = link[:-6] + "." + link[-6:]
-                if not any(isinstance(attach, immp.Message) and attach.id == ts
-                           for attach in attachments):
+                refs = [attach.id for attach in attachments if isinstance(attach, immp.Receipt)]
+                if ts not in refs:
                     try:
                         attachments.append(await slack.get_message(channel_id, ts))
                     except MessageNotFound:
                         pass
-            text = await SlackRichText.from_mrkdwn(slack, text)
+            if re.match("^<{}>$".format(regex), text):
+                # Strip the message text if the entire body was just a link.
+                text = None
+            else:
+                text = await SlackRichText.from_mrkdwn(slack, text)
         return immp.SentMessage(id_=id_,
                                 channel=channel,
                                 at=at,
@@ -886,8 +890,8 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
                   "limit": 1}
         try:
             history = await self._api("conversations.history", _Schema.history, params=params)
-        except SlackAPIError as e:
-            log.debug("API error retrieving message %r from %r: %r", ts, channel_id, e.args[0])
+        except SlackAPIError:
+            log.debug("API error retrieving message %r from %r", ts, channel_id, exc_info=True)
             raise MessageNotFound from None
         if history["messages"]:
             msg = history["messages"][0]
@@ -1002,9 +1006,9 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
                 else:
                     clone.text = immp.RichText([immp.Segment(link)])
             elif isinstance(attach, immp.Message):
-                forward_ids += await self._post(channel, msg, attach)
-        own_ids = await self._post(channel, msg, msg)
-        if forward_ids and not own_ids:
+                forward_ids += await self._post(channel, clone, attach)
+        own_ids = await self._post(channel, clone, clone)
+        if forward_ids and not own_ids and msg.user:
             # Forwarding a message but no content to show who forwarded it.
             info = immp.Message(user=msg.user, action=True, text="forwarded a message")
             own_ids += await self._post(channel, msg, info)
