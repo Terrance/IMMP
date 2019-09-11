@@ -739,6 +739,7 @@ class TelegramMessage(immp.Message):
                 Parsed message object.
         """
         id_ = "{}:{}".format(message.chat_id, message.id)
+        channel = immp.Channel(telegram, message.chat_id)
         edited = bool(message.edit_date)
         if edited:
             revision = int(message.edit_date.timestamp())
@@ -760,7 +761,7 @@ class TelegramMessage(immp.Message):
         title = None
         attachments = []
         if message.reply_to_msg_id:
-            reply_to = await telegram.get_message(message.reply_to_msg_id)
+            reply_to = await telegram.get_message(channel, message.reply_to_msg_id)
         if message.photo:
             try:
                 attach = await TelegramFile.from_id(telegram, pack_bot_file_id(message.photo),
@@ -839,7 +840,7 @@ class TelegramMessage(immp.Message):
         common = dict(id_=id_,
                       revision=revision,
                       at=message.date,
-                      channel=immp.Channel(telegram, message.chat_id),
+                      channel=channel,
                       edited=edited,
                       user=user,
                       raw=message)
@@ -1223,12 +1224,13 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                 messages.append(result)
         return messages
 
-    async def get_message(self, id_):
+    async def get_message(self, channel, id_):
         if not self._client:
             log.debug("Client auth required to retrieve messages")
             return None
-        message = await self._client.get_messages(None, ids=id_)
+        message = await self._client.get_messages(int(channel.source), ids=id_)
         if not message:
+            log.debug("Failed to find message %d in %d", id_, channel.source)
             return None
         try:
             return await TelegramMessage.from_proto_message(self, message)
