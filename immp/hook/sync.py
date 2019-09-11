@@ -707,7 +707,6 @@ class SyncHook(_SyncHookBase):
         base = immp.Message(text=msg.text, user=msg.user, action=msg.action,
                             reply_to=msg.reply_to, joined=msg.joined, left=msg.left,
                             title=msg.title, attachments=msg.attachments, raw=msg)
-        await self._alter_recurse(base, self._alter_name)
         queue = []
         for synced in self.channels[label]:
             if origin and synced == origin.channel:
@@ -715,6 +714,7 @@ class SyncHook(_SyncHookBase):
             local = base.clone()
             self._replace_recurse(local, self._replace_ref, synced)
             await self._alter_recurse(local, self._alter_identities, synced)
+            await self._alter_recurse(local, self._alter_name)
             queue.append(self._send(synced, local))
         # Just like with plugs, when sending a new (external) message to all channels in a sync, we
         # need to wait for all plugs to complete and have their IDs cached before processing any
