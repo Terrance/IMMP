@@ -257,13 +257,59 @@ class HangoutsLocation(immp.Location):
                         image=hangouts_pb2.EmbedItem.Image(url=image_url)))).place
 
 
+class HangoutsFile(immp.File):
+    """
+    File attachment originating from Hangouts.
+    """
+
+    def __init__(self, hangouts, title=None, type_=None, source=None):
+        super().__init__(title=title, type_=type_)
+        self._hangouts = hangouts
+        # Private source as the URL is not publicly accessible.
+        self._source = source
+
+    async def get_content(self, sess):
+        return await self._hangouts.session.get(self._source, allow_redirects=True,
+                                                cookies=self._hangouts._client._cookies)
+
+    @classmethod
+    async def from_embed(cls, hangouts, embed):
+        """
+        Convert a :class:`hangouts_pb2.PlusPhoto` into a :class:`.File`.
+
+        Args:
+            hangouts (.HangoutsPlug):
+                Related plug instance that provides the file.
+            embed (hangups.hangouts_pb2.EmbedItem):
+                Photo or video inside a Hangups message event.
+
+        Returns:
+            .SlackFile:
+                Parsed file object.
+        """
+        source = None
+        if embed.plus_photo:
+            source = embed.plus_photo.thumbnail.url
+            resp = await hangouts.session.head(source, allow_redirects=True,
+                                               cookies=hangouts._client._cookies)
+            title = str(resp.url).rsplit("/", 1)[-1]
+            mime = resp.headers["Content-Type"]
+            if mime.startswith("image/"):
+                type_ = immp.File.Type.image
+            elif mime.startswith("video/"):
+                type_ = immp.File.Type.video
+            else:
+                type_ = immp.File.Type.unknown
+        return cls(hangouts, title=title, type_=type_, source=source)
+
+
 class HangoutsMessage(immp.Message):
     """
     Message originating from Hangouts.
     """
 
     @classmethod
-    def from_event(cls, hangouts, event):
+    async def from_event(cls, hangouts, event):
         """
         Convert a :class:`hangups.ChatMessageEvent` into a :class:`.Message`.
 
@@ -303,8 +349,6 @@ class HangoutsMessage(immp.Message):
                     else:
                         # Couldn't match the user's name to the message text.
                         pass
-            for attach in event.attachments:
-                attachments.append(immp.File(type_=immp.File.Type.image, source=attach))
             for attach in event._event.chat_message.message_content.attachment:
                 embed = attach.embed_item
                 if any(place in embed.type for place in
@@ -314,6 +358,8 @@ class HangoutsMessage(immp.Message):
                                      .format(location.latitude, location.longitude)):
                         text = None
                     attachments.append(location)
+                elif hangouts_pb2.ITEM_TYPE_PLUS_PHOTO in embed.type:
+                    attachments.append(await HangoutsFile.from_embed(hangouts, embed))
         elif isinstance(event, hangups.MembershipChangeEvent):
             action = True
             is_join = event.type_ == hangouts_pb2.MEMBERSHIP_CHANGE_TYPE_JOIN
@@ -425,7 +471,7 @@ class HangoutsPlug(immp.HTTPOpenable, immp.Plug):
 
     async def _event(self, event):
         try:
-            sent = HangoutsMessage.from_event(self, event)
+            sent = await HangoutsMessage.from_event(self, event)
         except NotImplementedError:
             log.warn("Skipping unimplemented %r event type", event.__class__.__name__)
         else:
@@ -566,7 +612,7 @@ class HangoutsPlug(immp.HTTPOpenable, immp.Plug):
             ids = [event.id_ for event in conv.events]
         # Take all events older than the target.
         events = conv.events[:ids.index(before_id)]
-        return [HangoutsMessage.from_event(self, event) for event in events]
+        return [await HangoutsMessage.from_event(self, event) for event in events]
 
     async def channel_history(self, channel, before=None):
         try:
@@ -580,7 +626,7 @@ class HangoutsPlug(immp.HTTPOpenable, immp.Plug):
                 # Only the initial message cached, try to fetch a first batch.
                 await conv.get_events(conv.events[0].id_)
             # Return all cached events.
-            return [HangoutsMessage.from_event(self, event) for event in conv.events]
+            return [await HangoutsMessage.from_event(self, event) for event in conv.events]
         ids = [event.id_ for event in conv.events]
         if before.id in ids:
             return await self._next_batch(conv, before.id)
@@ -626,7 +672,7 @@ class HangoutsPlug(immp.HTTPOpenable, immp.Plug):
             event = await self._get_event(conv, msg.id)
             if not event:
                 return None
-            sent = HangoutsMessage.from_event(self, event)
+            sent = await HangoutsMessage.from_event(self, event)
             # As we only use this for rendering the message again, we shouldn't add a second
             # layer of authorship if we originally sent the message being retrieved.
             if sent.user.id == self._bot_user:
@@ -664,7 +710,8 @@ class HangoutsPlug(immp.HTTPOpenable, immp.Plug):
         images = []
         places = []
         for attach in msg.attachments:
-            if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
+            if isinstance(attach, immp.File) and attach.type in (immp.File.Type.image,
+                                                                 immp.File.Type.video):
                 uploads.append(self._upload(attach))
             elif isinstance(attach, immp.Location):
                 places.append(HangoutsLocation.to_place(attach))

@@ -630,7 +630,12 @@ class TelegramMessage(immp.Message):
                 if message[key]:
                     obj = message[key]
                     break
-            type_ = immp.File.Type.image if key == "animation" else immp.File.Type.unknown
+            if key == "animation":
+                type_ = immp.File.Type.image
+            elif key in ("video", "video_note"):
+                type_ = immp.File.Type.video
+            else:
+                type_ = immp.File.Type.unknown
             attachments.append(await TelegramFile.from_id(telegram, obj["file_id"], type_,
                                                           obj["file_name"]))
         elif message["venue"]:
@@ -781,7 +786,9 @@ class TelegramMessage(immp.Message):
                         action = True
                 elif isinstance(attr, tl.types.DocumentAttributeAnimated):
                     type_ = immp.File.Type.image
-                elif isinstance(attr, tl.types.DocumentAttributeFilename):
+                elif isinstance(attr, tl.types.DocumentAttributeVideo):
+                    type_ = immp.File.Type.video
+                if isinstance(attr, tl.types.DocumentAttributeFilename):
                     name = attr.file_name
             try:
                 attach = await TelegramFile.from_id(telegram, pack_bot_file_id(message.document),
@@ -1251,13 +1258,18 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         return data
 
     async def _upload_attachment(self, chat, msg, attach):
-        # Upload an image file to Telegram in its own message.
+        # Upload a file to Telegram in its own message.
         # Prefer a source URL if available, else fall back to re-uploading the file.
         base = {"chat_id": str(chat)}
         if msg.user:
-            rich = immp.RichText([immp.Segment(msg.user.real_name or msg.user.username,
-                                               bold=True, italic=True),
-                                  immp.Segment(" sent an image", italic=True)])
+            if attach.type == immp.File.Type.image:
+                what = "an image"
+            elif attach.type == immp.File.Type.video:
+                what = "a video"
+            else:
+                what = "a file"
+            rich = immp.Message(text=immp.RichText([immp.Segment("sent {}".format(what))]),
+                                user=msg.user, action=True).render()
             text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
             base["caption"] = text
             base["parse_mode"] = "HTML"
@@ -1267,6 +1279,12 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                 return await self._api("sendPhoto", _Schema.send, data=data)
             except (TelegramAPIConnectError, TelegramAPIRequestError):
                 log.debug("Failed to upload image, falling back to document upload")
+        elif attach.type == immp.File.Type.video:
+            data = await self._form_data(base, "video", attach)
+            try:
+                return await self._api("sendVideo", _Schema.send, data=data)
+            except (TelegramAPIConnectError, TelegramAPIRequestError):
+                log.debug("Failed to upload video, falling back to document upload")
         data = await self._form_data(base, "document", attach)
         try:
             return await self._api("sendDocument", _Schema.send, data=data)

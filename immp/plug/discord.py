@@ -287,9 +287,12 @@ class DiscordMessage(immp.Message):
         if message.content:
             text = DiscordRichText.from_markdown(discord, message.content)
         for attach in message.attachments:
-            type_ = immp.File.Type.unknown
             if attach.filename.endswith((".jpg", ".png", ".gif")):
                 type_ = immp.File.Type.image
+            elif attach.filename.endswith((".mp4", ".webm")):
+                type_ = immp.File.Type.video
+            else:
+                type_ = immp.File.Type.unknown
             attachments.append(immp.File(title=attach.filename,
                                          type_=type_,
                                          source=attach.url))
@@ -531,12 +534,19 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
             name = msg.user.real_name or msg.user.username
             image = msg.user.avatar
         for i, attach in enumerate(msg.attachments or []):
-            if isinstance(attach, immp.File) and attach.type == immp.File.Type.image:
+            if isinstance(attach, immp.File):
+                if attach.title:
+                    title = attach.title
+                elif attach.type == immp.File.Type.image:
+                    title = "image_{}.png".format(i)
+                elif attach.type == immp.File.Type.video:
+                    title = "video_{}.mp4".format(i)
+                else:
+                    title = "file_{}".format(i)
                 async with (await attach.get_content(self.session)) as img_content:
                     # discord.py expects a file-like object with a synchronous read() method.
                     # NB. The whole file is read into memory by discord.py anyway.
-                    files.append(discord.File(BytesIO(await img_content.read()),
-                                              attach.title or "image_{}.png".format(i)))
+                    files.append(discord.File(BytesIO(await img_content.read()), title))
             elif isinstance(attach, immp.Location):
                 embed = discord.Embed()
                 embed.title = attach.name or "Location"

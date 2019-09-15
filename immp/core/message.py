@@ -540,9 +540,12 @@ class File:
                 Default file type if not otherwise specified.
             image:
                 Picture in a standard recognised format (e.g. PNG, JPEG).
+            video:
+                Video in a standard recognised format (e.g. MP4).
         """
         unknown = 0
         image = 1
+        video = 2
 
     def __init__(self, title=None, type_=Type.unknown, source=None):
         self.title = title
@@ -574,7 +577,7 @@ class File:
         if self.title and self.source:
             return "{} ({})".format(self.title, self.source)
         else:
-            return self.title or self.source
+            return self.title or self.source or "Unknown"
 
     def __repr__(self):
         return "<{}: {} {}>".format(self.__class__.__name__, repr(self.title), self.type.name)

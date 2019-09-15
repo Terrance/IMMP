@@ -446,9 +446,12 @@ class SlackFile(immp.File):
                 Parsed file object.
         """
         file = _Schema.file(json)
-        type_ = immp.File.Type.unknown
         if file["mimetype"].startswith("image/"):
             type_ = immp.File.Type.image
+        elif file["mimetype"].startswith("video/"):
+            type_ = immp.File.Type.video
+        else:
+            type_ = immp.File.Type.unknown
         return cls(slack,
                    title=file["name"],
                    type_=type_,
