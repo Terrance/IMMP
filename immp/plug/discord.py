@@ -507,6 +507,11 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
         messages = [DiscordMessage.from_message(self, message) async for message in history]
         return list(reversed(messages))
 
+    async def get_message(self, receipt):
+        dc_channel = self._get_channel(receipt.channel)
+        message = await dc_channel.fetch_message(receipt.id)
+        return DiscordMessage.from_message(self, message)
+
     def _resolve_channel(self, channel):
         dc_channel = self._get_channel(channel)
         webhook = None
@@ -516,15 +521,6 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
                 webhook = discord.Webhook.from_url(self.config["webhooks"][label], adapter=adapter)
                 break
         return dc_channel, webhook
-
-    async def _resolve_message(self, dc_channel, msg):
-        if isinstance(msg, immp.Receipt):
-            # Discord offers no reply mechanism, so instead we just fetch the referenced message
-            # and render it manually.
-            message = await dc_channel.fetch_message(msg.id)
-            return DiscordMessage.from_message(self, message)
-        elif isinstance(msg, immp.Message):
-            return msg
 
     async def _requests(self, dc_channel, webhook, msg):
         name = image = None
@@ -556,10 +552,12 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
                 embed.set_footer(text="{}, {}".format(attach.latitude, attach.longitude))
                 embeds.append((embed, "sent a location"))
             elif isinstance(attach, immp.Message):
-                resolved = await self._resolve_message(dc_channel, attach)
+                resolved = await self.resolve_message(attach)
                 embeds.append((await DiscordMessage.to_embed(self, resolved), "sent a message"))
         if msg.reply_to:
-            resolved = await self._resolve_message(dc_channel, msg.reply_to)
+            # Discord offers no reply mechanism, so instead we just fetch the referenced message
+            # and render it manually.
+            resolved = await self.resolve_message(msg.reply_to)
             embeds.append((await DiscordMessage.to_embed(self, resolved, True), None))
         edited = msg.edited if isinstance(msg, immp.Receipt) else False
         if webhook:

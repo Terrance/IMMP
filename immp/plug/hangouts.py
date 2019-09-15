@@ -644,42 +644,41 @@ class HangoutsPlug(immp.HTTPOpenable, immp.Plug):
         # Maxed out on attempts but didn't find the requested message.
         return []
 
-    async def _get_event(self, conv, event_id):
+    async def _get_event(self, receipt):
+        try:
+            conv = self._convs.get(receipt.channel.source)
+        except KeyError:
+            return None
         ids = [event.id_ for event in conv.events]
         try:
-            return conv.get_event(event_id)
+            return conv.get_event(receipt.id)
         except KeyError:
             pass
         # Hangouts has no way to query for an event by ID, only by timestamp.  Instead, we'll try a
         # few times to retrieve it further down the message history.
         for i in range(10):
-            log.debug("Fetching batch %i of events to find %r", i + 1, event_id)
+            log.debug("Fetching batch %i of events to find %r", i + 1, receipt.id)
             events = await conv.get_events(conv.events[0].id_)
             ids = [event.id_ for event in events]
             if not ids:
                 # No further messages, we've hit the end of the message history.
                 return []
-            elif event_id in ids:
-                return events[ids.index(event_id)]
+            elif receipt.id in ids:
+                return events[ids.index(receipt.id)]
         # Maxed out on attempts but didn't find the requested message.
         return None
 
-    async def _resolve_msg(self, conv, msg):
-        if isinstance(msg, immp.Message):
-            return msg
-        elif isinstance(msg, immp.Receipt):
-            # We have the message reference but not the content.
-            event = await self._get_event(conv, msg.id)
-            if not event:
-                return None
-            sent = await HangoutsMessage.from_event(self, event)
-            # As we only use this for rendering the message again, we shouldn't add a second
-            # layer of authorship if we originally sent the message being retrieved.
-            if sent.user.id == self._bot_user:
-                sent.user = None
-            return sent
-        else:
+    async def get_message(self, receipt):
+        # We have the message reference but not the content.
+        event = await self._get_event(receipt)
+        if not event:
             return None
+        sent = await HangoutsMessage.from_event(self, event)
+        # As we only use this for rendering the message again, we shouldn't add a second
+        # layer of authorship if we originally sent the message being retrieved.
+        if sent.user.id == self._bot_user:
+            sent.user = None
+        return sent
 
     async def _upload(self, attach):
         async with (await attach.get_content(self.session)) as img_content:
@@ -749,12 +748,12 @@ class HangoutsPlug(immp.HTTPOpenable, immp.Plug):
         conv = self._convs.get(channel.source)
         # Attempt to find sources for referenced messages.
         clone = copy(msg)
-        clone.reply_to = await self._resolve_msg(conv, clone.reply_to)
+        clone.reply_to = await self.resolve_message(clone.reply_to)
         requests = []
         for attach in clone.attachments:
             # Generate requests for attached messages first.
             if isinstance(attach, immp.Message):
-                requests += await self._requests(conv, await self._resolve_msg(conv, attach))
+                requests += await self._requests(conv, await self.resolve_message(attach))
         own_requests = await self._requests(conv, clone)
         if requests and not own_requests:
             # Forwarding a message but no content to show who forwarded it.

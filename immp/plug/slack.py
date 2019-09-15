@@ -464,6 +464,11 @@ class SlackMessage(immp.Message):
     """
 
     @classmethod
+    def from_unfurl(cls, slack, attach):
+        unfurl = _Schema.msg_unfurl(attach)
+        return immp.Receipt(unfurl["ts"], immp.Channel(slack, unfurl["channel_id"]))
+
+    @classmethod
     def _parse_meta(cls, slack, event):
         id_ = event["ts"]
         at = datetime.fromtimestamp(float(event["ts"]), timezone.utc)
@@ -527,7 +532,7 @@ class SlackMessage(immp.Message):
             thread = immp.Receipt(event["thread_ts"], immp.Channel(slack, event["channel"]))
         if thread and parent:
             try:
-                thread = await slack.get_message(channel.source, thread.id, False)
+                thread = await slack.resolve_message(thread, False)
             except MessageNotFound:
                 pass
         if isinstance(thread, immp.Message):
@@ -553,10 +558,10 @@ class SlackMessage(immp.Message):
             attachments.append(SlackFile.from_file(slack, file))
         for attach in event["attachments"]:
             if attach["is_msg_unfurl"]:
-                unfurl = _Schema.msg_unfurl(attach)
                 # We have the message ID as the timestamp, fetch the whole message to embed it.
                 try:
-                    attachments.append(await slack.get_message(unfurl["channel_id"], unfurl["ts"]))
+                    unfurl = cls.from_unfurl(slack, attach)
+                    attachments.append(await slack.resolve_message(unfurl))
                 except MessageNotFound:
                     pass
             elif attach["image_url"]:
@@ -579,7 +584,8 @@ class SlackMessage(immp.Message):
                 refs = [attach.id for attach in attachments if isinstance(attach, immp.Receipt)]
                 if ts not in refs:
                     try:
-                        attachments.append(await slack.get_message(channel_id, ts))
+                        receipt = immp.Receipt(ts, immp.Channel(slack, channel_id))
+                        attachments.append(await slack.resolve_message(receipt))
                     except MessageNotFound:
                         pass
             if re.match("^<{}>$".format(regex), text):
@@ -886,22 +892,23 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
             msg["channel"] = channel.source
         return await gather(*(SlackMessage.from_event(self, msg) for msg in messages))
 
-    async def get_message(self, channel_id, ts, parent=True):
-        params = {"channel": channel_id,
-                  "latest": ts,
+    async def get_message(self, receipt, parent=True):
+        params = {"channel": receipt.channel.source,
+                  "latest": receipt.id,
                   "inclusive": "true",
                   "limit": 1}
         try:
             history = await self._api("conversations.history", _Schema.history, params=params)
         except SlackAPIError:
-            log.debug("API error retrieving message %r from %r", ts, channel_id, exc_info=True)
+            log.debug("API error retrieving message %r from %r", receipt.id, receipt.channel.source,
+                      exc_info=True)
             raise MessageNotFound from None
         if history["messages"]:
             msg = history["messages"][0]
-            if msg["ts"] == ts:
-                msg["channel"] = channel_id
+            if msg["ts"] == receipt.id:
+                msg["channel"] = receipt.channel.source
                 return await SlackMessage.from_event(self, msg, parent)
-        log.debug("Failed to find message %r in %r", ts, channel_id)
+        log.debug("Failed to find message %r in %r", receipt.id, receipt.channel.source)
         raise MessageNotFound
 
     async def get_reply(self, channel_id, thread_ts, reply_ts, parent=True):

@@ -2,6 +2,7 @@ from asyncio import BoundedSemaphore, Queue
 import logging
 
 from .error import PlugError
+from .message import Message, Receipt
 from .util import Configurable, Openable, OpenState, pretty_str
 
 
@@ -245,6 +246,42 @@ class Plug(Configurable, Openable):
                 Messages from the channel, oldest first.
         """
         return []
+
+    async def get_message(self, receipt):
+        """
+        Lookup a :class:`.Receipt` and fetch the corresponding :class:`.SentMessage`.
+
+        Args:
+            receipt (.Receipt):
+                Existing message reference to retrieve.
+
+        Returns:
+            .SentMessage:
+                Full message.
+        """
+        return None
+
+    async def resolve_message(self, msg):
+        """
+        Lookup a :class:`.Receipt` if no :class:`.Message` data is present, and fetch the
+        corresponding :class:`.SentMessage`.
+
+        Args:
+            msg (.Message | .Receipt):
+                Existing message reference to retrieve.
+
+        Returns:
+            .SentMessage:
+                Full message.
+        """
+        if msg is None:
+            return None
+        elif isinstance(msg, Message):
+            return msg
+        elif isinstance(msg, Receipt):
+            return await self.get_message(msg)
+        else:
+            raise TypeError
 
     def queue(self, sent):
         """

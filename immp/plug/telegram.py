@@ -766,7 +766,8 @@ class TelegramMessage(immp.Message):
         title = None
         attachments = []
         if message.reply_to_msg_id:
-            reply_to = await telegram.get_message(channel, message.reply_to_msg_id)
+            receipt = immp.Receipt(message.reply_to_msg_id, channel)
+            reply_to = await telegram.resolve_message(receipt)
         if message.photo:
             try:
                 attach = await TelegramFile.from_id(telegram, pack_bot_file_id(message.photo),
@@ -1235,13 +1236,13 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                 messages.append(result)
         return messages
 
-    async def get_message(self, channel, id_):
+    async def get_message(self, receipt):
         if not self._client:
             log.debug("Client auth required to retrieve messages")
             return None
-        message = await self._client.get_messages(int(channel.source), ids=id_)
+        message = await self._client.get_messages(int(receipt.channel.source), ids=int(receipt.id))
         if not message:
-            log.debug("Failed to find message %d in %d", id_, channel.source)
+            log.debug("Failed to find message %d in %d", receipt.id, receipt.channel.source)
             return None
         try:
             return await TelegramMessage.from_proto_message(self, message)
