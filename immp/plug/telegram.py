@@ -422,7 +422,7 @@ class TelegramRichText(immp.RichText):
             elif entity["type"] in ("url", "email"):
                 key = "link"
                 value, clear = encoded[start:end].decode("utf-16-le"), None
-            elif entity["type"] == "text_url":
+            elif entity["type"] == "text_link":
                 key = "link"
                 value, clear = entity["url"], None
             elif entity["type"] == "mention":
