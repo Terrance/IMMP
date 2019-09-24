@@ -132,7 +132,7 @@ class Segment:
 
     def __init__(self, text, *, bold=False, italic=False, underline=False, strike=False,
                  code=False, pre=False, link=None, mention=None):
-        self.text = text
+        self.text = str(text)
         self.bold = bold
         self.italic = italic
         self.underline = underline

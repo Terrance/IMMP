@@ -21,7 +21,7 @@ from asyncio import gather
 import logging
 
 import immp
-from immp.hook.command import command
+from immp.hook.command import command, CommandParser
 
 
 CROSS = "\N{CROSS MARK}"
@@ -136,7 +136,7 @@ class WhoIsHook(immp.Hook):
 
     _identities = immp.ConfigProperty([IdentityProvider])
 
-    @command("who")
+    @command("who", parser=CommandParser.none)
     async def who(self, msg, name):
         """
         Recall a known identity and all of its links.
@@ -147,8 +147,12 @@ class WhoIsHook(immp.Hook):
             tasks = (provider.identity_from_user(msg.user) for provider in self._identities)
             providers = [identity.provider for identity in await gather(*tasks) if identity]
         if providers:
-            identities = list(filter(None, await gather(*(provider.identity_from_name(name)
-                                                          for provider in providers))))
+            if name[0].mention:
+                user = name[0].mention
+                tasks = (provider.identity_from_user(user) for provider in providers)
+            else:
+                tasks = (provider.identity_from_name(name) for provider in providers)
+            identities = list(filter(None, await gather(*tasks)))
             links = {link for identity in identities for link in identity.links}
             if links:
                 text = immp.RichText([immp.Segment(name, bold=True),
