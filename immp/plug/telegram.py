@@ -384,7 +384,7 @@ class TelegramRichText(immp.RichText):
             if start == end:
                 # Zero-length segment at the start or end, ignore it.
                 continue
-            segments.append(immp.Segment(text[start:end], **formatting))
+            segments.append(immp.Segment(text[start:end].decode("utf-16-le"), **formatting))
         return cls(segments)
 
     @classmethod
@@ -436,10 +436,7 @@ class TelegramRichText(immp.RichText):
                 continue
             changes[start][key] = value
             changes[end][key] = clear
-        rich = cls._from_changes(encoded, changes)
-        for segment in rich:
-            segment.text = segment.text.decode("utf-16-le")
-        return rich
+        return cls._from_changes(encoded, changes)
 
     @classmethod
     async def from_proto_entities(cls, telegram, text, entities):
