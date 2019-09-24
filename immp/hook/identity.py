@@ -151,12 +151,14 @@ class WhoIsHook(immp.Hook):
                 user = name[0].mention
                 tasks = (provider.identity_from_user(user) for provider in providers)
             else:
-                tasks = (provider.identity_from_name(name) for provider in providers)
+                tasks = (provider.identity_from_name(str(name)) for provider in providers)
             identities = list(filter(None, await gather(*tasks)))
             links = {link for identity in identities for link in identity.links}
             if links:
-                text = immp.RichText([immp.Segment(name, bold=True),
-                                      immp.Segment(" may appear as:")])
+                text = name.clone()
+                for segment in text:
+                    segment.bold = True
+                text.append(immp.Segment(" may appear as:"))
                 for user in sorted(links, key=lambda user: user.plug.network_name):
                     text.append(immp.Segment("\n"))
                     text.append(immp.Segment("({}) ".format(user.plug.network_name)))
