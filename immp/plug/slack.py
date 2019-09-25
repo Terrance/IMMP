@@ -532,7 +532,7 @@ class SlackMessage(immp.Message):
             thread = immp.Receipt(event["thread_ts"], immp.Channel(slack, event["channel"]))
         if thread and parent:
             try:
-                thread = await slack.resolve_message(thread, False)
+                thread = await slack.get_message(thread, False)
             except MessageNotFound:
                 pass
         if isinstance(thread, immp.Message):
