@@ -559,7 +559,6 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
             # and render it manually.
             resolved = await self.resolve_message(msg.reply_to)
             embeds.append((await DiscordMessage.to_embed(self, resolved, True), None))
-        edited = msg.edited if isinstance(msg, immp.Receipt) else False
         if webhook:
             # Sending via webhook: multiple embeds and files supported.
             requests = []
@@ -569,7 +568,7 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
                 if msg.action:
                     for segment in rich:
                         segment.italic = True
-                if edited:
+                if msg.edited:
                     rich.append(immp.Segment(" (edited)", italic=True))
                 lines = DiscordRichText.chunk_split(DiscordRichText.to_markdown(self, rich, True))
                 if len(lines) > 1:
@@ -587,7 +586,7 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
             # Sending via client: only a single embed per message.
             requests = []
             text = embed = None
-            rich = msg.render(link_name=False, edit=edited) or None
+            rich = msg.render(link_name=False, edit=msg.edited) or None
             if rich:
                 lines = DiscordRichText.chunk_split(DiscordRichText.to_markdown(self, rich))
                 if len(lines) > 1:

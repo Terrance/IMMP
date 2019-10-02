@@ -718,8 +718,8 @@ class HangoutsPlug(immp.HTTPOpenable, immp.Plug):
             images = await gather(*uploads)
         requests = []
         if msg.text or msg.reply_to:
-            edited = msg.edited if isinstance(msg, immp.Receipt) else False
-            segments = self._serialise(msg.render(link_name=False, edit=edited, quote_reply=True))
+            render = msg.render(link_name=False, edit=msg.edited, quote_reply=True)
+            segments = self._serialise(render)
             media = None
             if len(images) == 1:
                 # Attach the only image to the message text.

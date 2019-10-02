@@ -704,7 +704,7 @@ class SyncHook(_SyncHookBase):
                 skipped (used to avoid retransmitting a message we just received).  This should be
                 the plug-native copy of a message when syncing from another channel.
         """
-        base = immp.Message(text=msg.text, user=msg.user, action=msg.action,
+        base = immp.Message(text=msg.text, user=msg.user, edited=msg.edited, action=msg.action,
                             reply_to=msg.reply_to, joined=msg.joined, left=msg.left,
                             title=msg.title, attachments=msg.attachments, raw=msg)
         queue = []

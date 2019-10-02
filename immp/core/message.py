@@ -689,6 +689,8 @@ class Message(_SentMessageSlots):
             Representation of the message text content.
         user (.User):
             User profile that sent the message.
+        edited (bool):
+            Whether the message content has been changed.
         action (bool):
             Whether this message should be presented as an action involving its user.
         reply_to (.Message):
@@ -707,10 +709,11 @@ class Message(_SentMessageSlots):
 
     __slots__ = ()
 
-    def __init__(self, *, text=None, user=None, action=False, reply_to=None, joined=None,
-                 left=None, title=None, attachments=None, raw=None):
+    def __init__(self, *, text=None, user=None, edited=False, action=False, reply_to=None,
+                 joined=None, left=None, title=None, attachments=None, raw=None):
         self.text = text
         self.user = user
+        self.edited = edited
         self.action = action
         self.reply_to = reply_to
         self.joined = joined or []
@@ -842,6 +845,8 @@ class Message(_SentMessageSlots):
     def _repr_parts(self):
         return " ".join(filter(None, (repr(self.user) if self.user else None,
                                       repr(str(self.text)) if self.text else None,
+                                      "edit" if self.edited else None,
+                                      "action" if self.action else None,
                                       "join" if self.joined else None,
                                       "leave" if self.left else None,
                                       ("+{}".format(len(self.attachments))
@@ -869,20 +874,17 @@ class Receipt(_SentMessageSlots):
         revision (str):
             Key to uniquely identify updates to a previous message, defaults to :attr:`id`.  Need
             not be in the same format as the main identifier.
-        edited (bool):
-            Whether the message content has been changed.
         deleted (bool):
             Whether the message was deleted from its source.
     """
 
     __slots__ = ()
 
-    def __init__(self, id_, channel, *, at=None, revision=None, edited=False, deleted=False):
+    def __init__(self, id_, channel, *, at=None, revision=None, deleted=False):
         self.id = id_
         self.channel = channel
         self.at = at or datetime.now(timezone.utc)
         self.revision = str(revision or id)
-        self.edited = edited
         self.deleted = deleted
 
     @property
@@ -908,9 +910,8 @@ class Receipt(_SentMessageSlots):
         return hash((self.id, self.revision, self.channel))
 
     def __repr__(self):
-        return "<{}: {} @ {} {}{}{}>".format(self.__class__.__name__, self.id, self.at,
-                                             repr(self.channel), " edited" if self.edited else "",
-                                             " deleted" if self.deleted else "")
+        return "<{}: {} @ {} {}{}>".format(self.__class__.__name__, self.id, self.at,
+                                           repr(self.channel), " deleted" if self.deleted else "")
 
 
 class SentMessage(Receipt, Message):
@@ -923,10 +924,10 @@ class SentMessage(Receipt, Message):
     def __init__(self, id_, channel, *, at=None, revision=None, edited=False, deleted=False,
                  text=None, user=None, action=False, reply_to=None, joined=None, left=None,
                  title=None, attachments=None, raw=None):
-        Receipt.__init__(self, id_=id_, channel=channel, revision=revision, at=at, edited=edited,
-                         deleted=deleted)
-        Message.__init__(self, text=text, user=user, action=action, reply_to=reply_to,
-                         joined=joined, left=left, title=title, attachments=attachments, raw=raw)
+        Receipt.__init__(self, id_=id_, channel=channel, revision=revision, at=at, deleted=deleted)
+        Message.__init__(self, text=text, user=user, edited=edited, action=action,
+                         reply_to=reply_to, joined=joined, left=left, title=title,
+                         attachments=attachments, raw=raw)
 
     def __repr__(self):
         parts = self._repr_parts()

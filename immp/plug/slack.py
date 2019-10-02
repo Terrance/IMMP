@@ -974,7 +974,7 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
             if msg.action:
                 for segment in rich:
                     segment.italic = True
-        if isinstance(msg, immp.Receipt) and msg.edited:
+        if msg.edited:
             rich.append(immp.Segment(" (edited)", italic=True))
         attachments = []
         if isinstance(parent.reply_to, immp.Receipt):

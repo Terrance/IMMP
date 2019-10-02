@@ -655,7 +655,6 @@ class TelegramMessage(immp.Message):
                       revision=revision,
                       at=at,
                       channel=channel,
-                      edited=edited,
                       user=user,
                       raw=message)
         if message["forward_date"]:
@@ -679,6 +678,7 @@ class TelegramMessage(immp.Message):
                 forward_user = immp.User(real_name=message["forward_sender_name"])
             forward_common = dict(text=text,
                                   user=forward_user,
+                                  edited=edited,
                                   action=action,
                                   reply_to=reply_to,
                                   joined=joined,
@@ -696,6 +696,7 @@ class TelegramMessage(immp.Message):
             return immp.SentMessage(attachments=[forward], **common)
         else:
             return immp.SentMessage(text=text,
+                                    edited=edited,
                                     action=action,
                                     reply_to=reply_to,
                                     joined=joined,
@@ -846,7 +847,6 @@ class TelegramMessage(immp.Message):
                       revision=revision,
                       at=message.date,
                       channel=channel,
-                      edited=edited,
                       user=user,
                       raw=message)
         if message.forward:
@@ -871,6 +871,7 @@ class TelegramMessage(immp.Message):
                 forward_user = immp.User(real_name=message.forward.from_name)
             forward_common = dict(text=text,
                                   user=forward_user,
+                                  edited=edited,
                                   action=action,
                                   reply_to=reply_to,
                                   joined=joined,
@@ -888,6 +889,7 @@ class TelegramMessage(immp.Message):
             return immp.SentMessage(attachments=[forward], **common)
         else:
             return immp.SentMessage(text=text,
+                                    edited=edited,
                                     action=action,
                                     reply_to=reply_to,
                                     joined=joined,
