@@ -2,6 +2,7 @@ from copy import copy
 from datetime import datetime, timezone
 from enum import Enum
 import re
+from urllib.parse import urlparse, urlunparse
 
 from .error import PlugError
 from .util import _no_escape, escape, pretty_str, unescape
@@ -126,7 +127,7 @@ class Segment:
             ``True`` if the segment is not formatted.
     """
 
-    __slots__ = ("text", "bold", "italic", "underline", "strike", "code", "pre", "link", "mention")
+    __slots__ = ("text", "bold", "italic", "underline", "strike", "code", "pre", "_link", "mention")
 
     _format_attrs = __slots__[1:]
 
@@ -141,6 +142,23 @@ class Segment:
         self.pre = pre
         self.link = link
         self.mention = mention
+
+    @property
+    def link(self):
+        return self._link
+
+    @link.setter
+    def link(self, value):
+        if not value:
+            self._link = None
+            return
+        parsed = urlparse(value)
+        if not parsed.scheme:
+            parsed = parsed._replace(scheme="http")
+        if parsed.path and not parsed.netloc:
+            netloc, *path = parsed.path.split("/")
+            parsed = parsed._replace(netloc=netloc, path="/".join(path))
+        self._link = urlunparse(parsed)
 
     def __len__(self):
         return len(self.text)
@@ -179,7 +197,8 @@ class Segment:
         return self.text
 
     def __repr__(self):
-        attrs = [" {}".format(attr) for attr in self._format_attrs if getattr(self, attr)]
+        attrs = [" {}".format(attr.lstrip("_"))
+                 for attr in self._format_attrs if getattr(self, attr)]
         return "<{}: {}{}>".format(self.__class__.__name__, repr(self.text), "".join(attrs))
 
 
