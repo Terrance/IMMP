@@ -884,7 +884,7 @@ class Receipt(_SentMessageSlots):
         self.id = id_
         self.channel = channel
         self.at = at or datetime.now(timezone.utc)
-        self.revision = str(revision or id)
+        self.revision = str(revision or id_)
         self.deleted = deleted
 
     @property

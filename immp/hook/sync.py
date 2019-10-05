@@ -250,7 +250,7 @@ class SyncRef:
     def __init__(self, ids, *, key=None, source=None, origin=None):
         self.key = key or self.next_key()
         self.ids = defaultdict(list, ids)
-        self.revisions = defaultdict(set)
+        self.revisions = defaultdict(lambda: defaultdict(set))
         self.source = source
         if origin:
             self.ids[origin.channel].append(origin.id)
@@ -269,8 +269,8 @@ class SyncRef:
                 ``True`` if this is an edit (i.e. we've already seen a base revision for this
                 message) and needs syncing to other channels.
         """
-        self.revisions[sent.channel].add(sent.revision)
-        return len(self.revisions[sent.channel]) > 1
+        self.revisions[sent.channel][sent.id].add(sent.revision)
+        return len(self.revisions[sent.channel][sent.id]) > 1
 
     def __repr__(self):
         return "<{}: #{} x{}{}>".format(self.__class__.__name__, self.key, len(self.ids),
