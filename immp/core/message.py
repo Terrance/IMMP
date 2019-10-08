@@ -152,6 +152,8 @@ class Segment:
         if not value:
             self._link = None
             return
+        if value is True:
+            value = self.text
         parsed = urlparse(value)
         if not parsed.scheme:
             parsed = parsed._replace(scheme="http")
@@ -426,9 +428,6 @@ class RichText:
                                                   real_name=name)
         if text:
             rich.append(Segment(unescape(text, "<"), **current))
-        for segment in rich:
-            if segment.link is True:
-                segment.link = segment.text
         return rich
 
     def raw(self):
