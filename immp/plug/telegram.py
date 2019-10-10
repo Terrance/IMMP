@@ -384,7 +384,10 @@ class TelegramRichText(immp.RichText):
             if start == end:
                 # Zero-length segment at the start or end, ignore it.
                 continue
-            segments.append(immp.Segment(text[start:end].decode("utf-16-le"), **formatting))
+            part = text[start:end]
+            if isinstance(part, bytes):
+                part = part.decode("utf-16-le")
+            segments.append(immp.Segment(part, **formatting))
         return cls(segments)
 
     @classmethod
@@ -418,22 +421,23 @@ class TelegramRichText(immp.RichText):
             end = start + (entity["length"] * 2)
             if entity["type"] in ("bold", "italic", "code", "pre"):
                 key = entity["type"]
-                value, clear = True, False
+                value = True
             elif entity["type"] in ("url", "email"):
                 key = "link"
-                value, clear = encoded[start:end].decode("utf-16-le"), None
+                value = encoded[start:end].decode("utf-16-le")
             elif entity["type"] == "text_link":
                 key = "link"
-                value, clear = entity["url"], None
+                value = entity["url"]
             elif entity["type"] == "mention":
                 key = "mention"
                 username = encoded[start + 2:end].decode("utf-16-le")
-                value, clear = await telegram.user_from_username(username), None
+                value = await telegram.user_from_username(username)
             elif entity["type"] == "text_mention":
                 key = "mention"
-                value, clear = TelegramUser.from_bot_user(telegram, entity["user"]), None
+                value = TelegramUser.from_bot_user(telegram, entity["user"])
             else:
                 continue
+            clear = False if value is True else None
             changes[start][key] = value
             changes[end][key] = clear
         return cls._from_changes(encoded, changes)
@@ -461,7 +465,7 @@ class TelegramRichText(immp.RichText):
             return immp.RichText([immp.Segment(text)])
         changes = defaultdict(dict)
         for entity in entities:
-            value, clear = True, False
+            value = True
             if isinstance(entity, tl.types.MessageEntityBold):
                 key = "bold"
             elif isinstance(entity, tl.types.MessageEntityItalic):
@@ -472,19 +476,20 @@ class TelegramRichText(immp.RichText):
                 key = "pre"
             elif isinstance(entity, (tl.types.MessageEntityEmail, tl.types.MessageEntityUrl)):
                 key = "link"
-                value, clear = text[entity.offset:entity.offset + entity.length], None
+                value = text[entity.offset:entity.offset + entity.length]
             elif isinstance(entity, tl.types.MessageEntityTextUrl):
                 key = "link"
-                value, clear = entity.url, None
+                value = entity.url
             elif isinstance(entity, tl.types.MessageEntityMention):
                 key = "mention"
                 username = text[entity.offset + 1:entity.offset + entity.length]
-                value, clear = await telegram.user_from_username(username), None
+                value = await telegram.user_from_username(username)
             elif isinstance(entity, tl.types.MessageEntityMentionName):
                 key = "mention"
-                value, clear = await telegram.user_from_id(entity.user_id), None
+                value = await telegram.user_from_id(entity.user_id)
             else:
                 continue
+            clear = False if value is True else None
             changes[entity.offset][key] = value
             changes[entity.offset + entity.length][key] = clear
         return cls._from_changes(text, changes)
