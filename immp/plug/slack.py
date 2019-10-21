@@ -527,6 +527,10 @@ class SlackMessage(immp.Message):
             title = event["name"]
         elif event["subtype"] == "me_message":
             action = True
+        elif event["subtype"] == "reminder_add":
+            action = True
+            # Slack leaves a leading space in the message text: " set up a reminder..."
+            text = text.lstrip()
         thread = recent = None
         if event["thread_ts"]:
             thread = immp.Receipt(event["thread_ts"], immp.Channel(slack, event["channel"]))
