@@ -46,7 +46,6 @@ class AutoRespondHook(immp.Hook):
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
-        self.responses = self.config["responses"]
         self._sent = []
 
     @command("ar-add", parser=CommandParser.shlex)
@@ -78,7 +77,7 @@ class AutoRespondHook(immp.Hook):
         if (sent.channel, sent.id) in self._sent:
             return
         text = str(source.text)
-        for match, response in self.responses.items():
+        for match, response in self.config["responses"].items():
             if re.search(match, text, re.I):
                 log.debug("Matched regex %r in channel: %r", match, sent.channel)
                 for id_ in await sent.channel.send(immp.Message(text=response)):
