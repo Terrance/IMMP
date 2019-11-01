@@ -82,7 +82,8 @@ class _Schema:
                         immp.Optional("shares", dict): {immp.Optional("public", dict): _shares,
                                                         immp.Optional("private", dict): _shares}})
 
-    attachment = immp.Schema({immp.Optional("title"): immp.Nullable(str),
+    attachment = immp.Schema({immp.Optional("fallback"): immp.Nullable(str),
+                              immp.Optional("title"): immp.Nullable(str),
                               immp.Optional("image_url"): immp.Nullable(str),
                               immp.Optional("is_msg_unfurl", False): bool})
 
