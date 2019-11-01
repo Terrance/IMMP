@@ -14,7 +14,9 @@ Commands:
         Remove an existing trigger.
 
 This hook will listen for messages in all given channels, for text content that matches any of the
-defined regular expressions.  On a match, it will answer with the corresponding response.
+defined regular expressions.  On a match, it will answer with the corresponding response.  You can
+include capture groups in the expression, which are available using positional formatting syntax
+(``{0}`` for a specific group, or ``{}`` for each one in turn).
 
 Because all responses are defined in the config, you'll need to ensure it's saved when making
 changes via the add/remove commands.
@@ -77,8 +79,10 @@ class AutoRespondHook(immp.Hook):
         if (sent.channel, sent.id) in self._sent:
             return
         text = str(source.text)
-        for match, response in self.config["responses"].items():
-            if re.search(match, text, re.I):
+        for regex, response in self.config["responses"].items():
+            match = re.search(regex, text, re.I)
+            if match:
                 log.debug("Matched regex %r in channel: %r", match, sent.channel)
+                response = response.format(*match.groups())
                 for id_ in await sent.channel.send(immp.Message(text=response)):
                     self._sent.append((sent.channel, id_))
