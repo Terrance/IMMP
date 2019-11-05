@@ -204,11 +204,11 @@ class GitHubPlug(immp.Plug):
             event = _Schema.event(await request.json())
         except (KeyError, ValueError):
             raise web.HTTPBadRequest
-        if type == "ping":
+        if type_ == "ping":
             log.debug("Received ping event for %s", event["repository"]["full_name"])
         else:
             try:
                 self.queue(GitHubMessage.from_event(self, type_, id_, event))
             except NotImplementedError:
-                log.debug("Ignoring unrecognised event type %r", type)
+                log.debug("Ignoring unrecognised event type %r", type_)
         return web.Response()
