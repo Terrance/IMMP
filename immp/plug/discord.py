@@ -7,8 +7,8 @@ Config:
     bot (bool):
         Whether the token represents a bot user (true by default).
     webhooks ((str, str) dict):
-        Mapping from Discord channel IDs to webhook URLs, needed for custom message author
-        names and avatars.
+        Mapping from named Discord channels to webhook URLs, needed for custom message author names
+        and avatars.
     playing (str):
         Optional game activity message to show as the bot's presence.
 
