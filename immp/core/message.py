@@ -156,10 +156,14 @@ class Segment:
             value = self.text
         parsed = urlparse(value)
         if not parsed.scheme:
-            parsed = parsed._replace(scheme="http")
-        if parsed.path and not parsed.netloc:
-            netloc, *path = parsed.path.split("/")
-            parsed = parsed._replace(netloc=netloc, path="/".join(path))
+            scheme = "http"
+            if parsed.path and not parsed.netloc:
+                if "@" in parsed.path and ":" not in parsed.path and "/" not in parsed.path:
+                    scheme = "mailto"
+                else:
+                    netloc, *path = parsed.path.split("/")
+                    parsed = parsed._replace(netloc=netloc, path="/".join(path))
+            parsed = parsed._replace(scheme=scheme)
         self._link = urlunparse(parsed)
 
     def __len__(self):

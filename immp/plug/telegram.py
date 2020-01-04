@@ -427,9 +427,12 @@ class TelegramRichText(immp.RichText):
             elif entity["type"] == "strikethrough":
                 key = "strike"
                 value = True
-            elif entity["type"] in ("url", "email"):
+            elif entity["type"] == "url":
                 key = "link"
                 value = encoded[start:end].decode("utf-16-le")
+            elif entity["type"] == "email":
+                key = "link"
+                value = "mailto:{}".format(encoded[start:end].decode("utf-16-le"))
             elif entity["type"] == "text_link":
                 key = "link"
                 value = entity["url"]
@@ -483,12 +486,15 @@ class TelegramRichText(immp.RichText):
                 key = "code"
             elif isinstance(entity, tl.types.MessageEntityPre):
                 key = "pre"
-            elif isinstance(entity, (tl.types.MessageEntityEmail, tl.types.MessageEntityUrl)):
+            elif isinstance(entity, tl.types.MessageEntityUrl):
                 key = "link"
                 value = text[entity.offset:entity.offset + entity.length]
             elif isinstance(entity, tl.types.MessageEntityTextUrl):
                 key = "link"
                 value = entity.url
+            elif isinstance(entity, tl.types.MessageEntityEmail):
+                key = "link"
+                value = "mailto:{}".format(text[entity.offset:entity.offset + entity.length])
             elif isinstance(entity, tl.types.MessageEntityMention):
                 key = "mention"
                 username = text[entity.offset + 1:entity.offset + entity.length]
