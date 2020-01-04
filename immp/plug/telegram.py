@@ -345,8 +345,6 @@ class TelegramSegment(immp.Segment):
                 HTML-formatted string.
         """
         text = segment.text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        # Any form of tag nesting (e.g. bold inside italic) isn't supported, so at most one type of
-        # formatting may apply for each segment.
         if segment.mention and segment.mention.plug.network_id == telegram.network_id:
             if segment.mention.username:
                 # Telegram will parse this automatically.
@@ -357,14 +355,18 @@ class TelegramSegment(immp.Segment):
                         .format(segment.mention.id, segment.mention.real_name))
         elif segment.link:
             text = "<a href=\"{}\">{}</a>".format(segment.link, text)
-        elif segment.pre:
-            text = "<pre>{}</pre>".format(text)
-        elif segment.code:
+        if segment.code:
             text = "<code>{}</code>".format(text)
-        elif segment.bold:
+        if segment.pre:
+            text = "<pre>{}</pre>".format(text)
+        if segment.bold:
             text = "<b>{}</b>".format(text)
-        elif segment.italic:
+        if segment.italic:
             text = "<i>{}</i>".format(text)
+        if segment.underline:
+            text = "<u>{}</u>".format(text)
+        if segment.strike:
+            text = "<s>{}</s>".format(text)
         return text
 
 
@@ -419,8 +421,11 @@ class TelegramRichText(immp.RichText):
             entity = _Schema.entity(json)
             start = entity["offset"] * 2
             end = start + (entity["length"] * 2)
-            if entity["type"] in ("bold", "italic", "code", "pre"):
+            if entity["type"] in ("bold", "italic", "underline", "code", "pre"):
                 key = entity["type"]
+                value = True
+            elif entity["type"] == "strikethrough":
+                key = "strike"
                 value = True
             elif entity["type"] in ("url", "email"):
                 key = "link"
@@ -470,6 +475,10 @@ class TelegramRichText(immp.RichText):
                 key = "bold"
             elif isinstance(entity, tl.types.MessageEntityItalic):
                 key = "italic"
+            elif isinstance(entity, tl.types.MessageEntityUnderline):
+                key = "underline"
+            elif isinstance(entity, tl.types.MessageEntityStrike):
+                key = "strike"
             elif isinstance(entity, tl.types.MessageEntityCode):
                 key = "code"
             elif isinstance(entity, tl.types.MessageEntityPre):
