@@ -113,7 +113,7 @@ class DiscordRichText(immp.RichText):
 
     @classmethod
     def _sub_channel(cls, discord, match):
-        return "#{}".format(discord._client.get_channel(match.group(1)).name)
+        return "#{}".format(discord._client.get_channel(int(match.group(1))).name)
 
     @classmethod
     def from_markdown(cls, discord, text):
