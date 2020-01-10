@@ -92,8 +92,6 @@ class PlugStream:
             except (GeneratorExit, CancelledError):
                 for task in self._tasks:
                     task.cancel()
-                for coro in self._agens.values():
-                    await coro.aclose()
                 return
             for task in done:
                 plug = self._tasks.pop(task)
