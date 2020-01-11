@@ -474,12 +474,15 @@ class IRCPlug(immp.Plug):
                     self._joins.remove(sent.channel.source)
                     return
             self.queue(sent)
-            if line.command == "JOIN":
-                log.debug("Adding %s to %s members", sent.joined[0].username, sent.channel.source)
-                self._members[sent.channel.source].add(sent.joined[0])
-            elif line.command in ("PART", "KICK"):
-                log.debug("Removing %s from %s members", sent.left[0].username, sent.channel.source)
-                self._members[sent.channel.source].remove(sent.left[0])
+            if sent.channel.source in self._members:
+                if line.command == "JOIN":
+                    log.debug("Adding %s to %s member list",
+                              sent.joined[0].username, sent.channel.source)
+                    self._members[sent.channel.source].add(sent.joined[0])
+                elif line.command in ("PART", "KICK"):
+                    log.debug("Removing %s from %s member list",
+                              sent.left[0].username, sent.channel.source)
+                    self._members[sent.channel.source].remove(sent.left[0])
         elif line.command == "QUIT":
             nick = line.source.split("!", 1)[0]
             find = immp.User(id_=line.source, plug=self, username=nick)
