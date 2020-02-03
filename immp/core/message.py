@@ -275,8 +275,12 @@ class RichText:
         for right in parts[2:]:
             left, middle = merged[-2:]
             if left.same_format(right) and not middle.text.strip() and "\n" not in middle.text:
-                left.text = "".join((left.text, middle.text, right.text))
                 merged.pop()
+                if len(merged) == 2:
+                    left.text = "".join((left.text, middle.text))
+                    merged.append(right)
+                else:
+                    left.text = "".join((left.text, middle.text, right.text))
             else:
                 merged.append(right)
         # Look for adjacent segments with equal formatting and combine them.
