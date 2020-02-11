@@ -1029,8 +1029,6 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                 pass
             elif diff.new_messages:
                 self._last_id = diff.new_messages[-1].id
-            elif diff.other_updates:
-                self._last_id = diff.other_updates[-1].id
             self._blacklist = {_HiddenSender.channel_id}
             self._blacklist_task = ensure_future(wait([self._blacklist_users(),
                                                        self._blacklist_chats()]))
