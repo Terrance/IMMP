@@ -273,6 +273,9 @@ class RichText:
         # formatting are separated only by non-new-line whitespace) and combine them.
         merged = parts[:2]
         for right in parts[2:]:
+            if len(merged) == 1:
+                merged.append(right)
+                continue
             left, middle = merged[-2:]
             if left.same_format(right) and not middle.text.strip() and "\n" not in middle.text:
                 merged.pop()
