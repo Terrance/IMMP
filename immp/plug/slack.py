@@ -347,6 +347,10 @@ class SlackRichText(immp.RichText):
             field = cls.tags[tag]
             changes[start][field] = True
             changes[end][field] = False
+            # Shift any future tags back.
+            for pos in sorted(changes):
+                if pos > end:
+                    changes[pos - 2 * len(tag)].update(changes.pop(pos))
         for match in cls._link_regex.finditer(text):
             # Store the link target; the link tag will be removed after segmenting.
             changes[match.start()]["link"] = cls._unescape(match.group(1))

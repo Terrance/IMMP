@@ -145,6 +145,10 @@ class DiscordRichText(immp.RichText):
             field = cls.tags[tag]
             changes[start][field] = True
             changes[end][field] = False
+            # Shift any future tags back.
+            for pos in sorted(changes):
+                if pos > end:
+                    changes[pos - 2 * len(tag)].update(changes.pop(pos))
         for match in cls._mention_regex.finditer(text):
             user = discord._client.get_user(int(match.group(1)))
             if user:
