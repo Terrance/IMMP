@@ -1,16 +1,22 @@
 FROM	python:3.6
 
-RUN	groupadd -r immp \
-&&	useradd -r -g immp immp
-
-RUN	mkdir -p /usr/src/app
 WORKDIR	/usr/src/app
 
 COPY	requirements.txt /usr/src/app/
 RUN	pip3 install --no-cache-dir -r requirements.txt
 
+ENV	PYTHONPATH /usr/src/app
+CMD	[ "python3", "-m", "immp", "config.yaml" ]
+
+ARG	uid=1000
+ARG	gid=1000
+
+RUN	groupadd -g $gid immp
+RUN	useradd -u $uid -g immp immp
+
 COPY	. /usr/src/app/
 
-USER	immp
+VOLUME	/data
+WORKDIR	/data
 
-CMD	[ "python3", "-m", "immp", "/config.yaml" ]
+USER	immp
