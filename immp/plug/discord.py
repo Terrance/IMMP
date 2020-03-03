@@ -102,10 +102,11 @@ class DiscordRichText(immp.RichText):
     # 3) Formatting characters may be escaped with a backslash.
     # This still isn't perfect, but provides a good approximation outside of edge cases.
     _outside_chars = r"0-9a-z*_~"
-    _tag_chars = r"```|\*\*|__|~~|[*_`]"
+    _tag_chars = r"\*\*|__|~~|[*_`]"
     _inside_chars = r"\s\1"
     _format_regex = re.compile(r"(?<![{0}\\])({1})(?![{2}])(.+?)(?<![{2}\\])\1(?![{0}])"
                                .format(_outside_chars, _tag_chars, _inside_chars))
+    _pre_regex = re.compile(r"```\n?(.+?)\n?```", re.DOTALL)
 
     _mention_regex = re.compile(r"<@!?(\d+)>")
     _channel_regex = re.compile(r"<#(\d+)>")
@@ -131,25 +132,43 @@ class DiscordRichText(immp.RichText):
                 Parsed rich text container.
         """
         changes = defaultdict(dict)
-        while True:
-            match = cls._format_regex.search(text)
-            if not match:
-                break
-            start = match.start()
-            end = match.end()
-            tag = match.group(1)
-            # Strip the tag characters from the message.
-            text = text[:start] + match.group(2) + text[end:]
-            end -= 2 * len(tag)
-            # Record the range where the format is applied.
-            field = cls.tags[tag]
-            changes[start][field] = True
-            changes[end][field] = False
-            # Shift any future tags back.
-            for pos in sorted(changes):
-                if pos > end:
-                    changes[pos - 2 * len(tag)].update(changes.pop(pos))
-        for match in cls._mention_regex.finditer(text):
+        plain = ""
+        done = False
+        while not done:
+            # Identify pre blocks, parse formatting only outside of them.
+            match = cls._pre_regex.search(text)
+            if match:
+                parse = text[:match.start()]
+                pre = match.group(1)
+                text = text[match.end():]
+            else:
+                parse = text
+                done = True
+            offset = len(plain)
+            while True:
+                match = cls._format_regex.search(parse)
+                if not match:
+                    break
+                start = match.start()
+                end = match.end()
+                tag = match.group(1)
+                # Strip the tag characters from the message.
+                parse = parse[:start] + match.group(2) + parse[end:]
+                end -= 2 * len(tag)
+                # Record the range where the format is applied.
+                field = cls.tags[tag]
+                changes[offset + start][field] = True
+                changes[offset + end][field] = False
+                # Shift any future tags back.
+                for pos in sorted(changes):
+                    if pos > offset + end:
+                        changes[pos - 2 * len(tag)].update(changes.pop(pos))
+            plain += parse
+            if not done:
+                changes[len(plain)]["pre"] = True
+                changes[len(plain + pre)]["pre"] = False
+                plain += pre
+        for match in cls._mention_regex.finditer(plain):
             user = discord._client.get_user(int(match.group(1)))
             if user:
                 changes[match.start()]["mention"] = DiscordUser.from_user(discord, user)
@@ -158,7 +177,7 @@ class DiscordRichText(immp.RichText):
         points = list(sorted(changes.keys()))
         formatting = {}
         # Iterate through text in change start/end pairs.
-        for start, end in zip([0] + points, points + [len(text)]):
+        for start, end in zip([0] + points, points + [len(plain)]):
             formatting.update(changes[start])
             if start == end:
                 # Zero-length segment at the start or end, ignore it.
@@ -167,7 +186,7 @@ class DiscordRichText(immp.RichText):
                 user = formatting["mention"]
                 part = "@{}".format(user.username or user.real_name)
             else:
-                part = emojize(text[start:end], use_aliases=True)
+                part = emojize(plain[start:end], use_aliases=True)
                 # Strip Discord channel/emoji tags, replace with a plain text representation.
                 part = cls._channel_regex.sub(partial(cls._sub_channel, discord), part)
                 part = cls._emoji_regex.sub(r"\1", part)
