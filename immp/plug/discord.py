@@ -230,6 +230,9 @@ class DiscordRichText(immp.RichText):
                 # Add any new tags that start at this segment.
                 if getattr(segment, attr) and tag not in active:
                     text += tag
+                    if tag == "```":
+                        # First line of pre block would set the code language and be hidden.
+                        text += "\n"
                     active.append(tag)
             if segment.mention and isinstance(segment.mention.plug, DiscordPlug):
                 text += "<@{}>".format(segment.mention.id)
