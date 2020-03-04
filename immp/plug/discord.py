@@ -66,7 +66,7 @@ class DiscordUser(immp.User):
     """
 
     @classmethod
-    def from_user(cls, discord, user):
+    def from_user(cls, discord_, user):
         """
         Convert a :class:`discord.User` into a :class:`.User`.
 
@@ -85,7 +85,7 @@ class DiscordUser(immp.User):
         # Avatar URL is an Asset object, URL only available via __str__.
         avatar = str(user.avatar_url) if user.avatar_url else None
         return cls(id_=user.id,
-                   plug=discord,
+                   plug=discord_,
                    username=username,
                    real_name=real_name,
                    avatar=avatar,
@@ -113,11 +113,11 @@ class DiscordRichText(immp.RichText):
     _emoji_regex = re.compile(r"<(:[^: ]+?:)\d+>")
 
     @classmethod
-    def _sub_channel(cls, discord, match):
-        return "#{}".format(discord._client.get_channel(int(match.group(1))).name)
+    def _sub_channel(cls, discord_, match):
+        return "#{}".format(discord_._client.get_channel(int(match.group(1))).name)
 
     @classmethod
-    def from_markdown(cls, discord, text, channel=None):
+    def from_markdown(cls, discord_, text, channel=None):
         """
         Convert a string of Markdown into a :class:`.RichText`.
 
@@ -170,11 +170,15 @@ class DiscordRichText(immp.RichText):
                 changes[len(plain)]["pre"] = True
                 changes[len(plain + pre)]["pre"] = False
                 plain += pre
-        guild = discord._get_channel(channel).guild if channel else None
+        dc_channel = discord_._get_channel(channel)
+        if isinstance(dc_channel, discord.TextChannel):
+            getter = dc_channel.guild.get_member
+        else:
+            getter = discord_._client.get_user
         for match in cls._mention_regex.finditer(plain):
-            user = (guild.get_member if guild else discord._client.get_user)(int(match.group(1)))
+            user = getter(int(match.group(1)))
             if user:
-                changes[match.start()]["mention"] = DiscordUser.from_user(discord, user)
+                changes[match.start()]["mention"] = DiscordUser.from_user(discord_, user)
                 changes[match.end()]["mention"] = None
         segments = []
         points = list(sorted(changes.keys()))
@@ -191,14 +195,14 @@ class DiscordRichText(immp.RichText):
             else:
                 part = emojize(plain[start:end], use_aliases=True)
                 # Strip Discord channel/emoji tags, replace with a plain text representation.
-                part = cls._channel_regex.sub(partial(cls._sub_channel, discord), part)
+                part = cls._channel_regex.sub(partial(cls._sub_channel, discord_), part)
                 part = cls._emoji_regex.sub(r"\1", part)
             segments.append(immp.Segment(part, **formatting))
         return cls(segments)
 
     @classmethod
-    def _sub_emoji(cls, discord, match):
-        for emoji in discord._client.emojis:
+    def _sub_emoji(cls, discord_, match):
+        for emoji in discord_._client.emojis:
             if emoji.name == match.group(1):
                 return str(emoji)
         return ":{}:".format(match.group(1))
@@ -292,7 +296,7 @@ class DiscordMessage(immp.Message):
     """
 
     @classmethod
-    def from_message(cls, discord, message, edited=False, deleted=False):
+    def from_message(cls, discord_, message, edited=False, deleted=False):
         """
         Convert a :class:`discord.Message` into a :class:`.Message`.
 
@@ -311,11 +315,11 @@ class DiscordMessage(immp.Message):
                 Parsed message object.
         """
         text = None
-        channel = immp.Channel(discord, message.channel.id)
-        user = DiscordUser.from_user(discord, message.author)
+        channel = immp.Channel(discord_, message.channel.id)
+        user = DiscordUser.from_user(discord_, message.author)
         attachments = []
         if message.content:
-            text = DiscordRichText.from_markdown(discord, message.content, channel)
+            text = DiscordRichText.from_markdown(discord_, message.content, channel)
         for attach in message.attachments:
             if attach.filename.endswith((".jpg", ".png", ".gif")):
                 type_ = immp.File.Type.image
