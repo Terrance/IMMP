@@ -117,7 +117,7 @@ class DiscordRichText(immp.RichText):
         return "#{}".format(discord._client.get_channel(int(match.group(1))).name)
 
     @classmethod
-    def from_markdown(cls, discord, text):
+    def from_markdown(cls, discord, text, channel=None):
         """
         Convert a string of Markdown into a :class:`.RichText`.
 
@@ -126,6 +126,8 @@ class DiscordRichText(immp.RichText):
                 Related plug instance that provides the text.
             text (str):
                 Markdown formatted text.
+            channel (.Channel):
+                Related channel, used to retrieve mentioned users as members.
 
         Returns:
             .DiscordRichText:
@@ -168,8 +170,9 @@ class DiscordRichText(immp.RichText):
                 changes[len(plain)]["pre"] = True
                 changes[len(plain + pre)]["pre"] = False
                 plain += pre
+        guild = discord._get_channel(channel).guild if channel else None
         for match in cls._mention_regex.finditer(plain):
-            user = discord._client.get_user(int(match.group(1)))
+            user = (guild.get_member if guild else discord._client.get_user)(int(match.group(1)))
             if user:
                 changes[match.start()]["mention"] = DiscordUser.from_user(discord, user)
                 changes[match.end()]["mention"] = None
@@ -308,10 +311,11 @@ class DiscordMessage(immp.Message):
                 Parsed message object.
         """
         text = None
+        channel = immp.Channel(discord, message.channel.id)
         user = DiscordUser.from_user(discord, message.author)
         attachments = []
         if message.content:
-            text = DiscordRichText.from_markdown(discord, message.content)
+            text = DiscordRichText.from_markdown(discord, message.content, channel)
         for attach in message.attachments:
             if attach.filename.endswith((".jpg", ".png", ".gif")):
                 type_ = immp.File.Type.image
@@ -327,7 +331,7 @@ class DiscordMessage(immp.Message):
                 attachments.append(immp.File(type_=immp.File.Type.image,
                                              source=embed.image.url))
         return immp.SentMessage(id_=message.id,
-                                channel=immp.Channel(discord, message.channel.id),
+                                channel=channel,
                                 # Timestamps are naive but in UTC.
                                 at=message.created_at.replace(tzinfo=timezone.utc),
                                 # Edited timestamp is blank for new messages, but updated in
