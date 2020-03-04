@@ -379,7 +379,12 @@ class IRCPlug(immp.Plug):
         users = set()
         for line in await self.wait(Line("WHO", name), success=("315",), collect=("352",)):
             id_ = "{}!{}@{}".format(line.args[5], line.args[2], line.args[3])
-            users.add(immp.User(id_=id_, plug=self, username=line.args[5], raw=line))
+            username = line.args[5]
+            real_name = line.args[-1].split(" ", 1)[-1]
+            user = immp.User(id_=id_, plug=self, username=username, real_name=real_name, raw=line)
+            users.add(user)
+            if username != name:
+                self._members[username] = [user]
         if users:
             self._members[name] = users
         elif name in self._members:
@@ -395,7 +400,10 @@ class IRCPlug(immp.Plug):
 
     async def user_from_id(self, id_):
         nick = id_.split("!", 1)[0]
-        return immp.User(id_=id_, plug=self, username=nick)
+        try:
+            return self._members[nick][0]
+        except KeyError:
+            return immp.User(id_=id_, plug=self, username=nick)
 
     async def user_from_username(self, username):
         for user in await self._who(username):
