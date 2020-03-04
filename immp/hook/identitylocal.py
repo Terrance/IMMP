@@ -84,14 +84,14 @@ class IdentityGroup(BaseModel):
     def select_links(cls):
         return cls.select(cls, IdentityLink).join(IdentityLink)
 
-    async def to_identity(self, host):
+    async def to_identity(self, host, provider):
         tasks = []
         plugs = {plug.network_id: plug for plug in host.plugs.values()}
         for link in self.links:
             tasks.append(plugs[link.network].user_from_id(link.user))
         users = await gather(*tasks)
         roles = [role.role for role in self.roles]
-        return Identity(self.name, users, roles)
+        return Identity(self.name, provider, users, roles)
 
     def __repr__(self):
         return "<{}: #{} {}>".format(self.__class__.__name__, self.id, repr(self.name))
@@ -211,11 +211,11 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
 
     async def identity_from_name(self, name):
         group = self.get(name)
-        return await group.to_identity(self.host) if group else None
+        return await group.to_identity(self.host, self) if group else None
 
     async def identity_from_user(self, user):
         group = self.find(user)
-        return await group.to_identity(self.host) if group else None
+        return await group.to_identity(self.host, self) if group else None
 
     def _test(self, channel, user):
         return channel.plug in self._plugs
