@@ -494,80 +494,87 @@ class _SyncHookBase(immp.Hook):
             if isinstance(attach, immp.Message):
                 await func(attach, *args)
 
-    async def _alter_identities(self, msg, channel):
-        # Replace mentions for identified users in the target channel.
-        if not msg.text:
-            return
-        msg.text = msg.text.clone()
-        for segment in msg.text:
-            if not segment.mention or segment.mention.plug == channel.plug:
-                # No mention or already matches plug, nothing to do.
-                continue
-            identity = None
-            if self.config["identities"]:
-                try:
-                    identity = await self._identities.identity_from_user(segment.mention)
-                except Exception as e:
-                    log.warning("Failed to retrieve identity information for %r",
-                                segment.mention, exc_info=e)
-            replaced = False
-            if identity:
-                # Try to find an identity corresponding to the target plug.
-                for user in identity.links:
-                    if user.plug == channel.plug:
-                        log.debug("Replacing mention: %r -> %r", segment.mention, user)
-                        segment.mention = user
-                        replaced = True
-                        break
-            if not replaced:
-                # Fallback case: replace mention with a link to the user's profile.
-                if segment.mention.link:
-                    log.debug("Adding fallback mention link: %r -> %r",
-                              segment.mention, segment.mention.link)
-                    segment.link = segment.mention.link
-                else:
-                    log.debug("Removing foreign mention: %r", segment.mention)
-                segment.mention = None
-
-    async def _alter_name(self, msg):
+    async def _rename_user(self, user, channel):
         # Use name-format or identities to render a suitable author real name.
-        name = user = identity = None
+        renamed = name = identity = None
         if not self.config["reset-author"]:
-            user = msg.user
+            renamed = user
         if self._identities:
             try:
-                identity = await self._identities.identity_from_user(msg.user)
+                identity = await self._identities.identity_from_user(user)
             except Exception as e:
-                log.warning("Failed to retrieve identity information for %r", msg.user,
+                log.warning("Failed to retrieve identity information for %r", user,
                             exc_info=e)
         if self.config["name-format"]:
             if not Template:
                 raise immp.PlugError("'jinja2' module not installed")
-            title = await msg.channel.title() if isinstance(msg, immp.Receipt) else None
-            context = {"user": msg.user, "identity": identity, "channel": title}
+            title = await channel.title() if channel else None
+            context = {"user": user, "identity": identity, "channel": title}
             name = Template(self.config["name-format"]).render(**context)
             if not name and self.config["reset-author"]:
-                msg.user = None
+                user = None
         elif self.config["reset-author"]:
-            msg.user = None
+            user = None
         elif identity:
-            name = "{} ({})".format(msg.user.real_name or msg.user.username, identity.name)
-        elif self.config["strip-name-emoji"] and msg.user:
-            name = msg.user.real_name or msg.user.username
+            name = "{} ({})".format(user.real_name or user.username, identity.name)
+        elif self.config["strip-name-emoji"] and user:
+            name = user.real_name or user.username
         if not name:
             return
         if self.config["strip-name-emoji"]:
             if not EMOJI_REGEX:
                 raise immp.PlugError("'emoji' module not installed")
             name = EMOJI_REGEX.sub(_emoji_replace, name).strip()
-        if user:
-            log.debug("Replacing real name: %r -> %r", user.real_name, name)
-            user = copy(user)
-            user.real_name = name
+        if renamed:
+            log.debug("Replacing real name: %r -> %r", renamed.real_name, name)
+            renamed = copy(renamed)
+            renamed.real_name = name
         else:
             log.debug("Adding real name: %r", name)
-            user = immp.User(real_name=name)
-        msg.user = user
+            renamed = immp.User(real_name=name)
+        return renamed
+
+    async def _alter_name(self, msg):
+        channel = msg.channel if isinstance(msg, immp.Receipt) else None
+        msg.user = await self._rename_user(msg.user, channel)
+
+    async def _alter_identities(self, msg, channel):
+        # Replace mentions for identified users in the target channel.
+        if not msg.text:
+            return
+        msg.text = msg.text.clone()
+        for segment in msg.text:
+            user = segment.mention
+            if not user or user.plug == channel.plug:
+                # No mention or already matches plug, nothing to do.
+                continue
+            identity = None
+            if self.config["identities"]:
+                try:
+                    identity = await self._identities.identity_from_user(user)
+                except Exception as e:
+                    log.warning("Failed to retrieve identity information for %r", user, exc_info=e)
+            # Try to find an identity corresponding to the target plug.
+            links = identity.links if identity else []
+            for user in links:
+                if user.plug == channel.plug:
+                    log.debug("Replacing mention: %r -> %r", user, user)
+                    segment.mention = user
+                    break
+            else:
+                # Fallback case: replace mention with a link to the user's profile.
+                if user.link:
+                    log.debug("Adding fallback mention link: %r -> %r",
+                              user, user.link)
+                    segment.link = user.link
+                else:
+                    log.debug("Removing foreign mention: %r", user)
+                segment.mention = None
+            # Perform name substitution on the mention text.
+            if self.config["name-format"]:
+                at = "@" if segment.text.startswith("@") else ""
+                renamed = await self._rename_user(user, channel)
+                segment.text = "{}{}".format(at, renamed.real_name)
 
     async def _send(self, channel, msg):
         try:
