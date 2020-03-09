@@ -520,7 +520,7 @@ class _SyncHookBase(immp.Hook):
         elif self.config["strip-name-emoji"] and user:
             name = user.real_name or user.username
         if not name:
-            return
+            return user
         if self.config["strip-name-emoji"]:
             if not EMOJI_REGEX:
                 raise immp.PlugError("'emoji' module not installed")
@@ -564,8 +564,7 @@ class _SyncHookBase(immp.Hook):
             else:
                 # Fallback case: replace mention with a link to the user's profile.
                 if user.link:
-                    log.debug("Adding fallback mention link: %r -> %r",
-                              user, user.link)
+                    log.debug("Adding fallback mention link: %r -> %r", user, user.link)
                     segment.link = user.link
                 else:
                     log.debug("Removing foreign mention: %r", user)
