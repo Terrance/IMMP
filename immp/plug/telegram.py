@@ -1320,8 +1320,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                 reply_to = int(msg.reply_to.id.split(":")[1])
             elif isinstance(msg.reply_to, immp.Message):
                 quote = True
-            edited = msg.edited if isinstance(msg, immp.Receipt) else False
-            rich = msg.render(edit=edited, quote_reply=quote)
+            rich = msg.render(edit=msg.edited, quote_reply=quote)
             text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
             no_link_preview = "true" if msg.user and msg.user.link else "false"
             requests.append(self._api("sendMessage", _Schema.send,
