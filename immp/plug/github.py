@@ -121,10 +121,34 @@ class GitHubMessage(immp.Message):
             desc = "{} ({}#{})".format(issue["title"], repo, issue["number"])
             text = immp.RichText([immp.Segment("{} issue ".format(event["action"])),
                                   immp.Segment(desc, link=issue["html_url"])])
+        elif type_ == "issue_comment":
+            issue = event["issue"]
+            comment = event["comment"]
+            desc = "{} ({}#{})".format(issue["title"], repo, issue["number"])
+            text = immp.RichText([immp.Segment("{} a ".format(event["action"])),
+                                  immp.Segment("comment", link=comment["html_url"]),
+                                  immp.Segment(" on issue "),
+                                  immp.Segment(desc, link=issue["html_url"])])
         elif type_ == "pull_request":
             pull = event["pull_request"]
             desc = "{} ({}#{})".format(pull["title"], repo, pull["number"])
             text = immp.RichText([immp.Segment("{} pull request ".format(event["action"])),
+                                  immp.Segment(desc, link=pull["html_url"])])
+        elif type_ == "pull_request_review":
+            pull = event["pull_request"]
+            review = event["review"]
+            desc = "{} ({}#{})".format(pull["title"], repo, pull["number"])
+            text = immp.RichText([immp.Segment("{} a ".format(event["action"])),
+                                  immp.Segment("review", link=review["html_url"]),
+                                  immp.Segment(" on pull request "),
+                                  immp.Segment(desc, link=pull["html_url"])])
+        elif type_ == "pull_request_review_comment":
+            pull = event["pull_request"]
+            comment = event["comment"]
+            desc = "{} ({}#{})".format(pull["title"], repo, pull["number"])
+            text = immp.RichText([immp.Segment("{} a ".format(event["action"])),
+                                  immp.Segment("comment", link=comment["html_url"]),
+                                  immp.Segment(" on pull request "),
                                   immp.Segment(desc, link=pull["html_url"])])
         elif type_ == "project":
             project = event["project"]
