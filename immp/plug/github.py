@@ -223,9 +223,14 @@ class GitHubPlug(immp.Plug):
                 log.warning("Bad signature on event")
                 raise web.HTTPUnauthorized
         try:
+            data = await request.json()
+        except ValueError:
+            log.warning("Bad content type, webhook needs configuring as JSON")
+            raise web.HTTPBadRequest
+        try:
             type_ = request.headers["X-GitHub-Event"]
             id_ = request.headers["X-GitHub-Delivery"]
-            event = _Schema.event(await request.json())
+            event = _Schema.event(data)
         except (KeyError, ValueError):
             raise web.HTTPBadRequest
         if type_ == "ping":
