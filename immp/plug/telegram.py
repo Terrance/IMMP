@@ -1211,7 +1211,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                 return [TelegramUser.from_proto_user(self, user) for user in data.users]
 
     async def channel_remove(self, channel, user):
-        if user.id == self._bot_user.id:
+        if user.id == self._bot_user["id"]:
             await self._api("leaveChat", params={"chat_id": channel.source})
         else:
             await self._api("kickChatMember", params={"chat_id": channel.source,
