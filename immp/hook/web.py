@@ -152,7 +152,9 @@ class WebHook(immp.ResourceHook):
             Web application instance, used to add new routes.
     """
 
-    schema = immp.Schema({"host": str, "port": int})
+    schema = immp.Schema(immp.Any({immp.Optional("host"): immp.Nullable(str),
+                                   "port": int},
+                                  {"path": str}))
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
@@ -217,9 +219,13 @@ class WebHook(immp.ResourceHook):
         return self.app.router.add_static(*args, **kwargs)
 
     async def start(self):
-        log.debug("Starting server on %s:%d", self.config["host"], self.config["port"])
         await self._runner.setup()
-        self._site = web.TCPSite(self._runner, self.config["host"], self.config["port"])
+        if "path" in self.config:
+            log.debug("Starting server on socket %s", self.config["path"])
+            self._site = web.UnixSite(self._runner, self.config["path"])
+        else:
+            log.debug("Starting server on host %s, port %d", self.config["host"], self.config["port"])
+            self._site = web.TCPSite(self._runner, self.config["host"], self.config["port"])
         await self._site.start()
 
     async def stop(self):
