@@ -695,7 +695,7 @@ class SyncHook(_SyncHookBase):
                 text.append(immp.Segment(": {}".format(title)))
         await msg.channel.send(immp.Message(user=immp.User(real_name="Sync"), text=text))
 
-    async def send(self, label, msg, origin=None):
+    async def send(self, label, msg, origin=None, ref=None):
         """
         Send a message to all channels in this sync.
 
@@ -709,6 +709,8 @@ class SyncHook(_SyncHookBase):
                 Raw message that triggered this sync; if set and part of the sync, it will be
                 skipped (used to avoid retransmitting a message we just received).  This should be
                 the plug-native copy of a message when syncing from another channel.
+            ref (.SyncRef):
+                Existing sync reference, if message has been partially synced.
         """
         base = immp.Message(text=msg.text, user=msg.user, edited=msg.edited, action=msg.action,
                             reply_to=msg.reply_to, joined=msg.joined, left=msg.left,
@@ -716,6 +718,9 @@ class SyncHook(_SyncHookBase):
         queue = []
         for synced in self.channels[label]:
             if origin and synced == origin.channel:
+                continue
+            elif ref and ref.ids[synced]:
+                log.debug("Skipping already-synced target channel %r: %r", synced, ref)
                 continue
             local = base.clone()
             self._replace_recurse(local, self._replace_ref, synced)
@@ -727,7 +732,10 @@ class SyncHook(_SyncHookBase):
         # further messages.
         async with self._lock:
             ids = dict(await gather(*queue))
-            ref = SyncRef(ids, source=msg, origin=origin)
+            if ref:
+                ref.ids.update(ids)
+            else:
+                ref = SyncRef(ids, source=msg, origin=origin)
             self._cache.add(ref)
         # Push a copy of the message to the sync channel, if running.
         if self.plug:
@@ -786,6 +794,7 @@ class SyncHook(_SyncHookBase):
         async with self._lock:
             # No critical section here, just wait for any pending messages to be sent.
             pass
+        ref = None
         try:
             ref = self._cache[sent]
         except KeyError:
@@ -801,13 +810,15 @@ class SyncHook(_SyncHookBase):
                 return
             elif (sent.edited and not ref.revisions) or ref.revision(sent):
                 log.debug("Incoming message is an update, needs sync: %r", sent)
-            else:
+            elif all(ref.ids[channel] for channel in self.channels[label]):
                 log.debug("Incoming message already synced: %r", sent)
                 return
+            else:
+                log.debug("Incoming message partially synced: %r", sent)
         if not self._accept(source):
             return
         log.debug("Sending message to synced channel %r: %r", label, sent.id)
-        await self.send(label, source, sent)
+        await self.send(label, source, sent, ref)
 
 
 class ForwardHook(_SyncHookBase):
