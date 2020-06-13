@@ -970,6 +970,9 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         self._closing = False
         # Temporary tracking of migrated chats for the current session.
         self._migrations = {}
+        # Caching of user/username lookups to avoid flooding.
+        self._users = {}
+        self._usernames = {}
         # Blacklist of channels we have an entity for but can't access.  Indexed at startup, with
         # chats removed if we receive a message from that channel.
         self._blacklist = self._blacklist_task = None
@@ -1061,12 +1064,15 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         entity = self._client.session.get_entity(id_)
         if entity:
             return TelegramUser.from_entity(self, entity)
+        elif id_ in self._users:
+            return self._users[id_]
         try:
             data = await self._client(tl.functions.users.GetFullUserRequest(int(id_)))
         except BadRequestError:
             return None
-        else:
-            return TelegramUser.from_proto_user(self, data.user)
+        user = TelegramUser.from_proto_user(self, data.user)
+        self._users[id_] = user
+        return user
 
     async def user_from_username(self, username):
         if not self._client:
@@ -1075,12 +1081,17 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         entity = self._client.session.get_entity_username(username)
         if entity:
             return TelegramUser.from_entity(self, entity)
+        elif username in self._usernames:
+            return self._usernames[username]
         try:
             data = await self._client(tl.functions.contacts.ResolveUsernameRequest(username))
         except BadRequestError:
             return None
-        else:
-            return TelegramUser.from_proto_user(self, data.users[0]) if data.users else None
+        if not data.users:
+            return None
+        user = TelegramUser.from_proto_user(self, data.users[0])
+        self._usernames[username] = user
+        return user
 
     async def user_is_system(self, user):
         return user.id == str(self._bot_user["id"])
