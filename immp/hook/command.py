@@ -152,7 +152,7 @@ class BoundCommand:
         Args:
             name (str):
                 Command name, used to access the command when directly following the prefix.
-            fixed_args (tuple):
+            args (tuple):
                 Additional arguments to pass to the underlying method.
 
         Returns:
