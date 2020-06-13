@@ -109,7 +109,7 @@ class GitHubMessage(immp.Message):
             for commit in event["commits"]:
                 text.append(immp.Segment("\n* "),
                             immp.Segment(commit["id"][:7], code=True),
-                            immp.Segment(" - {}".format(commit["message"])))
+                            immp.Segment(" - {}".format(commit["message"].split("\n")[0])))
         elif type_ == "release":
             release = event["release"]
             desc = ("{} ({} {})".format(release["name"], repo, release["tag_name"])
