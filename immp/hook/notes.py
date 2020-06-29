@@ -205,4 +205,11 @@ class NotesHook(immp.Hook):
                         *immp.RichText.unraw(note.text, self.host),
                         immp.Segment("\t"),
                         immp.Segment(note.ago, italic=True))
-        await msg.channel.send(immp.Message(text=text))
+        target = None
+        if msg.user:
+            target = await msg.user.private_channel()
+        if target:
+            await target.send(immp.Message(text=text))
+            await msg.channel.send(immp.Message(text="{} Sent".format(TICK)))
+        else:
+            await msg.channel.send(immp.Message(text=text))
