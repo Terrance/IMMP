@@ -2,8 +2,8 @@
 Basic text request/response handler.
 
 Config:
-    channels (str list):
-        List of channels to process responses in.
+    groups (str list):
+        List of groups to process responses in.
     responses ((str, str) dict):
         Mapping from match regex to response text.
 
