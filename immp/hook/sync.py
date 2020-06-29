@@ -35,6 +35,8 @@ Config:
                 Channel title.
     strip-name-emoji (bool):
         ``True`` to remove emoji characters from message authors' real names.
+    titles ((str, str) dict):
+        Mapping from virtual channel names to display names.
 
 Commands:
     sync-members:
@@ -431,7 +433,7 @@ class SyncPlug(immp.Plug):
         return False if channel.source in self._hook.config["channels"] else None
 
     async def channel_title(self, channel):
-        return channel.source
+        return self._hook.config["titles"].get(channel.source, channel.source)
 
     async def channel_members(self, channel):
         if channel.source not in self._hook.config["channels"]:
@@ -596,7 +598,8 @@ class SyncHook(_SyncHookBase):
 
     schema = immp.Schema({immp.Optional("joins", True): bool,
                           immp.Optional("renames", True): bool,
-                          immp.Optional("plug"): immp.Nullable(str)}, _SyncHookBase.schema)
+                          immp.Optional("plug"): immp.Nullable(str),
+                          immp.Optional("titles", dict): {str: str}}, _SyncHookBase.schema)
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
