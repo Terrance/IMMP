@@ -137,7 +137,7 @@ class WebContext:
             str:
                 Relative URL to the corresponding page.
         """
-        return self._routes[name_].url_for(**kwargs)
+        return self._routes[name_].url_for(**{k: v.replace("/", "%2F") for k, v in kwargs.items()})
 
     def __repr__(self):
         return "<{}: {}>".format(self.__class__.__name__, self.prefix)
