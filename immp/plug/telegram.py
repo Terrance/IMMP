@@ -975,7 +975,8 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         self._usernames = {}
         # Blacklist of channels we have an entity for but can't access.  Indexed at startup, with
         # chats removed if we receive a message from that channel.
-        self._blacklist = self._blacklist_task = None
+        self._blacklist = set()
+        self._blacklist_task = None
         # Update ID from which to retrieve the next batch.  Should be one higher than the max seen.
         self._offset = 0
         # Private chats and non-super groups have a shared incremental message ID.  Cache the
@@ -1048,7 +1049,8 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             await self._client.disconnect()
             self._client = None
         self._bot_user = None
-        self._blacklist = None
+        if self._blacklist:
+            self._blacklist.clear()
         if self._blacklist_task:
             self._blacklist_task.cancel()
             self._blacklist_task = None
