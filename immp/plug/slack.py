@@ -75,12 +75,16 @@ class _Schema:
 
     _shares = {str: [{"ts": str}]}
 
-    file = immp.Schema({"id": str,
-                        "name": immp.Nullable(str),
-                        "pretty_type": str,
-                        "url_private": str,
-                        immp.Optional("shares", dict): {immp.Optional("public", dict): _shares,
-                                                        immp.Optional("private", dict): _shares}})
+    file = immp.Schema(immp.Any({"id": str,
+                                 "name": immp.Nullable(str),
+                                 "pretty_type": str,
+                                 "url_private": str,
+                                 immp.Optional("mode"): immp.Nullable(str),
+                                 immp.Optional("shares", dict):
+                                     {immp.Optional("public", dict): _shares,
+                                      immp.Optional("private", dict): _shares}},
+                                {"id": str,
+                                 "mode": "tombstone"}))
 
     attachment = immp.Schema({immp.Optional("fallback"): immp.Nullable(str),
                               immp.Optional("title"): immp.Nullable(str),
@@ -91,6 +95,7 @@ class _Schema:
 
     _base_msg = immp.Schema({"ts": str,
                              "type": "message",
+                             immp.Optional("hidden", False): bool,
                              immp.Optional("channel"): immp.Nullable(str),
                              immp.Optional("edited", dict):
                                  {immp.Optional("user"): immp.Nullable(str)},
@@ -470,6 +475,9 @@ class SlackFile(immp.File):
                 Parsed file object.
         """
         file = _Schema.file(json)
+        if file["mode"] == "tombstone":
+            # File has been deleted, but the container still references it.
+            raise MessageNotFound
         if file["mimetype"].startswith("image/"):
             type_ = immp.File.Type.image
         elif file["mimetype"].startswith("video/"):
@@ -583,7 +591,10 @@ class SlackMessage(immp.Message):
         else:
             reply_to = recent or thread
         for file in event["files"]:
-            attachments.append(SlackFile.from_file(slack, file))
+            try:
+                attachments.append(SlackFile.from_file(slack, file))
+            except MessageNotFound:
+                pass
         for attach in event["attachments"]:
             if attach["is_msg_unfurl"]:
                 # We have the message ID as the timestamp, fetch the whole message to embed it.
@@ -655,6 +666,9 @@ class SlackMessage(immp.Message):
                 Parsed message object.
         """
         event = _Schema.message(json)
+        if event["hidden"]:
+            # Ignore UI-hidden events (e.g. tombstones of deleted files).
+            raise NotImplementedError
         if event["is_ephemeral"]:
             # Ignore user-private messages from Slack (e.g. over quota warnings, link unfurling
             # opt-in prompts etc.) which shouldn't be served to message processors.
@@ -672,6 +686,9 @@ class SlackMessage(immp.Message):
                                     deleted=True,
                                     raw=json)
         elif event["subtype"] == "message_changed":
+            if event["message"]["hidden"]:
+                # In theory this should match event["hidden"], but redefined here just in case.
+                raise NotImplementedError
             if event["message"]["text"] == event["previous_message"]["text"]:
                 # Message remains unchanged.  Can be caused by link unfurling (adds an attachment)
                 # or deleting replies (reply is removed from event.replies in new *and old*).
