@@ -305,7 +305,7 @@ class IRCPlug(immp.Plug):
         # Bot's own identifier as seen by the IRC server.
         self._source = None
         # Tracking fields for storing requested data by type.
-        self._waits = Queue()
+        self._waits = []
         self._current_wait = None
         # Don't yield messages for initial self-joins.
         self._joins = set()
@@ -340,11 +340,9 @@ class IRCPlug(immp.Plug):
                 await self._join(channel.source)
 
     async def stop(self):
-        if self._current_wait:
-            self._current_wait.cancel()
-            self._current_wait = None
-        while not self._waits.empty():
-            self._waits.get_nowait().cancel()
+        for wait in self._waits:
+            wait.cancel()
+        self._waits.clear()
         self._joins.clear()
         self.write(Line("QUIT", self.config["quit"] or "IMMP: stopping"))
         if self._reader:
@@ -460,19 +458,13 @@ class IRCPlug(immp.Plug):
     async def channel_remove(self, channel, user):
         self.write(Line("KICK", channel.source, user.username))
 
-    def _sync_wait(self):
-        if self._current_wait or self._waits.empty():
-            return
-        wait = self._waits.get_nowait()
-        self._current_wait = wait
-        self.write(*wait.lines)
-
     async def _handle(self, line):
-        self._sync_wait()
-        if self._current_wait and self._current_wait.add(line):
-            log.debug("Completing wait: %r", self._current_wait)
-            self._current_wait = None
-            self._sync_wait()
+        for wait in self._waits:
+            if wait.wants(line):
+                if wait.add(line):
+                    log.debug("Completing wait: %r", self._current_wait)
+                    self._waits.remove(wait)
+                break
         if line.command == "PING":
             self.write(Line("PONG", *line.args))
         elif line.command in ("JOIN", "PART", "KICK", "PRIVMSG"):
@@ -530,8 +522,8 @@ class IRCPlug(immp.Plug):
     def wait(self, *lines, success=(), fail=(), collect=()):
         wait = Wait(lines, success, fail, collect)
         log.debug("Adding wait: %r", wait)
-        self._waits.put_nowait(wait)
-        self._sync_wait()
+        self._waits.append(wait)
+        self.write(*lines)
         return wait
 
     def write(self, *lines):
