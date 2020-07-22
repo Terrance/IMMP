@@ -22,7 +22,8 @@ Config:
         ``True`` to auto-join channels when an INVITE is received.
 """
 
-from asyncio import CancelledError, Future, Queue, ensure_future, open_connection, sleep
+from asyncio import (CancelledError, Future, ensure_future,
+                     open_connection, sleep, TimeoutError, wait_for)
 import logging
 import re
 
@@ -42,6 +43,7 @@ class IRCTryAgain(IRCError):
     """
     Rate-limited response to an IRC command (RPL_TRYAGAIN, 263).
     """
+    COMMAND = "263"
 
 
 class Line:
@@ -176,6 +178,21 @@ class IRCRichText(immp.RichText):
         return "".join(IRCSegment.to_formatted(segment) for segment in rich).replace("\t", " ")
 
 
+class IRCUser(immp.User):
+
+    @classmethod
+    def from_id(cls, irc, id_):
+        nick = id_.split("!", 1)[0]
+        return immp.User(id_=id_, plug=irc, username=nick, raw=id_)
+
+    @classmethod
+    def from_who(cls, irc, line):
+        id_ = "{}!{}@{}".format(line.args[5], line.args[2], line.args[3])
+        username = line.args[5]
+        real_name = line.args[-1].split(" ", 1)[-1]
+        return immp.User(id_=id_, plug=irc, username=username, real_name=real_name, raw=line)
+
+
 class IRCMessage(immp.Message):
     """
     Message originating from IRC.
@@ -201,7 +218,7 @@ class IRCMessage(immp.Message):
         if channel == irc.config["user"]["nick"]:
             # Private messages arrive "from A to B", and should be sent "from B to A".
             channel = nick
-        user = immp.User(id_=line.source, plug=irc, username=nick, raw=line)
+        user = IRCUser.from_id(irc, line.source)
         action = False
         joined = []
         left = []
@@ -248,26 +265,29 @@ class Wait:
 
     def __init__(self, lines, success, fail, collect):
         self.lines = lines
-        self._success = success
-        self._fail = fail
-        self._collect = collect
+        self._success = tuple(success)
+        self._fail = tuple(fail)
+        self._collect = tuple(collect)
         self._data = []
         self._result = Future()
 
+    def wants(self, line):
+        return (line.command == IRCTryAgain.COMMAND or
+                line.command in self._success + self._fail + self._collect)
+
+    @property
+    def done(self):
+        return self._result.done()
+
     def add(self, line):
-        if line.command == "263":
+        if line.command == IRCTryAgain.COMMAND:
             self._result.set_exception(IRCTryAgain(line))
-            return True
         if line.command in self._collect:
             self._data.append(line)
         if line.command in self._success:
             self._result.set_result(self._data)
-            return True
         elif line.command in self._fail:
             self._result.set_exception(IRCError(line))
-            return True
-        else:
-            return False
 
     def cancel(self):
         self._result.set_exception(CancelledError("Wait was cancelled"))
@@ -282,6 +302,185 @@ class Wait:
             if value:
                 parts.append("{} {}".format(key, "/".join(value)))
         return "<{}: {}>".format(self.__class__.__name__, ", ".join(parts))
+
+
+class IRCClient:
+    """
+    Minimal, standalone IRC client.
+    """
+
+    def __init__(self, plug, host, port, ssl, nick, password=None, user=None, name=None):
+        self._plug = plug
+        # Server parameters for (re)connections.
+        self._host = host
+        self._port = port
+        self._ssl = ssl
+        self._nick = nick
+        self._password = password
+        self._user = user
+        self._name = name
+        # Connection streams.
+        self._reader = self._writer = self._task = None
+        # Store channel and nick prefixes for matching and cleanup.
+        self.types = ""
+        self.prefixes = ""
+        # Track public channels, and joined channels' members.
+        self.users = {}
+        self.members = {}
+        # Capture answers to pending queries.
+        self._waits = []
+
+    @property
+    def nick(self):
+        return self._nick
+
+    @nick.setter
+    def nick(self, value):
+        self._nick = value
+        if self._writer:
+            self._write(Line("NICK", self._nick))
+
+    async def _read_loop(self):
+        while True:
+            raw = await self._reader.readline()
+            if not raw:
+                # Connection has been closed.
+                self._writer.close()
+                self._reader = self._writer = None
+                break
+            line = Line.parse(raw.decode().rstrip("\r\n"))
+            log.debug("Received line: %r", line)
+            await self._handle(line)
+        log.debug("Reconnecting in 3 seconds")
+        await sleep(3)
+        await self.connect()
+
+    def _write(self, *lines):
+        for line in lines:
+            log.debug("Sending line: %r", line)
+            self._writer.write("{}\r\n".format(line).encode())
+
+    async def _wait(self, *lines, success=(), fail=(), collect=()):
+        wait = Wait((), success, fail, collect)
+        log.debug("Adding wait: %r", wait)
+        self._waits.append(wait)
+        self._write(*lines)
+        try:
+            result = await wait_for(wait, 10)
+            log.debug("Completing wait: %r", wait)
+        except TimeoutError:
+            log.warning("Timeout on wait: %r", wait, exc_info=True)
+            raise
+        finally:
+            self._waits.remove(wait)
+        return result
+
+    async def _handle(self, line):
+        # Route lines to any waits listening for them.
+        for wait in self._waits:
+            if wait.wants(line):
+                wait.add(line)
+                break
+        if line.command == "005":
+            # Listen for channel type prefixes within ISUPPORT tokens.
+            # Also listen for nick prefixes, of the form `(modes)prefixes`.
+            for param in line.args[1:]:
+                if param.startswith("CHANTYPES="):
+                    self.types = param.split("=", 1)[1]
+                elif param.startswith("PREFIX="):
+                    self.prefixes = param.split(")", 1)[1]
+        elif line.command == "433":
+            self.nick += "_"
+        elif line.command == "PING":
+            self._write(Line("PONG", *line.args))
+        elif line.command in ("JOIN", "PART", "KICK", "PRIVMSG"):
+            nick = line.source.split("!", 1)[0]
+            channel = line.args[0]
+            if channel in self.members:
+                if line.command == "JOIN":
+                    log.debug("Adding %s to %s member list", nick, channel)
+                    self.members[channel].add(nick)
+                elif line.command in ("PART", "KICK"):
+                    log.debug("Removing %s from %s member list", nick, channel)
+                    self.members[channel].remove(nick)
+        elif line.command == "QUIT":
+            nick = line.source.split("!", 1)[0]
+            for name, members in list(self.members.items()):
+                if name == nick:
+                    log.debug("Removing %s self entry", nick)
+                    del self.members[nick]
+                elif nick in members:
+                    log.debug("Converting QUIT to PART for %s in %s", nick, name)
+                    await self._handle(Line("PART", name, source=line.source))
+        elif line.command == "NICK":
+            old = line.source.split("!", 1)[0]
+            new = line.args[0]
+            for name, members in list(self.members.items()):
+                if name == old:
+                    log.debug("Replacing %s with %s in self entry", old, new)
+                    del self.members[old]
+                    self.members[new] = {new}
+                elif old in members:
+                    log.debug("Replacing %s with %s in %s members", old, new, name)
+                    members.remove(old)
+                    members.add(new)
+        await self._plug._handle(line)
+
+    async def connect(self):
+        self._reader, self._writer = await open_connection(self._host, self._port, ssl=self._ssl)
+        self._task = ensure_future(self._read_loop())
+        if self._password:
+            self._write(Line("PASS", self._password))
+        await self._wait(Line("USER", self._user, "0", "*", self._name),
+                         Line("NICK", self._nick),
+                         success=("001",))
+
+    async def disconnect(self, msg):
+        if self._writer:
+            self._write(Line("QUIT", msg))
+            await self._writer.drain()
+            self._writer.close()
+            self._writer = None
+        if self._reader:
+            self._reader.cancel()
+            self._reader = None
+
+    async def who(self, name):
+        if name in self.users:
+            self.members[name] = {name}
+            return {self.users[name]}
+        members = set()
+        users = set()
+        for line in await self._wait(Line("WHO", name), success=("315",), collect=("352",)):
+            user = IRCUser.from_who(self._plug, line)
+            members.add(user.username)
+            users.add(user)
+            self.members[user.username] = {user.username}
+            self.users[user.username] = user
+        if members:
+            self.members[name] = members
+        elif name in self.members:
+            del self.members[name]
+        return users
+
+    async def join(self, channel):
+        await self._wait(Line("JOIN", channel), success=("JOIN",))
+        await self.who(channel)
+
+    def invite(self, channel, nick):
+        self._write(Line("INVITE", nick, channel))
+
+    def kick(self, channel, nick):
+        self._write(Line("KICK", channel, nick))
+
+    async def list(self):
+        return await self._wait(Line("LIST"), success=("323",), collect=("322",))
+
+    async def names(self):
+        return await self._wait(Line("NAMES"), success=("366",), fail=("401",), collect=("353",))
+
+    def send(self, channel, text):
+        self._write(Line("PRIVMSG", channel, text))
 
 
 class IRCPlug(immp.Plug):
@@ -300,18 +499,10 @@ class IRCPlug(immp.Plug):
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
-        self._reader = self._writer = None
-        self._prefixes = ""
-        # Bot's own identifier as seen by the IRC server.
+        self._client = None
         self._source = None
-        # Tracking fields for storing requested data by type.
-        self._waits = []
-        self._current_wait = None
         # Don't yield messages for initial self-joins.
         self._joins = set()
-        # Cache responses that may be rate-limited by the server.
-        self._channels = self._names = None
-        self._members = {}
 
     @property
     def network_name(self):
@@ -322,89 +513,41 @@ class IRCPlug(immp.Plug):
         return "irc:{}".format(self.config["server"]["host"])
 
     async def start(self):
-        host = self.config["server"]["host"]
-        port = self.config["server"]["port"]
-        ssl = self.config["server"]["ssl"] or None
-        reader, self._writer = await open_connection(host, port, ssl=ssl)
-        self._reader = ensure_future(self._read_loop(reader, host, port))
-        if self.config["server"]["password"]:
-            self.write(Line("PASS", self.config["server"]["password"]))
-        # We won't receive this until a valid nick has been set.
-        await self.wait(Line("NICK", self.config["user"]["nick"]),
-                        Line("USER", "immp", "0", "*", self.config["user"]["real-name"]),
-                        success=("001",))
+        self._client = IRCClient(self,
+                                 self.config["server"]["host"],
+                                 self.config["server"]["port"],
+                                 self.config["server"]["ssl"],
+                                 self.config["user"]["nick"],
+                                 self.config["server"]["password"],
+                                 "immp",
+                                 self.config["user"]["real-name"])
+        await self._client.connect()
         self._source = (await self.user_from_username(self.config["user"]["nick"])).id
         for channel in self.host.channels.values():
             if channel.plug == self and channel.source.startswith("#"):
                 self._joins.add(channel.source)
-                await self._join(channel.source)
+                await self._client.join(channel.source)
 
     async def stop(self):
-        for wait in self._waits:
-            wait.cancel()
-        self._waits.clear()
-        self._joins.clear()
-        self.write(Line("QUIT", self.config["quit"] or "IMMP: stopping"))
-        if self._reader:
-            log.debug("Closing reader")
-            self._reader.cancel()
-            self._reader = None
-        if self._writer:
-            log.debug("Closing writer")
-            await self._writer.drain()
-            self._writer.close()
-            self._writer = None
+        if self._client:
+            await self._client.disconnect(self.config["quit"] or "Disconnecting")
+            self._client = None
         self._source = None
-
-    async def _read_loop(self, reader, host, port):
-        while True:
-            raw = await reader.readline()
-            if not raw:
-                # Connection has been closed.
-                self._writer.close()
-                self._reader = self._writer = None
-                break
-            line = Line.parse(raw.decode().rstrip("\r\n"))
-            log.debug("Received line: %r", line)
-            await self._handle(line)
-        log.debug("Reconnecting in 3 seconds")
-        await sleep(3)
-        await self.start()
-
-    async def _who(self, name):
-        if name in self._members:
-            return self._members[name]
-        users = set()
-        for line in await self.wait(Line("WHO", name), success=("315",), collect=("352",)):
-            id_ = "{}!{}@{}".format(line.args[5], line.args[2], line.args[3])
-            username = line.args[5]
-            real_name = line.args[-1].split(" ", 1)[-1]
-            user = immp.User(id_=id_, plug=self, username=username, real_name=real_name, raw=line)
-            users.add(user)
-            if username != name:
-                self._members[username] = [user]
-        if users:
-            self._members[name] = users
-        elif name in self._members:
-            del self._members[name]
-        return users
-
-    async def _join(self, name):
-        await self.wait(Line("JOIN", name), success=("366",), collect=("353",))
-        await self._who(name)
-
-    def _strip_prefix(self, name):
-        return re.sub("^[{}]+".format(self._prefixes), "", name) if self._prefixes else name
 
     async def user_from_id(self, id_):
         nick = id_.split("!", 1)[0]
-        try:
-            return self._members[nick][0]
-        except KeyError:
-            return immp.User(id_=id_, plug=self, username=nick)
+        user = await self.user_from_username(nick)
+        if user:
+            return user
+        else:
+            return IRCUser.from_id(self, id_)
 
     async def user_from_username(self, username):
-        for user in await self._who(username):
+        try:
+            return self._client.users[username]
+        except KeyError:
+            pass
+        for user in await self._client.who(username):
             if user.username == username:
                 return user
         return None
@@ -414,124 +557,62 @@ class IRCPlug(immp.Plug):
 
     async def public_channels(self):
         try:
-            self._channels = await self.wait(Line("LIST"), success=("323",), collect=("322",))
+            raw = await self._client.list()
         except IRCTryAgain:
-            pass
-        if self._channels:
-            return [immp.Channel(self, line.args[1]) for line in self._channels]
-        else:
             return None
+        channels = (line.args[1] for line in raw)
+        return [immp.Channel(self, channel) for channel in channels]
 
     async def private_channels(self):
         try:
-            raw = await self.wait(Line("NAMES"), success=("366",), fail=("401",), collect=("353",))
+            raw = await self._client.names()
         except IRCTryAgain:
-            pass
-        else:
-            self._names = set()
-            for line in raw:
-                self._names.update(self._strip_prefix(name) for name in line.args[3].split())
-        if self._names:
-            return [immp.Channel(self, name) for name in self._names
-                    if name != self.config["user"]["nick"]]
-        else:
             return None
+        names = set()
+        for line in raw:
+            names.update(name.lstrip(self._client.prefixes) for name in line.args[3].split())
+        return [immp.Channel(self, name) for name in names
+                if name != self.config["user"]["nick"]]
 
     async def channel_for_user(self, user):
         return immp.Channel(self, user.username)
 
     async def channel_is_private(self, channel):
-        return bool(await self.user_from_username(channel.source))
+        return not channel.source.startswith(tuple(self._client.types))
 
     async def channel_title(self, channel):
         return channel.source
 
     async def channel_members(self, channel):
-        members = list(await self._who(channel.source))
+        try:
+            nicks = self._client.members[channel.source]
+        except KeyError:
+            members = list(await self._client.who(channel.source))
+        else:
+            members = [await self.user_from_username(nick) for nick in nicks]
         if await channel.is_private() and members[0].id != self._source:
             members.append(await self.user_from_id(self._source))
         return members
 
     async def channel_invite(self, channel, user):
-        self.write(Line("INVITE", user.username, channel.source))
+        self._client.invite(channel.source, user.username)
 
     async def channel_remove(self, channel, user):
-        self.write(Line("KICK", channel.source, user.username))
+        self._client.kick(channel.source, user.username)
 
     async def _handle(self, line):
-        for wait in self._waits:
-            if wait.wants(line):
-                if wait.add(line):
-                    log.debug("Completing wait: %r", self._current_wait)
-                    self._waits.remove(wait)
-                break
-        if line.command == "PING":
-            self.write(Line("PONG", *line.args))
-        elif line.command in ("JOIN", "PART", "KICK", "PRIVMSG"):
+        if line.command in ("JOIN", "PART", "KICK", "PRIVMSG"):
             sent = await IRCMessage.from_line(self, line)
             if sent.joined and sent.joined[0].username == self._source.split("!", 1)[0]:
                 if sent.channel.source in self._joins:
                     self._joins.remove(sent.channel.source)
                     return
             self.queue(sent)
-            if sent.channel.source in self._members:
-                if line.command == "JOIN":
-                    log.debug("Adding %s to %s member list",
-                              sent.joined[0].username, sent.channel.source)
-                    self._members[sent.channel.source].add(sent.joined[0])
-                elif line.command in ("PART", "KICK"):
-                    log.debug("Removing %s from %s member list",
-                              sent.left[0].username, sent.channel.source)
-                    self._members[sent.channel.source].remove(sent.left[0])
-        elif line.command == "QUIT":
-            nick = line.source.split("!", 1)[0]
-            find = immp.User(id_=line.source, plug=self, username=nick)
-            for name, members in list(self._members.items()):
-                if name == nick:
-                    log.debug("Removing %s self entry", nick)
-                    del self._members[nick]
-                elif find in members:
-                    log.debug("Converting QUIT to PART for %s in %s", nick, name)
-                    await self._handle(Line("PART", name, source=line.source))
-        elif line.command == "NICK":
-            old, host = line.source.split("!", 1)
-            new = line.args[0]
-            find = immp.User(id_=line.source, plug=self, username=old)
-            replace = immp.User(id_="{}!{}".format(new, host), plug=self, username=new, raw=line)
-            for name, members in list(self._members.items()):
-                if name == old:
-                    log.debug("Replacing %s with %s in self entry", old, new)
-                    del self._members[old]
-                    self._members[new] = {replace}
-                elif find in members:
-                    log.debug("Replacing %s with %s in %s members", old, new, name)
-                    members.remove(find)
-                    members.add(replace)
         elif line.command == "INVITE" and self.config["accept-invites"]:
-            await self._join(line.args[1])
-        elif line.command == "005":
-            for param in line.args[1:]:
-                if param.startswith("PREFIX="):
-                    self._prefixes = param.split(")", 1)[1]
-        elif line.command == "433":
-            # Nickname in use, try another.
-            self.config["user"]["nick"] += "_"
-            self.write(Line("NICK", self.config["user"]["nick"]),
-                       Line("USER", "immp", "0", "*", self.config["user"]["real-name"]))
+            await self._client.join(line.args[1])
 
-    def wait(self, *lines, success=(), fail=(), collect=()):
-        wait = Wait(lines, success, fail, collect)
-        log.debug("Adding wait: %r", wait)
-        self._waits.append(wait)
-        self.write(*lines)
-        return wait
-
-    def write(self, *lines):
-        for line in lines:
-            log.debug("Sending line: %r", line)
-            self._writer.write("{}\r\n".format(line).encode())
-
-    def _lines(self, rich, user, action, edited):
+    @classmethod
+    def _lines(cls, rich, user, action, edited):
         if not rich:
             return []
         elif not isinstance(rich, immp.RichText):
@@ -563,9 +644,8 @@ class IRCPlug(immp.Plug):
                 lines += self._lines(attach.text, attach.user, attach.action, attach.edited)
         ids = []
         for text in lines:
-            line = Line("PRIVMSG", channel.source, text)
-            self.write(line)
-            line.source = self._source
+            self._client.send(channel.source, text)
+            line = Line("PRIVMSG", channel.source, text, source=self._source)
             sent = await IRCMessage.from_line(self, line)
             self.queue(sent)
             ids.append(sent.id)
