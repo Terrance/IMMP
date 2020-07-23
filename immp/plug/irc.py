@@ -319,6 +319,8 @@ class IRCClient:
         self._password = password
         self._user = user
         self._name = name
+        # Cache our user-host as seen by the server.
+        self._mask = None
         # Connection streams.
         self._reader = self._writer = self._task = None
         # Store channel and nick prefixes for matching and cleanup.
@@ -339,6 +341,13 @@ class IRCClient:
         self._nick = value
         if self._writer:
             self._write(Line("NICK", self._nick))
+
+    @property
+    def nickmask(self):
+        if self._mask:
+            return "{}!{}".format(self._nick, self._mask)
+        else:
+            return None
 
     async def _read_loop(self):
         while True:
@@ -434,16 +443,20 @@ class IRCClient:
         await self._wait(Line("USER", self._user, "0", "*", self._name),
                          Line("NICK", self._nick),
                          success=("001",))
+        for user in await self.who(self._nick):
+            if user.username == self._nick:
+                self._mask = user.id.split("!", 1)[-1]
 
     async def disconnect(self, msg):
+        if self._task:
+            self._task.cancel()
+            self._task = None
+        self._reader = None
         if self._writer:
             self._write(Line("QUIT", msg))
             await self._writer.drain()
             self._writer.close()
             self._writer = None
-        if self._reader:
-            self._reader.cancel()
-            self._reader = None
 
     async def who(self, name):
         if name in self.users:
@@ -464,6 +477,8 @@ class IRCClient:
         return users
 
     async def join(self, channel):
+        if channel in self.members and self._nick in self.members[channel]:
+            return
         await self._wait(Line("JOIN", channel), success=("JOIN",))
         await self.who(channel)
 
@@ -480,7 +495,10 @@ class IRCClient:
         return await self._wait(Line("NAMES"), success=("366",), fail=("401",), collect=("353",))
 
     def send(self, channel, text):
-        self._write(Line("PRIVMSG", channel, text))
+        line = Line("PRIVMSG", channel, text)
+        self._write(line)
+        line.source = self.nickmask
+        return line
 
 
 class IRCPlug(immp.Plug):
@@ -494,13 +512,12 @@ class IRCPlug(immp.Plug):
                                      immp.Optional("password"): immp.Nullable(str)},
                           "user": {"nick": str,
                                    "real-name": str},
-                          immp.Optional("quit"): immp.Nullable(str),
+                          immp.Optional("quit", "Disconnecting"): str,
                           immp.Optional("accept-invites", False): bool})
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         self._client = None
-        self._source = None
         # Don't yield messages for initial self-joins.
         self._joins = set()
 
@@ -522,7 +539,6 @@ class IRCPlug(immp.Plug):
                                  "immp",
                                  self.config["user"]["real-name"])
         await self._client.connect()
-        self._source = (await self.user_from_username(self.config["user"]["nick"])).id
         for channel in self.host.channels.values():
             if channel.plug == self and channel.source.startswith("#"):
                 self._joins.add(channel.source)
@@ -530,9 +546,8 @@ class IRCPlug(immp.Plug):
 
     async def stop(self):
         if self._client:
-            await self._client.disconnect(self.config["quit"] or "Disconnecting")
+            await self._client.disconnect(self.config["quit"])
             self._client = None
-        self._source = None
 
     async def user_from_id(self, id_):
         nick = id_.split("!", 1)[0]
@@ -553,7 +568,7 @@ class IRCPlug(immp.Plug):
         return None
 
     async def user_is_system(self, user):
-        return user.id == self._source
+        return user.id == self._client.nickmask
 
     async def public_channels(self):
         try:
@@ -590,8 +605,8 @@ class IRCPlug(immp.Plug):
             members = list(await self._client.who(channel.source))
         else:
             members = [await self.user_from_username(nick) for nick in nicks]
-        if await channel.is_private() and members[0].id != self._source:
-            members.append(await self.user_from_id(self._source))
+        if await channel.is_private() and members[0].id != self._client.nickmask:
+            members.append(await self.user_from_id(self._client.nickmask))
         return members
 
     async def channel_invite(self, channel, user):
@@ -603,7 +618,7 @@ class IRCPlug(immp.Plug):
     async def _handle(self, line):
         if line.command in ("JOIN", "PART", "KICK", "PRIVMSG"):
             sent = await IRCMessage.from_line(self, line)
-            if sent.joined and sent.joined[0].username == self._source.split("!", 1)[0]:
+            if sent.joined and sent.joined[0].id == self._client.nickmask:
                 if sent.channel.source in self._joins:
                     self._joins.remove(sent.channel.source)
                     return
@@ -644,8 +659,7 @@ class IRCPlug(immp.Plug):
                 lines += self._lines(attach.text, attach.user, attach.action, attach.edited)
         ids = []
         for text in lines:
-            self._client.send(channel.source, text)
-            line = Line("PRIVMSG", channel.source, text, source=self._source)
+            line = self._client.send(channel.source, text)
             sent = await IRCMessage.from_line(self, line)
             self.queue(sent)
             ids.append(sent.id)
