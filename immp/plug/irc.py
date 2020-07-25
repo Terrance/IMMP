@@ -20,6 +20,9 @@ Config:
         Quit message, sent as part of disconnection from the server.
     accept-invites (bool):
         ``True`` to auto-join channels when an INVITE is received.
+    puppet (bool):
+        Whether to use multiple IRC clients for sending.  If enabled, new client connections will
+        be made when sending a message with an unseen username, and reused for later messages.
 """
 
 from asyncio import (CancelledError, Future, ensure_future,
@@ -309,7 +312,8 @@ class IRCClient:
     Minimal, standalone IRC client.
     """
 
-    def __init__(self, plug, host, port, ssl, nick, password=None, user=None, name=None):
+    def __init__(self, plug, host, port, ssl, nick, password=None,
+                 user=None, name=None, listener=False):
         self._plug = plug
         # Server parameters for (re)connections.
         self._host = host
@@ -319,6 +323,7 @@ class IRCClient:
         self._password = password
         self._user = user
         self._name = name
+        self._listener = listener
         # Cache our user-host as seen by the server.
         self._mask = None
         # Connection streams.
@@ -358,7 +363,7 @@ class IRCClient:
                 self._reader = self._writer = None
                 break
             line = Line.parse(raw.decode().rstrip("\r\n"))
-            log.debug("Received line: %r", line)
+            log.debug("Client %r received line: %r", self._nick, line)
             await self._handle(line)
         log.debug("Reconnecting in 3 seconds")
         await sleep(3)
@@ -366,7 +371,7 @@ class IRCClient:
 
     def _write(self, *lines):
         for line in lines:
-            log.debug("Sending line: %r", line)
+            log.debug("Client %r sending line: %r", self._nick, line)
             self._writer.write("{}\r\n".format(line).encode())
 
     async def _wait(self, *lines, success=(), fail=(), collect=()):
@@ -433,7 +438,8 @@ class IRCClient:
                     log.debug("Replacing %s with %s in %s members", old, new, name)
                     members.remove(old)
                     members.add(new)
-        await self._plug._handle(line)
+        if self._listener:
+            await self._plug._handle(line)
 
     async def connect(self):
         self._reader, self._writer = await open_connection(self._host, self._port, ssl=self._ssl)
@@ -513,13 +519,16 @@ class IRCPlug(immp.Plug):
                           "user": {"nick": str,
                                    "real-name": str},
                           immp.Optional("quit", "Disconnecting"): str,
-                          immp.Optional("accept-invites", False): bool})
+                          immp.Optional("accept-invites", False): bool,
+                          immp.Optional("puppet", False): bool})
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         self._client = None
         # Don't yield messages for initial self-joins.
         self._joins = set()
+        # Maintain puppet clients by nick for cleaner sending.
+        self._puppets = {}
 
     @property
     def network_name(self):
@@ -537,7 +546,8 @@ class IRCPlug(immp.Plug):
                                  self.config["user"]["nick"],
                                  self.config["server"]["password"],
                                  "immp",
-                                 self.config["user"]["real-name"])
+                                 self.config["user"]["real-name"],
+                                 True)
         await self._client.connect()
         for channel in self.host.channels.values():
             if channel.plug == self and channel.source.startswith("#"):
@@ -548,6 +558,9 @@ class IRCPlug(immp.Plug):
         if self._client:
             await self._client.disconnect(self.config["quit"])
             self._client = None
+        for client in self._puppets.values():
+            await client.disconnect(self.config["quit"])
+        self._puppets.clear()
 
     async def user_from_id(self, id_):
         nick = id_.split("!", 1)[0]
@@ -568,7 +581,13 @@ class IRCPlug(immp.Plug):
         return None
 
     async def user_is_system(self, user):
-        return user.id == self._client.nickmask
+        if user.id == self._client.nickmask:
+            return True
+        for client in self._puppets.values():
+            if user.id == client.nickmask:
+                return True
+        else:
+            return False
 
     async def public_channels(self):
         try:
@@ -622,7 +641,16 @@ class IRCPlug(immp.Plug):
                 if sent.channel.source in self._joins:
                     self._joins.remove(sent.channel.source)
                     return
-            self.queue(sent)
+            puppets = [client.nickmask for client in self._puppets.values()]
+            # Don't yield messages sent by puppets, or for puppet kicks.
+            if sent.user.id in puppets:
+                pass
+            elif sent.joined and all(user.id in puppets for user in sent.joined):
+                pass
+            elif sent.left and all(user.id in puppets for user in sent.left):
+                pass
+            else:
+                self.queue(sent)
         elif line.command == "INVITE" and self.config["accept-invites"]:
             await self._client.join(line.args[1])
 
@@ -644,22 +672,62 @@ class IRCPlug(immp.Plug):
             lines.append(text)
         return lines
 
+    async def _puppet(self, user):
+        username = user.username or user.real_name
+        nick = "_".join(username.split())
+        try:
+            puppet = self._puppets[user]
+        except KeyError:
+            pass
+        else:
+            log.debug("Reusing puppet %r for user %r", puppet.nickmask, user)
+            if puppet.nick.rstrip("_") != nick:
+                puppet.nick = nick
+            return puppet
+        if user.plug and user.plug.network_id == self.network_id:
+            for puppet in self._puppets.values():
+                if user.id == puppet.nickmask:
+                    log.debug("Matched nickmask with puppet %r", user.id)
+                    return puppet
+        log.debug("Adding puppet %r for user %r", nick, user)
+        real_name = user.real_name or user.username
+        if user.plug:
+            real_name = "{} ({})".format(real_name, user.plug.network_name)
+        puppet = IRCClient(self,
+                           self.config["server"]["host"],
+                           self.config["server"]["port"],
+                           self.config["server"]["ssl"],
+                           nick,
+                           self.config["server"]["password"],
+                           "immp",
+                           real_name)
+        self._puppets[user] = puppet
+        await puppet.connect()
+        return puppet
+
     async def put(self, channel, msg):
+        user = None if self.config["puppet"] else msg.user
         lines = []
         if msg.text:
-            lines += self._lines(msg.text, msg.user, msg.action, msg.edited)
+            lines += self._lines(msg.text, user, msg.action, msg.edited)
         for attach in msg.attachments:
             if isinstance(attach, immp.File):
                 text = "uploaded a file{}".format(": {}".format(attach) if str(attach) else "")
-                lines += self._lines(text, msg.user, True, msg.edited)
+                lines += self._lines(text, user, True, msg.edited)
             elif isinstance(attach, immp.Location):
                 text = "shared a location: {}".format(attach)
-                lines += self._lines(text, msg.user, True, msg.edited)
+                lines += self._lines(text, user, True, msg.edited)
             elif isinstance(attach, immp.Message) and attach.text:
                 lines += self._lines(attach.text, attach.user, attach.action, attach.edited)
         ids = []
+        if self.config["puppet"] and msg.user:
+            client = await self._puppet(msg.user)
+            if not await channel.is_private():
+                await client.join(channel.source)
+        else:
+            client = self._client
         for text in lines:
-            line = self._client.send(channel.source, text)
+            line = client.send(channel.source, text)
             sent = await IRCMessage.from_line(self, line)
             self.queue(sent)
             ids.append(sent.id)
