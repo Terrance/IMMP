@@ -23,6 +23,8 @@ Config:
     puppet (bool):
         Whether to use multiple IRC clients for sending.  If enabled, new client connections will
         be made when sending a message with an unseen username, and reused for later messages.
+    puppet-prefix (str):
+        Leading characters to include in nicks of puppet users.
 """
 
 from asyncio import (CancelledError, Future, ensure_future,
@@ -331,6 +333,7 @@ class IRCClient:
         # Store channel and nick prefixes for matching and cleanup.
         self.types = ""
         self.prefixes = ""
+        self._nicklen = None
         # Track public channels, and joined channels' members.
         self.users = {}
         self.members = {}
@@ -343,6 +346,10 @@ class IRCClient:
 
     @nick.setter
     def nick(self, value):
+        if self._nicklen:
+            value = value[:self._nicklen]
+        if self._nick == value:
+            return
         self._nick = value
         if self._writer:
             self._write(Line("NICK", self._nick))
@@ -395,16 +402,41 @@ class IRCClient:
             if wait.wants(line):
                 wait.add(line)
                 break
-        if line.command == "005":
+        if line.command == "001":
+            # Update our nick again in case it was truncated or otherwise changed.
+            if self._nick != line.args[0]:
+                log.debug("Caught nickname rewrite: %s -> %s", self._nick, line.args[0])
+                self._nick = line.args[0]
+        elif line.command == "005":
             # Listen for channel type prefixes within ISUPPORT tokens.
             # Also listen for nick prefixes, of the form `(modes)prefixes`.
             for param in line.args[1:]:
-                if param.startswith("CHANTYPES="):
-                    self.types = param.split("=", 1)[1]
-                elif param.startswith("PREFIX="):
-                    self.prefixes = param.split(")", 1)[1]
+                if "=" in param:
+                    key, value = param.split("=", 1)
+                else:
+                    key = param
+                    value = True
+                if key == "CHANTYPES":
+                    self.types = value
+                elif key == "PREFIX":
+                    self.prefixes = value.split(")", 1)[-1]
+                elif key == "NICKLEN":
+                    self._nicklen = int(value)
         elif line.command == "433":
-            self.nick += "_"
+            # Re-request the current nick with a trailing underscore.
+            # Remove characters from the nick if needed to make it fit.
+            parsed = line.args[1]
+            if len(parsed) < len(self._nick):
+                # We got silently truncated, set the max nick length.
+                self._nicklen = len(parsed)
+                self._nick = parsed
+            if len(self._nick.rstrip("_")) < 2:
+                raise ValueError("Nick exhausted")
+            if self._nicklen and len(self._nick) >= self._nicklen:
+                base = self._nick[:self._nicklen].rstrip("_")
+                self.nick = base[:-1].ljust(self._nicklen, "_")
+            else:
+                self.nick += "_"
         elif line.command == "PING":
             self._write(Line("PONG", *line.args))
         elif line.command in ("JOIN", "PART", "KICK", "PRIVMSG"):
@@ -429,6 +461,8 @@ class IRCClient:
         elif line.command == "NICK":
             old = line.source.split("!", 1)[0]
             new = line.args[0]
+            if self._nick == old:
+                self._nick = new
             for name, members in list(self.members.items()):
                 if name == old:
                     log.debug("Replacing %s with %s in self entry", old, new)
@@ -454,6 +488,9 @@ class IRCClient:
                 self._mask = user.id.split("!", 1)[-1]
 
     async def disconnect(self, msg):
+        for wait in self._waits:
+            wait.cancel()
+        self._waits.clear()
         if self._task:
             self._task.cancel()
             self._task = None
@@ -520,7 +557,8 @@ class IRCPlug(immp.Plug):
                                    "real-name": str},
                           immp.Optional("quit", "Disconnecting"): str,
                           immp.Optional("accept-invites", False): bool,
-                          immp.Optional("puppet", False): bool})
+                          immp.Optional("puppet", False): bool,
+                          immp.Optional("puppet-prefix", ""): str})
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
@@ -674,7 +712,7 @@ class IRCPlug(immp.Plug):
 
     async def _puppet(self, user):
         username = user.username or user.real_name
-        nick = "_".join(username.split())
+        nick = self.config["puppet-prefix"] + "-".join(username.split())
         try:
             puppet = self._puppets[user]
         except KeyError:
