@@ -102,10 +102,15 @@ class PlugStream:
                 except CancelledError:
                     del self._agens[plug]
                 except Exception:
-                    log.exception("Generator for plug %r exited, recreating", plug.name)
+                    log.warning("Generator for plug %r exited, recreating",
+                                plug.name, exc_info=True)
                     self._agens[plug] = plug.stream()
                 else:
-                    log.info("Received: %r", sent)
+                    log.info("Received message ID %r in channel %r%s",
+                             sent.id, sent.channel, " (primary)" if primary else "")
+                    log.debug("Message content: %r", sent)
+                    if sent is not source:
+                        log.debug("Source message: %r", source)
                     yield (sent, source, primary)
             log.debug("Waiting for next message")
 

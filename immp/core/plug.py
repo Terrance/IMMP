@@ -339,6 +339,7 @@ class Plug(Configurable, Openable):
                 log.debug("Retrieving queued messages for %r", self.name)
             while not self._queue.empty():
                 yield self._lookup(self._queue.get_nowait())
+            raise
 
     async def send(self, channel, msg):
         """
