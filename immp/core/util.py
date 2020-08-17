@@ -1,6 +1,7 @@
 from asyncio import Condition
+from collections.abc import MutableMapping, MutableSequence
 from enum import Enum
-from functools import reduce
+from functools import partial, reduce, wraps
 from importlib import import_module
 import logging
 import re
@@ -103,6 +104,136 @@ def unescape(raw, *chars):
     args = (raw, *chars, r"\\")
     return reduce(lambda current, char: re.sub(_no_escape(r"\\{}".format(char)),
                                                char, current), args)
+
+
+class Watchable:
+    """
+    Container mixin to trigger a callback when its contents are changed.
+    """
+
+    _callback = None
+
+    def __init__(self, watch):
+        self._callback = watch
+
+    def __call__(self):
+        return self._callback()
+
+    def _wrap_inline(self, obj):
+        if isinstance(obj, MutableMapping):
+            obj.update((key, self._wrap(value)) for key, value in obj.items())
+        elif isinstance(obj, MutableSequence):
+            obj[:] = (self._wrap(value) for value in obj)
+        else:
+            raise TypeError
+
+    def _wrap(self, obj):
+        if isinstance(obj, Watchable):
+            return obj
+        elif isinstance(obj, MutableMapping):
+            return WatchedDict(self, {key: self._wrap(value) for key, value in obj.items()})
+        elif isinstance(obj, MutableSequence):
+            return WatchedList(self, [self._wrap(item) for item in obj])
+        else:
+            return obj
+
+    @classmethod
+    def unwrap(cls, obj):
+        """
+        Recursively replace :class:`Watchable` subclasses with their native equivalents.
+
+        Args:
+            obj:
+                Container type, or any value.
+
+        Returns:
+            Unwrapped container, or the original value.
+        """
+        if isinstance(obj, MutableMapping):
+            return {key: cls.unwrap(value) for key, value in obj.items()}
+        elif isinstance(obj, MutableSequence):
+            return [cls.unwrap(item) for item in obj]
+        else:
+            return obj
+
+    @classmethod
+    def _watch(cls, target, name):
+        method = getattr(target, name)
+        @wraps(method)
+        def wrapped(self, *args, **kwargs):
+            out = method(self, *args, **kwargs)
+            if self._callback:
+                self._callback()
+            return out
+        setattr(target, name, wrapped)
+
+    @classmethod
+    def watch(cls, *methods):
+        """
+        Class decorator for mixin users, to wrap methods that modify the underlying container, and
+        should therefore trigger the callback when invoked.
+
+        Args:
+            methods (str list):
+                List of method names to individually wrap.
+        """
+        def inner(target):
+            for name in methods:
+                cls._watch(target, name)
+            return target
+        return inner
+
+
+@Watchable.watch("__setitem__", "__delitem__", "setdefault", "update", "pop", "popitem", "clear")
+class WatchedDict(dict, Watchable):
+    """
+    Watchable-enabled :class:`dict` subclass.  Lists or dictionaries added as items in this
+    container will be wrapped automatically.
+    """
+
+    def __init__(self, watch, initial, **kwargs):
+        super().__init__(initial, **kwargs)
+        self._wrap_inline(self)
+        Watchable.__init__(self, watch)
+
+    def __repr__(self):
+        return "<{}: {}>".format(self.__class__.__name__, super().__repr__())
+
+    def __setitem__(self, key, value):
+        return super().__setitem__(key, self._wrap(value))
+
+    def update(self, other=None, **kwargs):
+        self._wrap_inline(kwargs)
+        return super().update(self._wrap(other) if other else (), **kwargs)
+
+
+@Watchable.watch("__setitem__", "__delitem__", "__iadd__", "__imul__",
+                 "insert", "append", "extend", "pop", "remove", "clear", "reverse", "sort")
+class WatchedList(list, Watchable):
+    """
+    Watchable-enabled :class:`list` subclass.  Lists or dictionaries added as items in this
+    container will be wrapped automatically.
+    """
+
+    def __init__(self, watch, initial):
+        super().__init__(initial)
+        self._wrap_inline(self)
+        Watchable.__init__(self, watch)
+
+    def __repr__(self):
+        return "<{}: {}>".format(self.__class__.__name__, super().__repr__())
+
+    def __setitem__(self, key, value):
+        return super().__setitem__(key, self._wrap(value))
+
+    def insert(self, index, value):
+        return super().insert(index, self._wrap(value))
+
+    def append(self, value):
+        return super().append(self._wrap(value))
+
+    def extend(self, other):
+        return super().extend([self._wrap(item) for item in other])
 
 
 class ConfigProperty:
@@ -249,8 +380,12 @@ class Configurable:
     def __init__(self, name, config, host):
         super().__init__()
         self.name = name
-        self._config = self.schema(config) if self.schema else None
+        self.config = config
         self.host = host
+
+    def _callback(self):
+        log.debug("Triggering config change event for %r", self)
+        self.host.config_change(self)
 
     @property
     def config(self):
@@ -258,7 +393,12 @@ class Configurable:
 
     @config.setter
     def config(self, value):
-        self._config = self.schema(value)
+        if self.schema:
+            self._config = WatchedDict(self._callback, self.schema(value))
+        elif value:
+            raise TypeError("{} doesn't accept configuration".format(self.__class__.__name__))
+        else:
+            self._config = None
 
 
 class Openable:

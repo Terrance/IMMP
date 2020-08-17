@@ -437,6 +437,17 @@ class Host:
         results = await gather(*(hook.channel_migrate(old, new) for hook in hooks))
         return [hook.name for hook, result in zip(hooks, results) if result]
 
+    def config_change(self, source):
+        """
+        Event handler called from a configurable when its config changes, dispatched to all hooks.
+
+        Args:
+            source (.Configurable):
+                Source plug or hook that triggered the event.
+        """
+        for hook in self.hooks.values():
+            hook.on_config_change(source)
+
     async def process(self):
         """
         Retrieve messages from plugs, and distribute them to hooks.

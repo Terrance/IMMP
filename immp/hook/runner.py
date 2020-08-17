@@ -116,7 +116,7 @@ class RunnerHook(immp.ResourceHook):
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
-        self._config = None
+        self._base_config = None
         self._path = None
         self.writeable = None
 
@@ -132,7 +132,9 @@ class RunnerHook(immp.ResourceHook):
             writeable (bool):
                 ``True`` if changes to the live config may be written back to the file.
         """
-        self._config = config
+        self._base_config = dict(config)
+        for key in ("plugs", "channels", "groups", "hooks"):
+            self._base_config.pop(key, None)
         self._path = path
         self.writeable = writeable
 
@@ -154,7 +156,7 @@ class RunnerHook(immp.ResourceHook):
         feature = {"path": "{}.{}".format(obj.__class__.__module__, obj.__class__.__name__),
                    "enabled": obj.state != immp.OpenState.disabled}
         if obj.schema and obj.config:
-            feature["config"] = obj.config
+            feature["config"] = immp.Watchable.unwrap(obj.config)
         if priority:
             feature["priority"] = priority
         section[name] = feature
@@ -168,7 +170,7 @@ class RunnerHook(immp.ResourceHook):
             if not channel.plug.virtual:
                 config["channels"][name] = {"plug": channel.plug.name, "source": channel.source}
         for name, group in self.host.groups.items():
-            config["groups"][name] = group.config
+            config["groups"][name] = immp.Watchable.unwrap(group.config)
         priorities = {hook: priority for priority, hook in self.host._priority.items()}
         for name, hook in self.host.hooks.items():
             self._config_feature(config["hooks"], name, hook, priorities.get(hook))
@@ -176,7 +178,7 @@ class RunnerHook(immp.ResourceHook):
 
     @property
     def config_full(self):
-        config = self._config.copy()
+        config = self._base_config.copy()
         config.update(self.config_features)
         return config
 
@@ -188,3 +190,7 @@ class RunnerHook(immp.ResourceHook):
             raise immp.PlugError("Writing not enabled")
         log.info("Writing config file")
         anyconfig.dump(self.config_full, self._path)
+
+    def on_config_change(self, source):
+        if self.writeable:
+            self.write_config()
