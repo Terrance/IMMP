@@ -210,11 +210,9 @@ class WebUIHook(immp.ResourceHook):
         except ValueError:
             raise web.HTTPNotAcceptable
         try:
-            plug.schema(config)
+            plug.config = plug.schema(config)
         except immp.Invalid:
             raise web.HTTPNotAcceptable
-        plug.config.clear()
-        plug.config.update(config)
         raise web.HTTPFound(self.ctx.url_for("plug", name=plug.name))
 
     async def plug_channels(self, request):
@@ -300,7 +298,7 @@ class WebUIHook(immp.ResourceHook):
                 "members": members}
 
     async def channel_migration(self, request):
-        name, old = self._resolve_channel(request)
+        _, old = self._resolve_channel(request)
         post = await request.post()
         if "name" in post:
             new = self.host.channels[post["name"]]
@@ -309,7 +307,6 @@ class WebUIHook(immp.ResourceHook):
         else:
             raise web.HTTPBadRequest
         hooks = await self.host.channel_migrate(old, new)
-        summary = ",".join(hooks)
         raise web.HTTPFound(self.ctx.url_for("channel", plug=old.plug.name, source=old.source))
 
     async def channel_invite(self, request):
@@ -334,7 +331,7 @@ class WebUIHook(immp.ResourceHook):
                                              source=channel.source))
 
     async def channel_kick(self, request):
-        name, channel = self._resolve_channel(request)
+        _, channel = self._resolve_channel(request)
         if channel.plug.virtual:
             raise web.HTTPBadRequest
         id_ = request.match_info["user"]
@@ -396,8 +393,10 @@ class WebUIHook(immp.ResourceHook):
             config = json.loads(post["config"])
         except ValueError:
             raise web.HTTPBadRequest
-        group.config.clear()
-        group.config.update(config)
+        try:
+            group.config = group.schema(config)
+        except immp.Invalid:
+            raise web.HTTPNotAcceptable
         raise web.HTTPFound(self.ctx.url_for("group", name=group.name))
 
     def _resolve_hook(self, request):
@@ -468,11 +467,9 @@ class WebUIHook(immp.ResourceHook):
             except ValueError:
                 raise web.HTTPNotAcceptable
             try:
-                hook.schema(config)
+                hook.config = hook.schema(config)
             except immp.Invalid:
                 raise web.HTTPNotAcceptable
-            hook.config.clear()
-            hook.config.update(config)
         raise web.HTTPFound(self.hook_url_for(hook, None))
 
     async def hook_remove(self, request):

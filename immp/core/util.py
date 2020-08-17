@@ -380,6 +380,7 @@ class Configurable:
     def __init__(self, name, config, host):
         super().__init__()
         self.name = name
+        self._config = None
         self.config = config
         self.host = host
 
@@ -394,7 +395,10 @@ class Configurable:
     @config.setter
     def config(self, value):
         if self.schema:
+            old = self._config
             self._config = WatchedDict(self._callback, self.schema(value))
+            if old:
+                self._callback()
         elif value:
             raise TypeError("{} doesn't accept configuration".format(self.__class__.__name__))
         else:
