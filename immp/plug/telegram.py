@@ -983,9 +983,10 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         # highest we've seen, so that we can attempt to fetch past messages with this as a base.
         self._last_id = None
 
-    async def _api(self, endpoint, schema=_Schema.api(), **kwargs):
+    async def _api(self, endpoint, schema=_Schema.api(), quiet=False, **kwargs):
         url = "https://api.telegram.org/bot{}/{}".format(self.config["token"], endpoint)
-        log.debug("Making API request to %r", endpoint)
+        if not quiet:
+            log.debug("Making API request to %r", endpoint)
         try:
             async with self.session.post(url, **kwargs) as resp:
                 try:
@@ -1102,18 +1103,20 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         # For each user in the entity table, check the bot API for a corresponding chat, and
         # blacklist those who haven't started a conversation with us yet.
         log.debug("Finding users to blacklist")
+        count = 0
         for user in self._client.session.get_user_entities():
             try:
-                await self._api("getChat", params={"chat_id": user[0]})
+                await self._api("getChat", quiet=True, params={"chat_id": user[0]})
             except TelegramAPIRequestError:
-                log.debug("Blacklisting user %d", user[0])
+                count += 1
                 self._blacklist.add(user[0])
-        log.debug("Done blacklisting users")
+        log.debug("Blacklisted %d users", count)
 
     async def _blacklist_chats(self):
         # The entity cache is polluted with channels we've seen outside of participation (e.g.
         # mentions and forwards).  Narrow down the list by excluding chats we can't access.
         log.debug("Finding chats to blacklist")
+        count = 0
         lookup = []
         for chat in self._client.session.get_chat_entities():
             if chat[0] in self._blacklist:
@@ -1122,7 +1125,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                 try:
                     await self._client(tl.functions.channels.GetChannelsRequest([abs(chat[0])]))
                 except ChannelPrivateError:
-                    log.debug("Blacklisting channel %d", chat[0])
+                    count += 1
                     self._blacklist.add(chat[0])
             else:
                 lookup.append(abs(chat[0]))
@@ -1130,9 +1133,9 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             chats = await self._client(tl.functions.messages.GetChatsRequest(lookup))
             gone = [-chat.id for chat in chats.chats if isinstance(chat, tl.types.ChatForbidden)]
             if gone:
-                log.debug("Blacklisting chats %s", ", ".join(str(id_) for id_ in gone))
+                count += len(gone)
                 self._blacklist.update(gone)
-        log.debug("Done blacklisting chats")
+        log.debug("Blacklisted %d chats", count)
 
     async def public_channels(self):
         if not self._client:
