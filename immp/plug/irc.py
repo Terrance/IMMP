@@ -334,6 +334,7 @@ class IRCClient:
         self.types = ""
         self.prefixes = ""
         self._nicklen = None
+        self.network = None
         # Track public channels, and joined channels' members.
         self.users = {}
         self.members = {}
@@ -422,6 +423,8 @@ class IRCClient:
                     self.prefixes = value.split(")", 1)[-1]
                 elif key == "NICKLEN":
                     self._nicklen = int(value)
+                elif key == "NETWORK":
+                    self.network = value
         elif line.command == "433":
             # Re-request the current nick with a trailing underscore.
             # Remove characters from the nick if needed to make it fit.
@@ -570,7 +573,11 @@ class IRCPlug(immp.Plug):
 
     @property
     def network_name(self):
-        return "{} IRC".format(self.config["server"]["host"])
+        if self._client and self._client.network:
+            network = self._client.network
+        else:
+            network = self.config["server"]["host"]
+        return "{} IRC".format(network)
 
     @property
     def network_id(self):
