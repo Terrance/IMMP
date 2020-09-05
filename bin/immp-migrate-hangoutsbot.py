@@ -446,7 +446,7 @@ class Data:
     def compile_identities(self):
         self.database.drop_tables([IdentityGroup, IdentityLink], safe=True)
         self.database.create_tables([IdentityGroup, IdentityLink], safe=True)
-        self.hooks["identity"] = {"path": "immp.hook.identity.IdentityHook",
+        self.hooks["identity"] = {"path": "immp.hook.identitylocal.LocalIdentityHook",
                                   "config": {"instance": 1, "plugs": list(self.plugs)}}
         with self.database.atomic():
             for nick, links in self.identities.inverse.items():
