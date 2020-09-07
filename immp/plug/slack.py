@@ -65,7 +65,7 @@ class _Schema:
                                     **_images}})
 
     bot = immp.Schema({"id": str,
-                       "app_id": str,
+                       immp.Optional("app_id"): immp.Nullable(str),
                        "name": str,
                        "icons": _images})
 
@@ -274,7 +274,7 @@ class SlackUser(immp.User):
                 Parsed user object.
         """
         bot = _Schema.bot(json)
-        return cls(id_=bot["app_id"],
+        return cls(id_=(bot["app_id"] or bot["id"]),
                    plug=slack,
                    real_name=bot["name"],
                    avatar=cls._best_image(bot["icons"]),
