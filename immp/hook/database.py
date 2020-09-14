@@ -29,6 +29,16 @@ import immp
 log = logging.getLogger(__name__)
 
 
+class ModelsMixin:
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.models = set()
+
+    def add_models(self, *models):
+        self.models.update(models)
+
+
 class BaseModel(Model):
     """
     Template model to be used by other hooks.
@@ -38,7 +48,7 @@ class BaseModel(Model):
         database = Proxy()
 
 
-class DatabaseHook(immp.ResourceHook):
+class DatabaseHook(immp.ResourceHook, ModelsMixin):
     """
     Hook that provides generic database access to other hooks, backed by :mod:`peewee`.  Because
     models are in the global scope, they can only be attached to a single database, therefore this
@@ -59,6 +69,9 @@ class DatabaseHook(immp.ResourceHook):
         log.debug("Opening connection to database")
         self.db = connect(self.config["url"])
         BaseModel._meta.database.initialize(self.db)
+        if self.models:
+            log.debug("Registering models: %s", ", ".join(cls.__name__ for cls in self.models))
+            self.db.create_tables(self.models, safe=True)
 
     async def stop(self):
         if self.db:

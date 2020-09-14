@@ -150,9 +150,8 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
 
     _plugs = immp.ConfigProperty([immp.Plug])
 
-    def __init__(self, name, config, host):
-        super().__init__(name, config, host)
-        self.db = None
+    def on_load(self):
+        self.host.resources[DatabaseHook].add_models(IdentityGroup, IdentityLink, IdentityRole)
 
     async def start(self):
         if not self.config["instance"]:
@@ -164,8 +163,6 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
                 code += 1
             log.debug("Assigning instance code %d to hook %r", code, self.name)
             self.config["instance"] = code
-        self.db = self.host.resources[DatabaseHook].db
-        self.db.create_tables([IdentityGroup, IdentityLink, IdentityRole], safe=True)
 
     def get(self, name):
         """

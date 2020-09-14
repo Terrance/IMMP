@@ -100,13 +100,8 @@ class NotesHook(immp.Hook):
 
     schema = None
 
-    def __init__(self, name, config, host):
-        super().__init__(name, config, host)
-        self.db = None
-
-    async def start(self):
-        self.db = self.host.resources[DatabaseHook].db
-        self.db.create_tables([Note], safe=True)
+    def on_load(self):
+        self.host.resources[DatabaseHook].add_models(Note)
 
     async def channel_migrate(self, old, new):
         count = (Note.update(network=new.plug.network_id, channel=new.source)

@@ -272,17 +272,12 @@ class SubscriptionsHook(_AlertHookBase):
     Hook to send trigger word alerts via private channels.
     """
 
-    def __init__(self, name, config, host):
-        super().__init__(name, config, host)
-        self.db = None
+    def on_load(self):
+        self.host.resources[DatabaseHook].add_models(SubTrigger, SubExclude)
 
     @classmethod
     def _clean(cls, text):
         return re.sub(r"[^\w ]", "", text).lower()
-
-    async def start(self):
-        self.db = self.host.resources[DatabaseHook].db
-        self.db.create_tables([SubTrigger, SubExclude], safe=True)
 
     def _test(self, channel, user):
         return self.group.has_plug(channel.plug)

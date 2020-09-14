@@ -608,7 +608,6 @@ class SyncHook(_SyncHookBase):
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
-        self.db = None
         # Message cache, stores IDs of all synced messages by channel.
         self._cache = SyncCache(self)
         # Hook lock, to put a hold on retrieving messages whilst a send is in progress.
@@ -622,6 +621,12 @@ class SyncHook(_SyncHookBase):
                 host.add_channel(label, immp.Channel(self.plug, label))
         else:
             self.plug = None
+
+    def on_load(self):
+        try:
+            self.host.resources[DatabaseHook].add_models(SyncBackRef)
+        except KeyError:
+            pass
 
     @property
     def channels(self):
@@ -642,17 +647,6 @@ class SyncHook(_SyncHookBase):
             raise immp.ConfigError("Channel {} defined more than once".format(repr(channel)))
         else:
             return labels[0]
-
-    async def start(self):
-        try:
-            self.db = self.host.resources[DatabaseHook].db
-        except KeyError:
-            pass
-        else:
-            self.db.create_tables([SyncBackRef], safe=True)
-
-    async def stop(self):
-        self.db = None
 
     def _test(self, channel, user):
         return any(channel in channels for channels in self.channels.values())
