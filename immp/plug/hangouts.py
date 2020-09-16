@@ -289,7 +289,7 @@ class HangoutsFile(immp.File):
         """
         source = None
         if embed.plus_photo:
-            source = embed.plus_photo.thumbnail.url
+            source = embed.plus_photo.url
             resp = await hangouts.session.head(source, allow_redirects=True,
                                                cookies=hangouts._client._cookies)
             title = str(resp.url).rsplit("/", 1)[-1]
