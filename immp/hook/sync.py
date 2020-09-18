@@ -321,7 +321,7 @@ class SyncCache:
                 self._lookup[channel][id_] = ref.key
                 data.append({"key": ref.key, "network": channel.plug.network_id,
                              "channel": channel.source, "message": id_})
-        if self._hook.db and not back:
+        if self._hook._db and not back:
             SyncBackRef.insert_many(data).on_conflict("ignore").execute()
         return ref
 
@@ -335,7 +335,7 @@ class SyncCache:
                 # Use the existing cache entry as-is (entry in _lookup <=> entry in _cache).
                 return self._cache[self._lookup[key.channel][key.id]]
             except KeyError:
-                if not self._hook.db:
+                if not self._hook._db:
                     raise
             # Not cached locally, but the database is configured: check there for a reference,
             # build a new SyncRef with an empty source, and cache it.
@@ -346,7 +346,7 @@ class SyncCache:
             try:
                 return self._cache[key]
             except KeyError:
-                if not self._hook.db:
+                if not self._hook._db:
                     raise
             # Now check the database for the key.
             _, mapped = SyncBackRef.map_from_key(key)
@@ -621,12 +621,15 @@ class SyncHook(_SyncHookBase):
                 host.add_channel(label, immp.Channel(self.plug, label))
         else:
             self.plug = None
+        self._db = False
 
     def on_load(self):
         try:
             self.host.resources[DatabaseHook].add_models(SyncBackRef)
         except KeyError:
-            pass
+            self._db = False
+        else:
+            self._db = True
 
     @property
     def channels(self):
