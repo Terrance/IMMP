@@ -55,8 +55,8 @@ class AutoRespondHook(immp.Hook):
         """
         Add a new trigger / response pair.
         """
-        text = "Updated" if match in self.responses else "Added"
-        self.responses[match] = response
+        text = "Updated" if match in self.config["responses"] else "Added"
+        self.config["responses"][match] = response
         await msg.channel.send(immp.Message(text="{} {}".format(TICK, text)))
 
     @command("ar-remove", parser=CommandParser.shlex)
@@ -64,8 +64,8 @@ class AutoRespondHook(immp.Hook):
         """
         Remove an existing trigger.
         """
-        if match in self.responses:
-            del self.responses[match]
+        if match in self.config["responses"]:
+            del self.config["responses"][match]
             text = "{} Removed".format(TICK)
         else:
             text = "{} No such response".format(CROSS)
