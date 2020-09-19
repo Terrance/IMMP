@@ -534,10 +534,16 @@ class TelegramFile(immp.File):
             .TelegramFile:
                 Parsed file object.
         """
-        file = await telegram._api("getFile", _Schema.file, params={"file_id": id_})
-        url = ("https://api.telegram.org/file/bot{}/{}"
-               .format(telegram.config["token"], file["file_path"]))
-        return immp.File(name, type_, url)
+        try:
+            file_ = await telegram._api("getFile", _Schema.file, params={"file_id": id_})
+        except TelegramAPIRequestError:
+            # Can happen if the file is too big, in which case just return a placeholder.
+            log.warning("Failed to retrieve message attachment", exc_info=True)
+            return immp.File(name, type_)
+        else:
+            url = ("https://api.telegram.org/file/bot{}/{}"
+                   .format(telegram.config["token"], file_["file_path"]))
+            return immp.File(name, type_, url)
 
 
 class TelegramMessage(immp.Message):
