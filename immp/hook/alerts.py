@@ -52,11 +52,13 @@ from collections import defaultdict
 import logging
 import re
 
-from peewee import CharField, ForeignKeyField
+from tortoise import Model
+from tortoise.exceptions import DoesNotExist
+from tortoise.fields import ForeignKeyField, TextField
 
 import immp
 from immp.hook.command import CommandScope, command
-from immp.hook.database import BaseModel, DatabaseHook
+from immp.hook.database import AsyncDatabaseHook
 from immp.hook.sync import SyncPlug
 
 
@@ -72,7 +74,7 @@ class _Skip(Exception):
     pass
 
 
-class SubTrigger(BaseModel):
+class SubTrigger(Model):
     """
     Individual subscription trigger phrase for an individual user.
 
@@ -85,16 +87,16 @@ class SubTrigger(BaseModel):
             Subscription text that they wish to be notified on.
     """
 
-    network = CharField()
-    user = CharField()
-    text = CharField()
+    network = TextField()
+    user = TextField()
+    text = TextField()
 
     def __repr__(self):
         return "<{}: #{} {} ({} @ {})>".format(self.__class__.__name__, self.id, repr(self.text),
                                                repr(self.user), repr(self.network))
 
 
-class SubExclude(BaseModel):
+class SubExclude(Model):
     """
     Exclusion for a trigger in a specific channel.
 
@@ -107,13 +109,17 @@ class SubExclude(BaseModel):
             Channel's own identifier.
     """
 
-    trigger = ForeignKeyField(model=SubTrigger, backref="excludes")
-    network = CharField()
-    channel = CharField()
+    trigger = ForeignKeyField("db.SubTrigger", "excludes")
+    network = TextField()
+    channel = TextField()
 
     def __repr__(self):
+        if isinstance(self.trigger, SubTrigger):
+            trigger = repr(self.trigger)
+        else:
+            trigger = "<{}: #{}>".format(SubTrigger.__name__, self.trigger_id)
         return "<{}: #{} {} @ {} {}>".format(self.__class__.__name__, self.id, repr(self.network),
-                                             repr(self.channel), repr(self.trigger))
+                                             repr(self.channel), trigger)
 
 
 class _AlertHookBase(immp.Hook):
@@ -273,7 +279,7 @@ class SubscriptionsHook(_AlertHookBase):
     """
 
     def on_load(self):
-        self.host.resources[DatabaseHook].add_models(SubTrigger, SubExclude)
+        self.host.resources[AsyncDatabaseHook].add_models(SubTrigger, SubExclude)
 
     @classmethod
     def _clean(cls, text):
@@ -288,8 +294,8 @@ class SubscriptionsHook(_AlertHookBase):
         Add a subscription to your trigger list.
         """
         text = re.sub(r"[^\w ]", "", " ".join(words)).lower()
-        _, created = SubTrigger.get_or_create(network=msg.channel.plug.network_id,
-                                              user=msg.user.id, text=text)
+        _, created = await SubTrigger.get_or_create(network=msg.channel.plug.network_id,
+                                                    user=msg.user.id, text=text)
         resp = "{} {}".format(TICK, "Subscribed" if created else "Already subscribed")
         await msg.channel.send(immp.Message(text=resp))
 
@@ -299,9 +305,9 @@ class SubscriptionsHook(_AlertHookBase):
         Remove a subscription from your trigger list.
         """
         text = re.sub(r"[^\w ]", "", " ".join(words)).lower()
-        count = SubTrigger.delete().where(SubTrigger.network == msg.channel.plug.network_id,
-                                          SubTrigger.user == msg.user.id,
-                                          SubTrigger.text == text).execute()
+        count = await SubTrigger.filter(network=msg.channel.plug.network_id,
+                                        user=msg.user.id,
+                                        text=text).delete()
         resp = "{} {}".format(TICK, "Unsubscribed" if count else "Not subscribed")
         await msg.channel.send(immp.Message(text=resp))
 
@@ -310,8 +316,8 @@ class SubscriptionsHook(_AlertHookBase):
         """
         Show all active subscriptions.
         """
-        subs = SubTrigger.select().where(SubTrigger.network == msg.user.plug.network_id,
-                                         SubTrigger.user == msg.user.id).order_by(SubTrigger.text)
+        subs = await SubTrigger.filter(network=msg.user.plug.network_id,
+                                       user=msg.user.id).order_by("text")
         if subs:
             text = immp.RichText([immp.Segment("Your subscriptions:", bold=True)])
             for sub in subs:
@@ -327,21 +333,21 @@ class SubscriptionsHook(_AlertHookBase):
         """
         text = re.sub(r"[^\w ]", "", " ".join(words)).lower()
         try:
-            trigger = SubTrigger.get(network=msg.user.plug.network_id,
-                                     user=msg.user.id, text=text)
-        except SubTrigger.DoesNotExist:
+            trigger = await SubTrigger.get(network=msg.user.plug.network_id,
+                                           user=msg.user.id, text=text)
+        except DoesNotExist:
             resp = "{} Not subscribed".format(CROSS)
         else:
-            exclude, created = SubExclude.get_or_create(trigger=trigger,
-                                                        network=msg.channel.plug.network_id,
-                                                        channel=msg.channel.source)
+            exclude, created = await SubExclude.get_or_create(trigger=trigger,
+                                                              network=msg.channel.plug.network_id,
+                                                              channel=msg.channel.source)
             if not created:
-                exclude.delete_instance()
+                await exclude.delete()
             resp = "{} {}".format(TICK, "Excluded" if created else "No longer excluded")
         await msg.channel.send(immp.Message(text=resp))
 
     @staticmethod
-    def match(text, channel, present):
+    async def match(text, channel, present):
         """
         Identify users subscribed to text snippets in a message.
 
@@ -358,22 +364,23 @@ class SubscriptionsHook(_AlertHookBase):
                 Mapping from applicable users to their filtered triggers.
         """
         subs = set()
-        for sub in SubTrigger.select():
+        for sub in await SubTrigger.all():
             key = (sub.network, sub.user)
             if key in present and sub.text in text:
                 subs.add(sub)
         triggered = defaultdict(set)
-        excludes = set(SubExclude.select().where(SubExclude.trigger << subs,
-                                                 SubExclude.network == channel.plug.network_id,
-                                                 SubExclude.channel == channel.source))
-        for trigger in subs - set(exclude.trigger for exclude in excludes):
-            triggered[present[(trigger.network, trigger.user)]].add(trigger.text)
+        excludes = await SubExclude.filter(trigger__id__in=tuple(sub.id for sub in subs),
+                                           network=channel.plug.network_id,
+                                           channel=channel.source)
+        excluded = set(exclude.trigger.text for exclude in excludes)
+        for trigger in subs:
+            if trigger.text not in excluded:
+                triggered[present[(trigger.network, trigger.user)]].add(trigger.text)
         return triggered
 
     async def channel_migrate(self, old, new):
-        count = (SubExclude.update(network=new.plug.network_id, channel=new.source)
-                           .where(SubExclude.network == old.plug.network_id,
-                                  SubExclude.channel == old.source).execute())
+        count = (await SubExclude.filter(network=old.plug.network_id, channel=old.source)
+                                 .update(network=new.plug.network_id, channel=new.source))
         return count > 0
 
     async def on_receive(self, sent, source, primary):
@@ -385,7 +392,7 @@ class SubscriptionsHook(_AlertHookBase):
         except _Skip:
             return
         present = {(member.plug.network_id, str(member.id)): member for member in members}
-        triggered = self.match(self._clean(str(source.text)), lookup, present)
+        triggered = await self.match(self._clean(str(source.text)), lookup, present)
         if not triggered:
             return
         tasks = []

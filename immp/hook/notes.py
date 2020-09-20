@@ -19,18 +19,20 @@ Commands:
 
 import time
 
-from peewee import CharField, IntegerField
+from tortoise import Model
+from tortoise.exceptions import DoesNotExist
+from tortoise.fields import IntField, TextField
 
 import immp
 from immp.hook.command import BadUsage, CommandParser, command
-from immp.hook.database import BaseModel, DatabaseHook
+from immp.hook.database import AsyncDatabaseHook
 
 
 CROSS = "\N{CROSS MARK}"
 TICK = "\N{WHITE HEAVY CHECK MARK}"
 
 
-class Note(BaseModel):
+class Note(Model):
     """
     Representation of a single note.
 
@@ -47,37 +49,32 @@ class Note(BaseModel):
             Note content.
     """
 
-    timestamp = IntegerField(default=lambda: int(time.time()))
-    network = CharField()
-    channel = CharField(null=True)
-    user = CharField(null=True)
-    text = CharField()
+    timestamp = IntField(default=lambda: int(time.time()))
+    network = TextField()
+    channel = TextField()
+    user = TextField(null=True)
+    text = TextField()
 
     @classmethod
     def select_channel(cls, channel):
-        return (cls.select().where(cls.network == channel.plug.network_id,
-                                   cls.channel == channel.source)
-                            .order_by(cls.timestamp))
+        return (cls.filter(network=channel.plug.network_id, channel=channel.source)
+                   .order_by("timestamp"))
 
     @classmethod
     def select_position(cls, channel, num):
         if num < 1:
             raise ValueError
-        try:
-            # ModelSelect.get() ignores the offset clause, use an index instead.
-            return cls.select_channel(channel).limit(1).offset(num - 1)[0]
-        except IndexError:
-            raise Note.DoesNotExist from None
+        return cls.select_channel(channel).limit(1).offset(num - 1).get()
 
     @classmethod
-    def select_position_multi(cls, channel, *nums):
+    async def select_position_multi(cls, channel, *nums):
         if any(num < 1 for num in nums):
             raise ValueError
-        notes = list(cls.select_channel(channel))
+        notes = await cls.select_channel(channel)
         try:
             return [notes[num - 1] for num in nums]
         except IndexError:
-            raise Note.DoesNotExist from None
+            raise DoesNotExist from None
 
     @property
     def ago(self):
@@ -101,12 +98,11 @@ class NotesHook(immp.Hook):
     schema = None
 
     def on_load(self):
-        self.host.resources[DatabaseHook].add_models(Note)
+        self.host.resources[AsyncDatabaseHook].add_models(Note)
 
     async def channel_migrate(self, old, new):
-        count = (Note.update(network=new.plug.network_id, channel=new.source)
-                     .where(Note.network == old.plug.network_id,
-                            Note.channel == old.source).execute())
+        count = await (Note.filter(network=old.plug.network_id, channel=old.source)
+                           .update(network=new.plug.network_id, channel=new.source))
         return count > 0
 
     @command("note-add", parser=CommandParser.none)
@@ -114,11 +110,11 @@ class NotesHook(immp.Hook):
         """
         Add a new note for this channel.
         """
-        Note.create(network=msg.channel.plug.network_id,
-                    channel=msg.channel.source,
-                    user=(msg.user.id or msg.user.username) if msg.user else None,
-                    text=text.raw())
-        count = Note.select_channel(msg.channel).count()
+        await Note.create(network=msg.channel.plug.network_id,
+                          channel=msg.channel.source,
+                          user=(msg.user.id or msg.user.username) if msg.user else None,
+                          text=text.raw())
+        count = await Note.select_channel(msg.channel).count()
         await msg.channel.send(immp.Message(text="{} Added #{}".format(TICK, count)))
 
     @command("note-edit", parser=CommandParser.hybrid)
@@ -127,10 +123,10 @@ class NotesHook(immp.Hook):
         Update an existing note from this channel with new text.
         """
         try:
-            note = Note.select_position(msg.channel, int(num))
+            note = await Note.select_position(msg.channel, int(num))
         except ValueError:
             raise BadUsage from None
-        except Note.DoesNotExist:
+        except DoesNotExist:
             text = "{} Does not exist".format(CROSS)
         else:
             note.text = text.raw()
@@ -147,13 +143,13 @@ class NotesHook(immp.Hook):
             raise BadUsage
         try:
             nums = [int(num) for num in nums]
-            notes = Note.select_position_multi(msg.channel, *nums)
+            notes = await Note.select_position_multi(msg.channel, *nums)
         except ValueError:
             raise BadUsage from None
-        except Note.DoesNotExist:
+        except DoesNotExist:
             text = "{} Does not exist".format(CROSS)
         else:
-            count = Note.delete().where(Note.id.in_(tuple(note.id for note in notes))).execute()
+            count = await Note.filter(id__in=tuple(note.id for note in notes)).delete()
             text = "{} Removed {} note{}".format(TICK, count, "" if count == 1 else "s")
         await msg.channel.send(immp.Message(text=text))
 
@@ -163,10 +159,10 @@ class NotesHook(immp.Hook):
         Recall a single note in this channel.
         """
         try:
-            note = Note.select_position(msg.channel, int(num))
+            note = await Note.select_position(msg.channel, int(num))
         except ValueError:
             raise BadUsage from None
-        except Note.DoesNotExist:
+        except DoesNotExist:
             text = "{} Does not exist".format(CROSS)
         else:
             text = immp.RichText([immp.Segment("{}.".format(num), bold=True),
@@ -181,19 +177,19 @@ class NotesHook(immp.Hook):
         """
         Recall all notes for this channel, or search for text across all notes.
         """
-        notes = Note.select_channel(msg.channel)
+        notes = await Note.select_channel(msg.channel)
+        count = len(notes)
         if query:
-            matches = notes.where(Note.text.contains(query))
+            matches = [(num, note) for num, note in enumerate(notes, 1)
+                       if query.lower() in note.text.lower()]
             count = len(matches)
         else:
-            count = len(notes)
+            matches = enumerate(notes, 1)
         title = ("{}{} note{} in this channel{}"
                  .format(count, " matching" if query else "",
                          "" if count == 1 else "s", ":" if count else "."))
         text = immp.RichText([immp.Segment(title, bold=bool(notes))])
-        for num, note in enumerate(notes, 1):
-            if query and note not in matches:
-                continue
+        for num, note in matches:
             text.append(immp.Segment("\n"),
                         immp.Segment("{}.".format(num), bold=True),
                         immp.Segment("\t"),

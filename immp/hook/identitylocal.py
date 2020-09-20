@@ -37,12 +37,14 @@ from asyncio import gather
 from hashlib import sha256
 import logging
 
-from peewee import CharField, ForeignKeyField, IntegerField
+from tortoise import Model
+from tortoise.exceptions import DoesNotExist
+from tortoise.fields import ForeignKeyField, IntField, TextField
 
 import immp
 from immp.hook.access import AccessPredicate
 from immp.hook.command import CommandRole, CommandScope, command
-from immp.hook.database import BaseModel, DatabaseHook
+from immp.hook.database import AsyncDatabaseHook
 from immp.hook.identity import Identity, IdentityProvider
 
 
@@ -53,7 +55,7 @@ TICK = "\N{WHITE HEAVY CHECK MARK}"
 log = logging.getLogger(__name__)
 
 
-class IdentityGroup(BaseModel):
+class IdentityGroup(Model):
     """
     Representation of a single identity.
 
@@ -68,28 +70,32 @@ class IdentityGroup(BaseModel):
             All links contained by this group.
     """
 
-    instance = IntegerField()
-    name = CharField()
-    pwd = CharField()
+    instance = IntField()
+    name = TextField()
+    pwd = TextField()
 
     class Meta:
         # Uniqueness constraint for each name in each identity instance.
-        indexes = ((("instance", "name"), True),)
+        unique_together = (("instance", "name"),)
 
     @classmethod
     def hash(cls, pwd):
         return sha256(pwd.encode("utf-8")).hexdigest()
 
     @classmethod
-    def select_links(cls):
-        return cls.select(cls, IdentityLink).join(IdentityLink)
+    def select_related(cls):
+        return cls.all().prefetch_related("links", "roles")
 
     async def to_identity(self, host, provider):
         tasks = []
-        plugs = {plug.network_id: plug for plug in host.plugs.values()}
+        plugs = {plug.network_id: plug for plug in host.plugs.values()
+                 if plug.state == immp.OpenState.active}
         for link in self.links:
-            tasks.append(plugs[link.network].user_from_id(link.user))
-        users = await gather(*tasks)
+            if link.network in plugs:
+                tasks.append(plugs[link.network].user_from_id(link.user))
+            else:
+                log.debug("Ignoring identity link for unavailable plug: %r", link)
+        users = await Identity.gather(*tasks)
         roles = [role.role for role in self.roles]
         return Identity(self.name, provider, users, roles)
 
@@ -97,7 +103,7 @@ class IdentityGroup(BaseModel):
         return "<{}: #{} {}>".format(self.__class__.__name__, self.id, repr(self.name))
 
 
-class IdentityLink(BaseModel):
+class IdentityLink(Model):
     """
     Single link between an identity and a user.
 
@@ -110,16 +116,20 @@ class IdentityLink(BaseModel):
             User identifier as given by the plug.
     """
 
-    group = ForeignKeyField(IdentityGroup, backref="links", on_delete="cascade")
-    network = CharField()
-    user = CharField()
+    group = ForeignKeyField("db.IdentityGroup", "links")
+    network = TextField()
+    user = TextField()
 
     def __repr__(self):
+        if isinstance(self.group, IdentityGroup):
+            group = repr(self.group)
+        else:
+            group = "<{}: #{}>".format(IdentityGroup.__name__, self.group_id)
         return "<{}: #{} {} @ {} {}>".format(self.__class__.__name__, self.id, repr(self.user),
-                                             repr(self.network), repr(self.group))
+                                             repr(self.network), group)
 
 
-class IdentityRole(BaseModel):
+class IdentityRole(Model):
     """
     Assignment of a role to an identity.
 
@@ -130,12 +140,15 @@ class IdentityRole(BaseModel):
             Plain role identifier.
     """
 
-    group = ForeignKeyField(IdentityGroup, backref="roles", on_delete="cascade")
-    role = CharField()
+    group = ForeignKeyField("db.IdentityGroup", "roles")
+    role = TextField()
 
     def __repr__(self):
-        return "<{}: #{} {} {}>".format(self.__class__.__name__, self.id, repr(self.role),
-                                        repr(self.group))
+        if isinstance(self.group, IdentityGroup):
+            group = repr(self.group)
+        else:
+            group = "<{}: #{}>".format(IdentityGroup.__name__, self.group_id)
+        return "<{}: #{} {} {}>".format(self.__class__.__name__, self.id, repr(self.role), group)
 
 
 class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
@@ -151,7 +164,8 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
     _plugs = immp.ConfigProperty([immp.Plug])
 
     def on_load(self):
-        self.host.resources[DatabaseHook].add_models(IdentityGroup, IdentityLink, IdentityRole)
+        self.host.resources[AsyncDatabaseHook].add_models(IdentityGroup, IdentityLink,
+                                                          IdentityRole)
 
     async def start(self):
         if not self.config["instance"]:
@@ -164,7 +178,7 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
             log.debug("Assigning instance code %d to hook %r", code, self.name)
             self.config["instance"] = code
 
-    def get(self, name):
+    async def get(self, name):
         """
         Retrieve the identity group using the given name.
 
@@ -177,11 +191,12 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
                 Linked identity, or ``None`` if not linked.
         """
         try:
-            return IdentityGroup.select_links().where(IdentityGroup.name == name).get()
-        except IdentityGroup.DoesNotExist:
+            return (await IdentityGroup.select_related()
+                                       .get(instance=self.config["instance"], name=name))
+        except DoesNotExist:
             return None
 
-    def find(self, user):
+    async def find(self, user):
         """
         Retrieve the identity that contains the given user, if one exists.
 
@@ -196,22 +211,22 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
         if not user or user.plug not in self._plugs:
             return None
         try:
-            return (IdentityGroup.select_links()
-                                 .where(IdentityGroup.instance == self.config["instance"],
-                                        IdentityLink.network == user.plug.network_id,
-                                        IdentityLink.user == user.id).get())
-        except IdentityGroup.DoesNotExist:
+            return (await IdentityGroup.select_related()
+                                       .get(instance=self.config["instance"],
+                                            links__network=user.plug.network_id,
+                                            links__user=user.id))
+        except DoesNotExist:
             return None
 
     async def channel_access(self, channel, user):
-        return bool(IdentityLink.get(network=user.plug.network_id, user=user.id))
+        return bool(await IdentityLink.get(network=user.plug.network_id, user=user.id))
 
     async def identity_from_name(self, name):
-        group = self.get(name)
+        group = await self.get(name)
         return await group.to_identity(self.host, self) if group else None
 
     async def identity_from_user(self, user):
-        group = self.find(user)
+        group = await self.find(user)
         return await group.to_identity(self.host, self) if group else None
 
     def _test(self, channel, user):
@@ -230,18 +245,19 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
             pwd = IdentityGroup.hash(pwd)
             exists = False
             try:
-                group = IdentityGroup.get(instance=self.config["instance"], name=name)
+                group = await IdentityGroup.get(instance=self.config["instance"], name=name)
                 exists = True
-            except IdentityGroup.DoesNotExist:
-                group = IdentityGroup.create(instance=self.config["instance"], name=name, pwd=pwd)
+            except DoesNotExist:
+                group = await IdentityGroup.create(instance=self.config["instance"],
+                                                   name=name, pwd=pwd)
             if exists and not group.pwd == pwd:
                 text = "{} Password incorrect".format(CROSS)
             elif not self.config["multiple"] and any(link.network == msg.user.plug.network_id
                                                      for link in group.links):
                 text = "{} Already identified on {}".format(CROSS, msg.user.plug.network_name)
             else:
-                IdentityLink.create(group=group, network=msg.user.plug.network_id,
-                                    user=msg.user.id)
+                await IdentityLink.create(group=group, network=msg.user.plug.network_id,
+                                          user=msg.user.id)
                 text = "{} {}".format(TICK, "Added" if exists else "Claimed")
         await msg.channel.send(immp.Message(text=text))
 
@@ -252,17 +268,16 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
         """
         if not msg.user:
             return
-        group = self.find(msg.user)
+        group = await self.find(msg.user)
         if not group:
             text = "{} Not identified".format(CROSS)
         elif group.name == name:
             text = "{} No change".format(TICK)
-        elif IdentityGroup.select().where(IdentityGroup.instance == self.config["instance"],
-                                          IdentityGroup.name == name).exists():
+        elif await IdentityGroup.filter(instance=self.config["instance"], name=name).exists():
             text = "{} Name already in use".format(CROSS)
         else:
             group.name = name
-            group.save()
+            await group.save()
             text = "{} Claimed".format(TICK)
         await msg.channel.send(immp.Message(text=text))
 
@@ -273,12 +288,12 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
         """
         if not msg.user:
             return
-        group = self.find(msg.user)
+        group = await self.find(msg.user)
         if not group:
             text = "{} Not identified".format(CROSS)
         else:
             group.pwd = IdentityGroup.hash(pwd)
-            group.save()
+            await group.save()
             text = "{} Changed".format(TICK)
         await msg.channel.send(immp.Message(text=text))
 
@@ -289,11 +304,11 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
         """
         if not msg.user:
             return
-        group = self.find(msg.user)
+        group = await self.find(msg.user)
         if not group:
             text = "{} Not identified".format(CROSS)
         else:
-            group.delete_instance()
+            await group.delete()
             text = "{} Reset".format(TICK)
         await msg.channel.send(immp.Message(text=text))
 
@@ -303,20 +318,18 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
         List roles assigned to an identity, or add/remove a given role.
         """
         try:
-            group = IdentityGroup.get(instance=self.config["instance"], name=name)
-        except IdentityGroup.DoesNotExist:
+            group = await IdentityGroup.get(instance=self.config["instance"], name=name)
+        except DoesNotExist:
             text = "{} Name not registered".format(CROSS)
         else:
             if role:
-                count = IdentityRole.delete().where(IdentityRole.group == group,
-                                                    IdentityRole.role == role).execute()
-                if count:
+                if await IdentityRole.filter(group=group, role=role).delete():
                     text = "{} Removed".format(TICK)
                 else:
-                    IdentityRole.create(group=group, role=role)
+                    await IdentityRole.create(group=group, role=role)
                     text = "{} Added".format(TICK)
             else:
-                roles = IdentityRole.select().where(IdentityRole.group == group)
+                roles = await IdentityRole.filter(group=group)
                 if roles:
                     labels = [role.role for role in roles]
                     text = "Roles for {}: {}".format(name, ", ".join(labels))
