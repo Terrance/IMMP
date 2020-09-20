@@ -60,7 +60,7 @@ class Identity:
                 Non-awaited coroutines or tasks.
 
         Returns:
-            list:
+            .User list:
                 Gathered results of those tasks.
         """
         tasks = list(filter(None, tasks))
@@ -70,7 +70,7 @@ class Identity:
         for result in await gather(*tasks, return_exceptions=True):
             if isinstance(result, BaseException):
                 log.warning("Failed to retrieve user for identity", exc_info=result)
-            else:
+            elif result:
                 users.append(result)
         return users
 
