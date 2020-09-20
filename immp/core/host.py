@@ -284,7 +284,9 @@ class Host:
         self._objects[hook.name] = hook
         if isinstance(hook, ResourceHook):
             log.info("Adding resource: %r (%s)", hook.name, hook.__class__.__name__)
-            self._resources[hook.__class__] = hook
+            mro = hook.__class__.__mro__
+            subclass = mro[mro.index(ResourceHook) - 1]
+            self._resources[subclass] = hook
         if priority is not None:
             self._priority[hook.name] = priority
         if enabled:
