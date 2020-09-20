@@ -1,7 +1,7 @@
 from asyncio import Condition
 from collections.abc import MutableMapping, MutableSequence
 from enum import Enum
-from functools import partial, reduce, wraps
+from functools import reduce, wraps
 from importlib import import_module
 import logging
 import re

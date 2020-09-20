@@ -171,9 +171,8 @@ class RunnerHook(immp.ResourceHook):
                 config["channels"][name] = {"plug": channel.plug.name, "source": channel.source}
         for name, group in self.host.groups.items():
             config["groups"][name] = immp.Watchable.unwrap(group.config)
-        priorities = {hook: priority for priority, hook in self.host._priority.items()}
         for name, hook in self.host.hooks.items():
-            self._config_feature(config["hooks"], name, hook, priorities.get(hook))
+            self._config_feature(config["hooks"], name, hook, self.host._priority.get(name))
         return config
 
     @property

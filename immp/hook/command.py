@@ -494,7 +494,7 @@ class CommandHook(immp.Hook):
             (str, .BoundCommand) dict:
                 Commands provided by all hooks, in this channel for this user, keyed by name.
         """
-        log.debug("Collecting commands for %r in %r", channel, user)
+        log.debug("Collecting commands for %r in %r", user, channel)
         if isinstance(channel, immp.Plug):
             # Look for commands for a generic channel.
             plug = channel
