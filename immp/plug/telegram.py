@@ -1077,6 +1077,9 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             return self._users[id_]
         try:
             data = await self._client(tl.functions.users.GetFullUserRequest(int(id_)))
+        except ValueError:
+            log.warning("Missing entity for user %d", id_)
+            return None
         except BadRequestError:
             return None
         user = TelegramUser.from_proto_user(self, data.user)
@@ -1219,6 +1222,9 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                         users += [TelegramUser.from_proto_user(self, user) for user in data.users]
                     else:
                         break
+            except ValueError:
+                log.warning("Missing entity for channel %d", chat)
+                return None
             except BadRequestError:
                 return None
             else:
@@ -1227,6 +1233,9 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             chat = abs(int(channel.source))
             try:
                 data = await self._client(tl.functions.messages.GetFullChatRequest(chat))
+            except ValueError:
+                log.warning("Missing entity for channel %d", chat)
+                return None
             except BadRequestError:
                 return None
             else:
