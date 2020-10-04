@@ -2,12 +2,7 @@ from .schema import Optional, Schema
 from .util import ConfigProperty, Configurable, pretty_str
 
 
-_GROUP_FIELDS = ("channels", "anywhere", "named", "private", "shared")
-
-
-class _Schema:
-
-    group = Schema({Optional(field, list): [str] for field in _GROUP_FIELDS})
+_GROUP_FIELDS = ("channels", "exclude", "anywhere", "named", "private", "shared")
 
 
 @pretty_str
@@ -156,9 +151,10 @@ class Group(Configurable):
         def __get__(self, instance, owner):
             return Group.merge(instance.host, *super().__get__(instance, owner))
 
-    schema = _Schema.group
+    schema = Schema({Optional(field, list): [str] for field in _GROUP_FIELDS})
 
     _channels = ConfigProperty([Channel])
+    _exclude = ConfigProperty([Channel])
 
     @classmethod
     def merge(cls, host, *groups):
@@ -172,7 +168,9 @@ class Group(Configurable):
     async def has_channel(self, channel):
         if not isinstance(channel, Channel):
             raise TypeError
-        elif self._channels and channel in self._channels:
+        elif channel in self._exclude:
+            return False
+        elif channel in self._channels:
             return True
         elif self.has_plug(channel.plug, "anywhere"):
             return True
