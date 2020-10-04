@@ -699,7 +699,7 @@ class SyncHook(_SyncHookBase):
 
     async def send(self, label, msg, origin=None, ref=None):
         """
-        Send a message to all channels in this sync.
+        Send a message to all channels in this synced group.
 
         Args:
             label (str):
@@ -828,24 +828,35 @@ class ForwardHook(_SyncHookBase):
     Hook to propagate messages from a source channel to one or more destination channels.
     """
 
-    schema = immp.Schema({immp.Optional("users"): immp.Nullable([str])}, _SyncHookBase.schema)
+    schema = immp.Schema({immp.Optional("users"): immp.Nullable([str]),
+                          immp.Optional("groups", dict): {str: [str]}}, _SyncHookBase.schema)
 
     _channels = immp.ConfigProperty({immp.Channel: [immp.Channel]})
+    _groups = immp.ConfigProperty({immp.Group: [immp.Channel]})
 
-    async def send(self, channel, msg):
+    async def _targets(self, channel):
+        targets = set()
+        if channel in self._channels:
+            targets.update(self._channels[channel])
+        for group, channels in self._groups.items():
+            if await group.has_channel(channel):
+                targets.update(channels)
+        return targets
+
+    async def send(self, msg, channels):
         """
-        Send a message to all channels in this sync.
+        Send a message to all channels in this forwarding group.
 
         Args:
-            channel (.Channel):
-                Source channel that defines the underlying forwarding channels to send to.
             msg (.Message):
                 External message to push.
+            channels (.Channel list):
+                Set of target channels to forward the message to.
         """
         queue = []
         clone = msg.clone()
         await self._alter_recurse(clone, self._alter_name)
-        for synced in self._channels[channel]:
+        for synced in channels:
             local = clone.clone()
             await self._alter_recurse(local, self._alter_identities, synced)
             queue.append(self._send(synced, local))
@@ -863,5 +874,8 @@ class ForwardHook(_SyncHookBase):
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
-        if primary and sent.channel in self._channels and self._accept(source):
-            await self.send(sent.channel, source)
+        if not primary or not self._accept(source):
+            return
+        targets = await self._targets(sent.channel)
+        if targets:
+            await self.send(source, targets)
