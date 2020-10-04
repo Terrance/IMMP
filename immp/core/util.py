@@ -245,6 +245,8 @@ class ConfigProperty:
     __slots__ = ("_cls", "_key")
 
     def __init__(self, cls=None, key=None):
+        if isinstance(cls, (list, dict)) and len(cls) != 1:
+            raise TypeError("Config property list/dict must contain single type or tuple")
         self._cls = cls
         self._key = key
 
@@ -254,35 +256,45 @@ class ConfigProperty:
 
     @classmethod
     def _describe(cls, spec):
-        if isinstance(spec, list):
+        if spec is None:
+            return "?"
+        elif isinstance(spec, list):
             return "[{}]".format(", ".join(cls._describe(inner) for inner in spec))
+        elif isinstance(spec, dict):
+            return "{{{}}}".format(", ".join("{}: {}".format(cls._describe(key),
+                                                             cls._describe(value))
+                                             for key, value in spec.items()))
         elif isinstance(spec, tuple):
             return "{{{}}}".format(", ".join(inner.__name__ for inner in spec))
         else:
             return spec.__name__
 
-    def _from_host(self, instance, name, cls=None):
+    def _from_host(self, instance, name, spec=None):
+        if spec is None or name is None:
+            return name
+        elif isinstance(spec, list):
+            subspec = spec[0]
+            return [self._from_host(instance, value, subspec) for value in name]
+        elif isinstance(spec, dict):
+            keyspec, valspec = next(iter(spec.items()))
+            return {self._from_host(instance, key, keyspec):
+                        self._from_host(instance, value, valspec)
+                    for key, value in name.items()}
         try:
             obj = instance.host[name]
         except KeyError:
             raise ConfigError("No object {} on host".format(repr(name))) from None
-        if cls and not isinstance(obj, cls):
+        if spec and not isinstance(obj, spec):
             raise ConfigError("Reference {} not instance of {}"
-                              .format(repr(name), self._describe(cls)))
+                              .format(repr(name), self._describe(spec)))
         else:
             return obj
 
     def __get__(self, instance, owner):
         if not instance:
             return self
-        value = instance.config.get(self._key)
-        if not value:
-            return None
-        if isinstance(self._cls, list):
-            obj = tuple(self._from_host(instance, name, tuple(self._cls)) for name in value)
-        else:
-            obj = self._from_host(instance, value, self._cls)
-        return obj
+        name = instance.config.get(self._key)
+        return self._from_host(instance, name, self._cls)
 
     def __repr__(self):
         return "<{}: {}{}>".format(self.__class__.__name__, repr(self._key),

@@ -634,13 +634,7 @@ class SyncHook(_SyncHookBase):
         else:
             self._db = True
 
-    @property
-    def channels(self):
-        try:
-            return {virtual: [self.host.channels[label] for label in labels]
-                    for virtual, labels in self.config["channels"].items()}
-        except KeyError as e:
-            raise immp.ConfigError("No channel {} on host".format(repr(e.args[0]))) from None
+    channels = immp.ConfigProperty({None: [immp.Channel]})
 
     def label_for_channel(self, channel):
         labels = []
@@ -836,13 +830,7 @@ class ForwardHook(_SyncHookBase):
 
     schema = immp.Schema({immp.Optional("users"): immp.Nullable([str])}, _SyncHookBase.schema)
 
-    @property
-    def _channels(self):
-        try:
-            return {self.host.channels[key]: tuple(self.host.channels[label] for label in value)
-                    for key, value in self.config["channels"].items()}
-        except KeyError as e:
-            raise immp.ConfigError("No such channel '{}'".format(repr(e.args[0])))
+    _channels = immp.ConfigProperty({immp.Channel: [immp.Channel]})
 
     async def send(self, channel, msg):
         """

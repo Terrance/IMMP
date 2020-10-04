@@ -61,22 +61,7 @@ class ChannelAccessHook(immp.Hook, AccessPredicate):
                           immp.Optional("startup", False): bool,
                           immp.Optional("passive", False): bool})
 
-    @property
-    def hooks(self):
-        mapping = {}
-        for name, channels in self.config["hooks"].items():
-            try:
-                hook = self.host.hooks[name]
-            except KeyError:
-                raise immp.ConfigError("Hook '{}' not registered to host".format(name))
-            if not isinstance(hook, AccessPredicate):
-                raise immp.HookError("Hook '{}' does not implement AccessPredicate".format(name))
-            try:
-                channels = tuple(self.host.channels[label] for label in channels)
-            except KeyError as e:
-                raise immp.ConfigError("Channel '{}' not registered to host".format(e.args[0]))
-            mapping[hook] = channels
-        return mapping
+    hooks = immp.ConfigProperty({AccessPredicate: [immp.Channel]})
 
     @property
     def channels(self):
