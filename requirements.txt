@@ -11,3 +11,4 @@ ptpython>=2.0.1
 ruamel.yaml>=0.15.75
 telethon>=1.9.0
 tortoise-orm>=0.15.0
+uvloop>=0.12.0

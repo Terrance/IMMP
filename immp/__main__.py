@@ -3,8 +3,15 @@ from argparse import ArgumentParser
 from immp import LocalFilter  # For backwards compatibility only.
 from immp.hook.runner import main
 
+try:
+    import uvloop
+except ImportError:
+    uvloop = None
+
 
 def entrypoint():
+    if uvloop:
+        uvloop.install()
     parser = ArgumentParser(prog="immp", add_help=False)
     parser.add_argument("-w", "--write", action="store_true")
     parser.add_argument("file", metavar="FILE")
