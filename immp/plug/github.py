@@ -32,13 +32,27 @@ log = logging.getLogger(__name__)
 class _Schema:
 
     config = immp.Schema({"route": str,
-                          immp.Optional("secret"): immp.Nullable(str)})
+                          immp.Optional("secret"): immp.Nullable(str),
+                          immp.Optional("ignore", list): [str]})
 
-    event = immp.Schema({"repository": {"full_name": str},
-                         "sender": {"id": int,
-                                    "login": str,
-                                    "avatar_url": str,
-                                    "html_url": str}})
+    _sender = {"id": int,
+               "login": str,
+               "avatar_url": str}
+
+    _repo = {"full_name": str}
+
+    _issue = {"number": int,
+              "title": str,
+              "html_url": str}
+
+    _pull = {immp.Optional("merged", False), bool}
+    _pull.update(_issue)
+
+    event = immp.Schema({"sender": _sender,
+                         immp.Optional("organization"): immp.Nullable(_sender),
+                         immp.Optional("repository"): immp.Nullable(_repo),
+                         immp.Optional("issue"): immp.Nullable(_issue),
+                         immp.Optional("pull_request"): immp.Nullable(_pull)})
 
 
 class GitHubUser(immp.User):
@@ -68,6 +82,116 @@ class GitHubMessage(immp.Message):
     Repository event originating from GitHub.
     """
 
+    _ACTIONS = {"converted_to_draft": "drafted",
+                "prereleased": "pre-released",
+                "ready_for_review": "readied",
+                "review_requested": "requested review of",
+                "review_request_removed": "removed review request of",
+                "synchronize": "updated"}
+
+    @classmethod
+    def _action_text(cls, github, action):
+        if not action:
+            return None
+        elif action in github.config["ignore"]:
+            raise NotImplementedError
+        else:
+            return cls._ACTIONS.get(action, action)
+
+    @classmethod
+    def _repo_text(cls, github, type_, event):
+        text = None
+        repo = event["repository"]
+        name = repo["full_name"]
+        name_seg = immp.Segment(name, link=repo["html_url"])
+        action = cls._action_text(github, event.get("action"))
+        issue = event.get("issue")
+        pull = event.get("pull_request")
+        if type_ == "repository":
+            text = immp.RichText([immp.Segment("{} repository ".format(action)), name_seg])
+        elif type_ == "push":
+            count = len(event["commits"])
+            desc = "{} commits".format(count) if count > 1 else event["after"][:7]
+            ref = event["ref"].split("/")[1:]
+            target = "/".join(ref[1:])
+            if ref[0] == "tags":
+                action, join = "tagged", "as"
+            elif ref[0] == "heads":
+                action, join = "pushed", "to"
+            else:
+                raise NotImplementedError
+            text = immp.RichText([immp.Segment("{} ".format(action)),
+                                  immp.Segment(desc, link=event["compare"]),
+                                  immp.Segment(" {} {} {}".format(join, name, target))])
+            for commit in event["commits"]:
+                text.append(immp.Segment("\n\N{BULLET} {}: {}"
+                                         .format(commit["id"][:7],
+                                                 commit["message"].split("\n")[0])))
+        elif type_ == "release":
+            release = event["release"]
+            desc = ("{} ({} {})".format(release["name"], name, release["tag_name"])
+                    if release["name"] else release["tag_name"])
+            text = immp.RichText([immp.Segment("{} release ".format(action)),
+                                  immp.Segment(desc, link=release["html_url"])])
+        elif type_ == "issues":
+            desc = "{} ({}#{})".format(issue["title"], name, issue["number"])
+            text = immp.RichText([immp.Segment("{} issue ".format(action)),
+                                  immp.Segment(desc, link=issue["html_url"])])
+        elif type_ == "issue_comment":
+            comment = event["comment"]
+            desc = "{} ({}#{})".format(issue["title"], name, issue["number"])
+            text = immp.RichText([immp.Segment("{} a ".format(action)),
+                                  immp.Segment("comment", link=comment["html_url"]),
+                                  immp.Segment(" on issue "),
+                                  immp.Segment(desc, link=issue["html_url"])])
+        elif type_ == "pull_request":
+            if action == "closed" and pull["merged"]:
+                action = "merged"
+            desc = "{} ({}#{})".format(pull["title"], name, pull["number"])
+            text = immp.RichText([immp.Segment("{} pull request ".format(action)),
+                                  immp.Segment(desc, link=pull["html_url"])])
+        elif type_ == "pull_request_review":
+            review = event["review"]
+            desc = "{} ({}#{})".format(pull["title"], name, pull["number"])
+            text = immp.RichText([immp.Segment("{} a ".format(action)),
+                                  immp.Segment("review", link=review["html_url"]),
+                                  immp.Segment(" on pull request "),
+                                  immp.Segment(desc, link=pull["html_url"])])
+        elif type_ == "pull_request_review_comment":
+            comment = event["comment"]
+            desc = "{} ({}#{})".format(pull["title"], name, pull["number"])
+            text = immp.RichText([immp.Segment("{} a ".format(action)),
+                                  immp.Segment("comment", link=comment["html_url"]),
+                                  immp.Segment(" on pull request "),
+                                  immp.Segment(desc, link=pull["html_url"])])
+        elif type_ == "project":
+            project = event["project"]
+            desc = "{} ({}#{})".format(project["name"], name, project["number"])
+            text = immp.RichText([immp.Segment("{} project ".format(action)),
+                                  immp.Segment(desc, link=project["html_url"])])
+        elif type_ == "project_card":
+            card = event["project_card"]
+            text = immp.RichText([immp.Segment("{} ".format(action)),
+                                  immp.Segment("card", link=card["html_url"]),
+                                  immp.Segment(" in project:\n"),
+                                  immp.Segment(card["note"])])
+        elif type_ == "gollum":
+            text = immp.RichText()
+            for i, page in enumerate(event["pages"]):
+                if i:
+                    text.append(immp.Segment(", "))
+                text.append(immp.Segment("{} {} wiki page ".format(page["action"], name)),
+                            immp.Segment(page["title"], link=page["html_url"]))
+        elif type_ == "fork":
+            fork = event["forkee"]
+            text = immp.RichText([immp.Segment("forked {} to ".format(name)),
+                                  immp.Segment(fork["full_name"], link=fork["html_url"])])
+        elif type_ == "watch":
+            text = immp.RichText([immp.Segment("starred "), name_seg])
+        elif type_ == "public":
+            text = immp.RichText([immp.Segment("made "), name_seg, immp.Segment(" public")])
+        return text
+
     @classmethod
     def from_event(cls, github, type_, id_, event):
         """
@@ -88,101 +212,19 @@ class GitHubMessage(immp.Message):
             .GitHubMessage:
                 Parsed message object.
         """
-        repo = event["repository"]["full_name"]
-        channel = immp.Channel(github, repo)
-        user = GitHubUser.from_sender(github, event["sender"])
         text = None
-        if type_ == "push":
-            count = len(event["commits"])
-            desc = "{} commits".format(count) if count > 1 else event["after"][:7]
-            ref = event["ref"].split("/")[1:]
-            target = "/".join(ref[1:])
-            if ref[0] == "tags":
-                action, join = "tagged", "as"
-            elif ref[0] == "heads":
-                action, join = "pushed", "to"
-            else:
-                raise NotImplementedError
-            text = immp.RichText([immp.Segment("{} ".format(action)),
-                                  immp.Segment(desc, link=event["compare"]),
-                                  immp.Segment(" {} {} {}".format(join, repo, target))])
-            for commit in event["commits"]:
-                text.append(immp.Segment("\n* "),
-                            immp.Segment(commit["id"][:7], code=True),
-                            immp.Segment(" - {}".format(commit["message"].split("\n")[0])))
-        elif type_ == "release":
-            release = event["release"]
-            desc = ("{} ({} {})".format(release["name"], repo, release["tag_name"])
-                    if release["name"] else release["tag_name"])
-            text = immp.RichText([immp.Segment("{} release ".format(event["action"])),
-                                  immp.Segment(desc, link=release["html_url"])])
-        elif type_ == "issues":
-            issue = event["issue"]
-            desc = "{} ({}#{})".format(issue["title"], repo, issue["number"])
-            text = immp.RichText([immp.Segment("{} issue ".format(event["action"])),
-                                  immp.Segment(desc, link=issue["html_url"])])
-        elif type_ == "issue_comment":
-            issue = event["issue"]
-            comment = event["comment"]
-            desc = "{} ({}#{})".format(issue["title"], repo, issue["number"])
-            text = immp.RichText([immp.Segment("{} a ".format(event["action"])),
-                                  immp.Segment("comment", link=comment["html_url"]),
-                                  immp.Segment(" on issue "),
-                                  immp.Segment(desc, link=issue["html_url"])])
-        elif type_ == "pull_request":
-            pull = event["pull_request"]
-            desc = "{} ({}#{})".format(pull["title"], repo, pull["number"])
-            text = immp.RichText([immp.Segment("{} pull request ".format(event["action"])),
-                                  immp.Segment(desc, link=pull["html_url"])])
-        elif type_ == "pull_request_review":
-            pull = event["pull_request"]
-            review = event["review"]
-            desc = "{} ({}#{})".format(pull["title"], repo, pull["number"])
-            text = immp.RichText([immp.Segment("{} a ".format(event["action"])),
-                                  immp.Segment("review", link=review["html_url"]),
-                                  immp.Segment(" on pull request "),
-                                  immp.Segment(desc, link=pull["html_url"])])
-        elif type_ == "pull_request_review_comment":
-            pull = event["pull_request"]
-            comment = event["comment"]
-            desc = "{} ({}#{})".format(pull["title"], repo, pull["number"])
-            text = immp.RichText([immp.Segment("{} a ".format(event["action"])),
-                                  immp.Segment("comment", link=comment["html_url"]),
-                                  immp.Segment(" on pull request "),
-                                  immp.Segment(desc, link=pull["html_url"])])
-        elif type_ == "project":
-            project = event["project"]
-            desc = "{} ({}#{})".format(project["name"], repo, project["number"])
-            text = immp.RichText([immp.Segment("{} project ".format(event["action"])),
-                                  immp.Segment(desc, link=project["html_url"])])
-        elif type_ == "project_card":
-            card = event["project_card"]
-            text = immp.RichText([immp.Segment("{} ".format(event["action"])),
-                                  immp.Segment("card", link=card["html_url"]),
-                                  immp.Segment(" in project:\n"),
-                                  immp.Segment(card["note"])])
-        elif type_ == "gollum":
-            text = immp.RichText()
-            for i, page in enumerate(event["pages"]):
-                if i:
-                    text.append(immp.Segment(", "))
-                text.append(immp.Segment("{} {} wiki page ".format(page["action"], repo)),
-                            immp.Segment(page["title"], link=page["html_url"]))
-        elif type_ == "fork":
-            fork = event["forkee"]
-            text = immp.RichText([immp.Segment("forked {} to ".format(repo)),
-                                  immp.Segment(fork["full_name"], link=fork["html_url"])])
-        elif type_ == "watch":
-            text = immp.RichText([immp.Segment("starred {}".format(repo))])
-        if text:
-            return immp.SentMessage(id_=id_,
-                                    channel=channel,
-                                    text=text,
-                                    user=user,
-                                    action=True,
-                                    raw=event)
-        else:
+        if event["repository"]:
+            channel = immp.Channel(github, event["repository"]["full_name"])
+            text = cls._repo_text(github, type_, event)
+        if not text:
             raise NotImplementedError
+        user = GitHubUser.from_sender(github, event["sender"])
+        return immp.SentMessage(id_=id_,
+                                channel=channel,
+                                text=text,
+                                user=user,
+                                action=True,
+                                raw=event)
 
 
 class GitHubPlug(immp.Plug):
@@ -234,7 +276,15 @@ class GitHubPlug(immp.Plug):
         except (KeyError, ValueError):
             raise web.HTTPBadRequest
         if type_ == "ping":
-            log.debug("Received ping event for %s", event["repository"]["full_name"])
+            target = None
+            if event["repository"]:
+                target = "repository", event["repository"]["full_name"]
+            elif event["organization"]:
+                target = "organisation", event["organization"]["login"]
+            if target:
+                log.debug("Received ping event for %s %r", *target)
+            else:
+                log.warning("Received ping event for unknown target")
         else:
             try:
                 self.queue(GitHubMessage.from_event(self, type_, id_, event))
