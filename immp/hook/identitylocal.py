@@ -30,7 +30,7 @@ new one will be assigned at startup.  If multiple hooks are in use, it's importa
 yourself, so that identities remained assigned to the correct instance.
 
 .. note::
-    This hook requires an active :class:`.DatabaseHook` to store data.
+    This hook requires an active :class:`.AsyncDatabaseHook` to store data.
 """
 
 from asyncio import gather

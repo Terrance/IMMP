@@ -14,7 +14,7 @@ Commands:
         Recall all notes for this channel.
 
 .. note::
-    This hook requires an active :class:`.DatabaseHook` to store data.
+    This hook requires an active :class:`.AsyncDatabaseHook` to store data.
 """
 
 import time

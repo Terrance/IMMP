@@ -44,7 +44,7 @@ Allows users to opt in to private message notifications when chosen highlight wo
 group conversation.
 
 .. note::
-    This hook requires an active :class:`.DatabaseHook` to store data.
+    This hook requires an active :class:`.AsyncDatabaseHook` to store data.
 """
 
 from asyncio import wait
