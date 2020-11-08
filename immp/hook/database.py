@@ -72,13 +72,15 @@ class _ModelsMixin:
         self.models.update(models)
 
 
-class BaseModel(Model):
-    """
-    Template model to be used by other hooks.
-    """
+if Model:
 
-    class Meta:
-        database = DatabaseProxy()
+    class BaseModel(Model):
+        """
+        Template model to be used by other hooks.
+        """
+
+        class Meta:
+            database = DatabaseProxy()
 
 
 class DatabaseHook(immp.ResourceHook, _ModelsMixin):
