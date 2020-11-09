@@ -287,7 +287,7 @@ class TelegramUser(immp.User):
             .TelegramUser:
                 Parsed user object.
         """
-        return cls(id_=chat.id,
+        return cls(id_="-100{}".format(chat.id),
                    plug=telegram,
                    username=chat.username,
                    real_name=author or chat.title,
