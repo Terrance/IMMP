@@ -321,11 +321,9 @@ class SyncCache:
             for id_ in ids:
                 self._lookup[channel][id_] = ref.key
                 if self._hook._db and not back:
-                    try:
-                        await SyncBackRef.create(key=ref.key, network=channel.plug.network_id,
-                                                 channel=channel.source, message=id_)
-                    except IntegrityError:
-                        pass
+                    # Throwaway get to avoid loud integrity errors on duplicates.
+                    await SyncBackRef.get_or_create(key=ref.key, network=channel.plug.network_id,
+                                                    channel=channel.source, message=id_)
         return ref
 
     async def get(self, key):
