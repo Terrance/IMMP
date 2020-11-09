@@ -1364,7 +1364,8 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                                               "parse_mode": "HTML",
                                               # Prevent linked user names generating previews.
                                               "disable_web_page_preview": no_link_preview,
-                                              "reply_to_message_id": reply_to}))
+                                              "reply_to_message_id": reply_to,
+                                              "allow_sending_without_reply": "true"}))
         for attach in msg.attachments:
             if isinstance(attach, immp.File):
                 requests.append(self._upload_attachment(chat, msg, attach))
