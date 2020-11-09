@@ -695,7 +695,7 @@ class SyncHook(_SyncHookBase):
                 text.append(immp.Segment(": {}".format(title)))
         await msg.channel.send(immp.Message(user=immp.User(real_name="Sync"), text=text))
 
-    async def send(self, label, msg, origin=None, ref=None):
+    async def send(self, label, msg, origin=None, ref=None, update=False):
         """
         Send a message to all channels in this synced group.
 
@@ -711,6 +711,8 @@ class SyncHook(_SyncHookBase):
                 the plug-native copy of a message when syncing from another channel.
             ref (.SyncRef):
                 Existing sync reference, if message has been partially synced.
+            update (bool):
+                ``True`` to force resending an updated message to all synced channels.
         """
         base = immp.Message(text=msg.text, user=msg.user, edited=msg.edited, action=msg.action,
                             reply_to=msg.reply_to, joined=msg.joined, left=msg.left,
@@ -719,7 +721,7 @@ class SyncHook(_SyncHookBase):
         for synced in self.channels[label]:
             if origin and synced == origin.channel:
                 continue
-            elif ref and ref.ids[synced]:
+            elif not update and ref and ref.ids[synced]:
                 log.debug("Skipping already-synced target channel %r: %r", synced, ref)
                 continue
             local = base.clone()
@@ -791,10 +793,13 @@ class SyncHook(_SyncHookBase):
             label = self.label_for_channel(sent.channel)
         except immp.ConfigError:
             return
+        if not self._accept(source):
+            return
         async with self._lock:
             # No critical section here, just wait for any pending messages to be sent.
             pass
         ref = None
+        update = False
         try:
             ref = await self._cache.get(sent)
         except KeyError:
@@ -810,15 +815,14 @@ class SyncHook(_SyncHookBase):
                 return
             elif (sent.edited and not ref.revisions) or ref.revision(sent):
                 log.debug("Incoming message is an update, needs sync: %r", sent)
+                update = True
             elif all(ref.ids[channel] for channel in self.channels[label]):
                 log.debug("Incoming message already synced: %r", sent)
                 return
             else:
                 log.debug("Incoming message partially synced: %r", sent)
-        if not self._accept(source):
-            return
         log.debug("Sending message to synced channel %r: %r", label, sent.id)
-        await self.send(label, source, sent, ref)
+        await self.send(label, source, sent, ref, update)
 
 
 class ForwardHook(_SyncHookBase):
