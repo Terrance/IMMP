@@ -905,6 +905,12 @@ class Receipt(_SentMessageSlots):
     def id(self, value):
         self._id = str(value) if value else None
 
+    async def resolve(self):
+        """
+        Equivalent to :meth:`.Plug.resolve_message`.
+        """
+        return await self.channel.plug.resolve_message(self)
+
     async def delete(self):
         """
         Equivalent to :meth:`.Plug.delete`.
