@@ -166,15 +166,22 @@ class TelegramAPIRequestError(immp.PlugError):
     """
 
 
-class _HiddenSender(Exception):
+class _HiddenSender:
 
-    channel_id = -1001228946795
-    chat_id = 1228946795
+    # @HiddenSender, "a user": author of message forwards when opted to be linked back to them.
+    hidden_chat_id = 1228946795
+    hidden_channel_id = int("-100{}".format(hidden_chat_id))
+
+    # "Telegram": official service account, author of channel messages relayed to discussion chats.
+    service_user_id = 777000
+
+    # @GroupAnonymousBot, "Group": author of group chat messages on behalf of anonymous admins.
+    anonymous_user_id = 1087968824
 
     @classmethod
-    def check(cls, value):
-        if value in (cls.channel_id, cls.chat_id):
-            raise cls
+    def has(cls, value):
+        return value in (cls.hidden_channel_id, cls.hidden_chat_id,
+                         cls.service_user_id, cls.anonymous_user_id)
 
 
 class TelegramUser(immp.User):
@@ -212,7 +219,7 @@ class TelegramUser(immp.User):
                    raw=user)
 
     @classmethod
-    def from_bot_channel(cls, telegram, json):
+    def from_bot_channel(cls, telegram, json, author=None):
         """
         Convert a chat :class:`dict` (attached to a message) to a :class:`.User`.
 
@@ -221,17 +228,18 @@ class TelegramUser(immp.User):
                 Related plug instance that provides the user.
             json (dict):
                 Telegram API `Chat <https://core.telegram.org/bots/api#chat>`_ object.
+            author (str):
+                Optional post author, for channel messages.
 
         Returns:
             .TelegramUser:
                 Parsed user object.
         """
         chat = _Schema.channel(json)
-        _HiddenSender.check(chat["id"])
         return cls(id_=chat["id"],
                    plug=telegram,
                    username=chat["username"],
-                   real_name=chat["title"],
+                   real_name=author or chat["title"],
                    raw=chat)
 
     @classmethod
@@ -263,14 +271,14 @@ class TelegramUser(immp.User):
                    raw=user)
 
     @classmethod
-    def from_proto_channel(cls, telegram, user, author=None):
+    def from_proto_channel(cls, telegram, chat, author=None):
         """
         Convert a :class:`telethon.tl.types.Channel` into a :class:`.User`.
 
         Args:
             telegram (.TelegramPlug):
                 Related plug instance that provides the user.
-            user (telethon.tl.types.Channel):
+            chat (telethon.tl.types.Channel):
                 Telegram channel retrieved from the MTProto API.
             author (str):
                 Optional post author, for channel messages.
@@ -279,12 +287,11 @@ class TelegramUser(immp.User):
             .TelegramUser:
                 Parsed user object.
         """
-        _HiddenSender.check(user.id)
-        return cls(id_=user.id,
+        return cls(id_=chat.id,
                    plug=telegram,
-                   username=user.username,
-                   real_name=author or user.title,
-                   raw=user)
+                   username=chat.username,
+                   real_name=author or chat.title,
+                   raw=chat)
 
     @classmethod
     def from_entity(cls, telegram, entity):
@@ -585,7 +592,7 @@ class TelegramMessage(immp.Message):
         left = None
         title = None
         attachments = []
-        if message["from"]:
+        if message["from"] and not _HiddenSender.has(message["from"]["id"]):
             user = TelegramUser.from_bot_user(telegram, message["from"])
         if message["reply_to_message"]:
             reply_to = await cls.from_bot_message(telegram, message["reply_to_message"])
@@ -687,19 +694,16 @@ class TelegramMessage(immp.Message):
             # Event is a message containing another message.  Forwarded messages have no ID, so we
             # use a Message instead of a SentMessage here, unless they come from a channel.
             forward_id = forward_channel = forward_user = None
-            if message["forward_from_chat"]:
-                forward_channel = immp.Channel(telegram, message["forward_from_chat"]["id"])
-                try:
-                    forward_user = TelegramUser.from_bot_channel(telegram,
-                                                                 message["forward_from_chat"])
-                except _HiddenSender:
-                    if message["forward_signature"]:
-                        forward_user = immp.User(real_name=message["forward_signature"])
-                if message["forward_from_message_id"]:
-                    forward_id = "{}:{}".format(message["forward_from_chat"]["id"],
-                                                message["forward_from_message_id"])
-            elif message["forward_from"]:
-                forward_user = TelegramUser.from_bot_user(telegram, message["forward_from"])
+            chat = message["forward_from_chat"]
+            sender = message["forward_from"]
+            if chat and message["forward_from_message_id"]:
+                forward_channel = immp.Channel(telegram, chat["id"])
+                forward_id = "{}:{}".format(chat["id"], message["forward_from_message_id"])
+            if sender and not _HiddenSender.has(sender["id"]):
+                forward_user = TelegramUser.from_bot_user(telegram, sender)
+            elif chat and not _HiddenSender.has(chat["id"]):
+                forward_user = TelegramUser.from_bot_channel(telegram, chat,
+                                                             message["forward_signature"])
             elif message["forward_sender_name"]:
                 forward_user = immp.User(real_name=message["forward_sender_name"])
             forward_common = dict(text=text,
@@ -778,11 +782,13 @@ class TelegramMessage(immp.Message):
             revision = None
         text = await TelegramRichText.from_proto_entities(telegram, message.message,
                                                           message.entities)
-        sender = await message.get_sender()
-        if isinstance(sender, tl.types.Channel):
-            user = TelegramUser.from_proto_channel(telegram, sender)
-        else:
-            user = TelegramUser.from_proto_user(telegram, sender)
+        user = None
+        if message.sender_id and not _HiddenSender.has(message.sender_id):
+            sender = await message.get_sender()
+            if isinstance(sender, tl.types.Channel):
+                user = TelegramUser.from_proto_channel(telegram, sender)
+            else:
+                user = TelegramUser.from_proto_user(telegram, sender)
         action = False
         reply_to = None
         joined = []
@@ -879,20 +885,17 @@ class TelegramMessage(immp.Message):
             # Event is a message containing another message.  Forwarded messages have no ID, so we
             # use a Message instead of a SentMessage here, unless they come from a channel.
             forward_id = forward_channel = forward_user = None
-            if message.forward.channel_id and message.forward.channel_post:
+            if message.forward.chat_id and message.forward.channel_post:
                 forward_channel = immp.Channel(telegram, message.forward.chat_id)
                 forward_id = "{}:{}".format(message.forward.chat_id,
                                             message.forward.channel_post)
+            if message.forward.sender_id and not _HiddenSender.has(message.forward.sender_id):
+                sender = await message.forward.get_sender()
+                forward_user = TelegramUser.from_proto_user(telegram, sender)
+            elif message.forward.chat_id and not _HiddenSender.has(message.forward.chat_id):
                 chat = await message.forward.get_chat()
-                try:
-                    forward_user = TelegramUser.from_proto_channel(telegram, chat,
-                                                                   message.forward.post_author)
-                except _HiddenSender:
-                    if message.forward.post_author:
-                        forward_user = immp.User(real_name=message.forward.post_author)
-            elif message.forward.sender_id:
-                forward_user = TelegramUser.from_proto_user(telegram,
-                                                            await message.forward.get_sender())
+                forward_user = TelegramUser.from_proto_channel(telegram, chat,
+                                                               message.forward.post_author)
             elif message.forward.from_name:
                 forward_user = immp.User(real_name=message.forward.from_name)
             forward_common = dict(text=text,
@@ -1040,7 +1043,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                 pass
             elif diff.new_messages:
                 self._last_id = diff.new_messages[-1].id
-            self._blacklist = {_HiddenSender.channel_id}
+            self._blacklist = {_HiddenSender.hidden_channel_id}
             self._blacklist_task = ensure_future(wait([self._blacklist_users(),
                                                        self._blacklist_chats()]))
 
@@ -1219,7 +1222,8 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                     data = await self._client(tl.functions.channels.GetParticipantsRequest(
                         chat, tl.types.ChannelParticipantsRecent(), len(users), 1000, 0))
                     if data.users:
-                        users += [TelegramUser.from_proto_user(self, user) for user in data.users]
+                        users += [TelegramUser.from_proto_user(self, user) for user in data.users
+                                  if not _HiddenSender.has(user.id)]
                     else:
                         break
             except ValueError:
