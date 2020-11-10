@@ -73,7 +73,7 @@ class _Schema:
 
     channel = immp.Schema({"id": int,
                            "title": str,
-                           "type": "channel",
+                           "type": str,
                            immp.Optional("username"): immp.Nullable(str)})
 
     entity = immp.Schema({"type": str,
@@ -87,10 +87,12 @@ class _Schema:
     _location = {"latitude": float, "longitude": float}
 
     message = immp.Schema({"message_id": int,
-                           "chat": {"id": int},
+                           "chat": channel,
                            "date": int,
                            immp.Optional("edit_date"): immp.Nullable(int),
                            immp.Optional("from"): immp.Nullable(user),
+                           immp.Optional("sender_chat"): immp.Nullable(channel),
+                           immp.Optional("author_signature"): immp.Nullable(str),
                            immp.Optional("forward_from"): immp.Nullable(user),
                            immp.Optional("forward_date"): immp.Nullable(int),
                            immp.Optional("forward_from_chat"): immp.Nullable(channel),
@@ -594,6 +596,9 @@ class TelegramMessage(immp.Message):
         attachments = []
         if message["from"] and not _HiddenSender.has(message["from"]["id"]):
             user = TelegramUser.from_bot_user(telegram, message["from"])
+        elif message["sender_chat"] and not _HiddenSender.has(message["sender_chat"]["id"]):
+            user = TelegramUser.from_bot_chat(telegram, message["sender_chat"],
+                                              message["author_signature"])
         if message["reply_to_message"]:
             reply_to = await cls.from_bot_message(telegram, message["reply_to_message"])
         # At most one of these fields will be set.
@@ -785,10 +790,10 @@ class TelegramMessage(immp.Message):
         user = None
         if message.sender_id and not _HiddenSender.has(message.sender_id):
             sender = await message.get_sender()
-            if isinstance(sender, tl.types.Channel):
-                user = TelegramUser.from_proto_channel(telegram, sender)
-            else:
-                user = TelegramUser.from_proto_user(telegram, sender)
+            user = TelegramUser.from_proto_user(telegram, sender)
+        elif message.chat_id and not _HiddenSender.has(message.chat_id):
+            chat = await message.get_chat()
+            user = TelegramUser.from_proto_channel(telegram, chat, message.post_author)
         action = False
         reply_to = None
         joined = []
