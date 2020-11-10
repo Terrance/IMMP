@@ -1315,20 +1315,24 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             data.add_field(field, img_resp.content, filename=attach.title or field)
         return data
 
-    async def _upload_attachment(self, chat, msg, attach):
+    async def _upload_attachment(self, chat, msg, attach, reply_to=None, caption=None):
         # Upload a file to Telegram in its own message.
         # Prefer a source URL if available, else fall back to re-uploading the file.
         base = {"chat_id": str(chat)}
+        if reply_to:
+            base.update({"reply_to_message_id": reply_to,
+                         "allow_sending_without_reply": "true"})
         if msg.user:
-            if attach.type == immp.File.Type.image:
-                what = "an image"
-            elif attach.type == immp.File.Type.video:
-                what = "a video"
-            else:
-                what = "a file"
-            rich = immp.Message(text=immp.RichText([immp.Segment("sent {}".format(what))]),
-                                user=msg.user, action=True).render()
-            text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
+            if not caption:
+                if attach.type == immp.File.Type.image:
+                    what = "an image"
+                elif attach.type == immp.File.Type.video:
+                    what = "a video"
+                else:
+                    what = "a file"
+                caption = immp.Message(text=immp.RichText([immp.Segment("sent {}".format(what))]),
+                                       user=msg.user, action=True).render()
+            text = "".join(TelegramSegment.to_html(self, segment) for segment in caption)
             base["caption"] = text
             base["parse_mode"] = "HTML"
         if attach.type == immp.File.Type.image:
@@ -1351,28 +1355,47 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             return None
 
     def _requests(self, chat, msg):
-        requests = []
-        if msg.text or msg.reply_to:
-            quote = False
-            reply_to = ""
-            if isinstance(msg.reply_to, immp.Receipt):
-                # Reply natively to the given parent message.
-                reply_to = int(msg.reply_to.id.split(":")[1])
-            elif isinstance(msg.reply_to, immp.Message):
-                quote = True
+        reply_to = ""
+        quote = False
+        rich = None
+        if isinstance(msg.reply_to, immp.Receipt):
+            reply_to = int(msg.reply_to.id.split(":")[1])
+        elif isinstance(msg.reply_to, immp.Message):
+            quote = True
+        if msg.text or quote:
             rich = msg.render(edit=msg.edited, quote_reply=quote)
+        # If there's exactly one file attachment that we can attach a caption to, use that for the
+        # message text, otherwise send the text first in its own message.
+        parts = []
+        captionable = []
+        for attach in msg.attachments:
+            if isinstance(attach, immp.File):
+                parts.append(attach)
+                captionable.append(attach)
+            elif isinstance(attach, immp.Location):
+                parts.append(attach)
+        requests = []
+        # Send the primary attachment, or the leading text-only message, with any reply metadata.
+        primary = None
+        if len(captionable) == 1:
+            primary = captionable[0]
+            requests.append(self._upload_attachment(chat, msg, primary, reply_to, rich))
+        elif rich:
             text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
+            # Prevent linked user names generating link previews.
             no_link_preview = "true" if msg.user and msg.user.link else "false"
             requests.append(self._api("sendMessage", _Schema.send,
                                       params={"chat_id": chat,
                                               "text": text,
                                               "parse_mode": "HTML",
-                                              # Prevent linked user names generating previews.
                                               "disable_web_page_preview": no_link_preview,
                                               "reply_to_message_id": reply_to,
                                               "allow_sending_without_reply": "true"}))
+        # Send any remaining attachments as auxilary messages.
         for attach in msg.attachments:
-            if isinstance(attach, immp.File):
+            if attach is primary:
+                continue
+            elif isinstance(attach, immp.File):
                 requests.append(self._upload_attachment(chat, msg, attach))
             elif isinstance(attach, immp.Location):
                 requests.append(self._api("sendLocation", _Schema.send,
