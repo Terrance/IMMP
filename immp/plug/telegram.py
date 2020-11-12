@@ -71,10 +71,10 @@ class _Schema:
                         "first_name": str,
                         immp.Optional("last_name"): immp.Nullable(str)})
 
-    channel = immp.Schema({"id": int,
-                           "title": str,
-                           "type": str,
-                           immp.Optional("username"): immp.Nullable(str)})
+    chat = immp.Schema({"id": int,
+                        "type": str,
+                        immp.Optional("title"): immp.Nullable(str),
+                        immp.Optional("username"): immp.Nullable(str)})
 
     entity = immp.Schema({"type": str,
                           "offset": int,
@@ -82,20 +82,22 @@ class _Schema:
                           immp.Optional("url"): immp.Nullable(str),
                           immp.Optional("user"): immp.Nullable(user)})
 
-    _file = {"file_id": str, immp.Optional("file_name"): immp.Nullable(str)}
+    file = {"file_id": str,
+            immp.Optional("file_name"): immp.Nullable(str),
+            immp.Optional("file_path"): immp.Nullable(str)}
 
     _location = {"latitude": float, "longitude": float}
 
     message = immp.Schema({"message_id": int,
-                           "chat": channel,
+                           "chat": chat,
                            "date": int,
                            immp.Optional("edit_date"): immp.Nullable(int),
                            immp.Optional("from"): immp.Nullable(user),
-                           immp.Optional("sender_chat"): immp.Nullable(channel),
+                           immp.Optional("sender_chat"): immp.Nullable(chat),
                            immp.Optional("author_signature"): immp.Nullable(str),
                            immp.Optional("forward_from"): immp.Nullable(user),
                            immp.Optional("forward_date"): immp.Nullable(int),
-                           immp.Optional("forward_from_chat"): immp.Nullable(channel),
+                           immp.Optional("forward_from_chat"): immp.Nullable(chat),
                            immp.Optional("forward_from_message_id"): immp.Nullable(int),
                            immp.Optional("forward_signature"): immp.Nullable(str),
                            immp.Optional("forward_sender_name"): immp.Nullable(str),
@@ -103,16 +105,16 @@ class _Schema:
                            immp.Optional("caption"): immp.Nullable(str),
                            immp.Optional("entities", list): [entity],
                            immp.Optional("caption_entities", list): [entity],
-                           immp.Optional("photo", list): [_file],
+                           immp.Optional("photo", list): [file],
                            immp.Optional("sticker"): immp.Nullable({immp.Optional("emoji"):
                                                                         immp.Nullable(str),
                                                                     "file_id": str}),
-                           immp.Optional("animation"): immp.Nullable(_file),
-                           immp.Optional("video"): immp.Nullable(_file),
-                           immp.Optional("video_note"): immp.Nullable(_file),
-                           immp.Optional("audio"): immp.Nullable(_file),
-                           immp.Optional("voice"): immp.Nullable(_file),
-                           immp.Optional("document"): immp.Nullable(_file),
+                           immp.Optional("animation"): immp.Nullable(file),
+                           immp.Optional("video"): immp.Nullable(file),
+                           immp.Optional("video_note"): immp.Nullable(file),
+                           immp.Optional("audio"): immp.Nullable(file),
+                           immp.Optional("voice"): immp.Nullable(file),
+                           immp.Optional("document"): immp.Nullable(file),
                            immp.Optional("location"): immp.Nullable(_location),
                            immp.Optional("venue"): immp.Nullable({"location": _location,
                                                                   "title": str,
@@ -123,7 +125,7 @@ class _Schema:
                            immp.Optional("new_chat_members", list): [user],
                            immp.Optional("left_chat_member"): immp.Nullable(user),
                            immp.Optional("new_chat_title"): immp.Nullable(str),
-                           immp.Optional("new_chat_photo", list): [_file],
+                           immp.Optional("new_chat_photo", list): [file],
                            immp.Optional("delete_chat_photo", False): bool,
                            immp.Optional("migrate_to_chat_id"): immp.Nullable(int)})
 
@@ -135,6 +137,7 @@ class _Schema:
                           immp.Optional(immp.Any("message", "edited_message",
                                                  "channel_post", "edited_channel_post")): message})
 
+    @staticmethod
     def api(result=None):
         success = {"ok": True}
         if result:
@@ -143,17 +146,6 @@ class _Schema:
                                     {"ok": False,
                                      "description": str,
                                      "error_code": int}))
-
-    me = api(user)
-
-    file = api({"file_path": str})
-
-    send = api(message)
-
-    chat = api({"type": str,
-                immp.Optional("title"): immp.Nullable(str)})
-
-    updates = api([update])
 
 
 class TelegramAPIConnectError(immp.PlugError):
@@ -997,7 +989,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         # highest we've seen, so that we can attempt to fetch past messages with this as a base.
         self._last_id = None
 
-    async def _api(self, endpoint, schema=_Schema.api(), quiet=False, **kwargs):
+    async def _api(self, endpoint, type_=None, quiet=False, **kwargs):
         url = "https://api.telegram.org/bot{}/{}".format(self.config["token"], endpoint)
         if not quiet:
             log.debug("Making API request to %r", endpoint)
@@ -1005,6 +997,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             async with self.session.post(url, **kwargs) as resp:
                 try:
                     json = await resp.json()
+                    schema = _Schema.api(type_)
                     data = schema(json)
                 except ClientResponseError as e:
                     raise TelegramAPIConnectError("Bad response with code: {}"
@@ -1020,7 +1013,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
     async def start(self):
         await super().start()
         self._closing = False
-        self._bot_user = await self._api("getMe", _Schema.me)
+        self._bot_user = await self._api("getMe", _Schema.user)
         if self.config["api-id"] and self.config["api-hash"]:
             if not TelegramClient:
                 raise immp.ConfigError("API ID/hash specified but Telethon is not installed")
@@ -1123,7 +1116,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         count = 0
         for user in self._client.session.get_user_entities():
             try:
-                await self._api("getChat", quiet=True, params={"chat_id": user[0]})
+                await self._api("getChat", _Schema.chat, quiet=True, params={"chat_id": user[0]})
             except TelegramAPIRequestError:
                 count += 1
                 self._blacklist.add(user[0])
@@ -1176,7 +1169,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         if not isinstance(user, TelegramUser):
             return None
         try:
-            await self._api("getChat", params={"chat_id": user.id})
+            await self._api("getChat", _Schema.chat, params={"chat_id": user.id})
         except TelegramAPIRequestError as e:
             log.warning("Failed to retrieve user %s channel", user.id, exc_info=e)
             # Can't create private channels, users must initiate conversations with bots.
@@ -1338,18 +1331,18 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         if attach.type == immp.File.Type.image:
             data = await self._form_data(base, "photo", attach)
             try:
-                return await self._api("sendPhoto", _Schema.send, data=data)
+                return await self._api("sendPhoto", _Schema.message, data=data)
             except (TelegramAPIConnectError, TelegramAPIRequestError):
                 log.debug("Failed to upload image, falling back to document upload")
         elif attach.type == immp.File.Type.video:
             data = await self._form_data(base, "video", attach)
             try:
-                return await self._api("sendVideo", _Schema.send, data=data)
+                return await self._api("sendVideo", _Schema.message, data=data)
             except (TelegramAPIConnectError, TelegramAPIRequestError):
                 log.debug("Failed to upload video, falling back to document upload")
         data = await self._form_data(base, "document", attach)
         try:
-            return await self._api("sendDocument", _Schema.send, data=data)
+            return await self._api("sendDocument", _Schema.message, data=data)
         except TelegramAPIConnectError as e:
             log.warning("Failed to upload file", exc_info=e)
             return None
@@ -1384,7 +1377,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
             # Prevent linked user names generating link previews.
             no_link_preview = "true" if msg.user and msg.user.link else "false"
-            requests.append(self._api("sendMessage", _Schema.send,
+            requests.append(self._api("sendMessage", _Schema.message,
                                       params={"chat_id": chat,
                                               "text": text,
                                               "parse_mode": "HTML",
@@ -1398,7 +1391,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             elif isinstance(attach, immp.File):
                 requests.append(self._upload_attachment(chat, msg, attach))
             elif isinstance(attach, immp.Location):
-                requests.append(self._api("sendLocation", _Schema.send,
+                requests.append(self._api("sendLocation", _Schema.message,
                                           params={"chat_id": chat,
                                                   "latitude": str(attach.latitude),
                                                   "longitude": str(attach.longitude)}))
@@ -1406,7 +1399,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
                     caption = immp.Message(user=msg.user, text="sent a location", action=True)
                     text = "".join(TelegramSegment.to_html(self, segment)
                                    for segment in caption.render())
-                    requests.append(self._api("sendMessage", _Schema.send,
+                    requests.append(self._api("sendMessage", _Schema.message,
                                               params={"chat_id": chat,
                                                       "text": text,
                                                       "parse_mode": "HTML"}))
@@ -1423,7 +1416,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             if isinstance(attach, immp.Receipt):
                 # Forward the messages natively using the given chat/ID.
                 forward_chat, forward_id = map(int, attach.id.split(":"))
-                requests.append(self._api("forwardMessage", _Schema.send,
+                requests.append(self._api("forwardMessage", _Schema.message,
                                           params={"chat_id": chat,
                                                   "from_chat_id": forward_chat,
                                                   "message_id": forward_id}))
@@ -1469,7 +1462,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         while not self._closing:
             params = {"offset": self._offset,
                       "timeout": 240}
-            fetch = ensure_future(self._api("getUpdates", _Schema.updates, params=params))
+            fetch = ensure_future(self._api("getUpdates", [_Schema.update], params=params))
             try:
                 result = await fetch
             except CancelledError:
