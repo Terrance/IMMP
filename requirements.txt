@@ -10,5 +10,6 @@ peewee>=3.0.0
 ptpython>=2.0.1
 ruamel.yaml>=0.15.75
 telethon>=1.9.0
-tortoise-orm>=0.15.0
+tortoise-orm>=0.15.0; python_version >= '3.7'
+tortoise-orm>=0.15.0,<0.16.0; python_version == '3.6'
 uvloop>=0.12.0
