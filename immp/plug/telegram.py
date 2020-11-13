@@ -1068,6 +1068,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             log.warning("Chat migrations require a config update before next run")
 
     async def user_from_id(self, id_):
+        id_ = int(id_)
         if not self._client:
             log.debug("Client auth required to look up users")
             return None
@@ -1077,7 +1078,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         elif id_ in self._users:
             return self._users[id_]
         try:
-            data = await self._client(tl.functions.users.GetFullUserRequest(int(id_)))
+            data = await self._client(tl.functions.users.GetFullUserRequest(id_))
         except ValueError:
             log.warning("Missing entity for user %d", id_)
             return None
