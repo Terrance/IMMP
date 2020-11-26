@@ -89,14 +89,16 @@ class DiscordUser(immp.User):
                 Parsed user object.
         """
         username = "{}#{}".format(user.name, user.discriminator)
-        real_name = getattr(user, "nick", None) or user.name
+        real_name = user.display_name
         # Avatar URL is an Asset object, URL only available via __str__.
         avatar = str(user.avatar_url) if user.avatar_url else None
+        link = "https://discord.com/users/{}".format(user.id)
         return cls(id_=user.id,
                    plug=discord_,
                    username=username,
                    real_name=real_name,
                    avatar=avatar,
+                   link=link,
                    raw=user)
 
 
@@ -200,7 +202,7 @@ class DiscordRichText(immp.RichText):
                 continue
             if formatting.get("mention"):
                 user = formatting["mention"]
-                part = "@{}".format(user.username or user.real_name)
+                part = "@{}".format(user.real_name or user.username)
             else:
                 part = emojize(plain[start:end], use_aliases=True)
                 # Strip Discord channel/emoji tags, replace with a plain text representation.
