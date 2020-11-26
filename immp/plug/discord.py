@@ -117,15 +117,15 @@ class DiscordRichText(immp.RichText):
         return "#{}".format(discord_._client.get_channel(int(match.group(1))).name)
 
     @classmethod
-    def from_markdown(cls, discord_, text, channel=None):
+    def from_message(cls, discord_, message, channel=None):
         """
-        Convert a string of Markdown into a :class:`.RichText`.
+        Convert a string of Markdown from a Discord message into a :class:`.RichText`.
 
         Args:
             discord (.DiscordPlug):
                 Related plug instance that provides the text.
-            text (str):
-                Markdown formatted text.
+            message (discord.Message):
+                Containing message object, in order to resolve mentions.
             channel (.Channel):
                 Related channel, used to retrieve mentioned users as members.
 
@@ -133,6 +133,7 @@ class DiscordRichText(immp.RichText):
             .DiscordRichText:
                 Parsed rich text container.
         """
+        text = message.content
         changes = defaultdict(dict)
         plain = ""
         done = False
@@ -170,13 +171,13 @@ class DiscordRichText(immp.RichText):
                 changes[len(plain)]["pre"] = True
                 changes[len(plain + pre)]["pre"] = False
                 plain += pre
-        dc_channel = discord_._get_channel(channel)
-        if isinstance(dc_channel, discord.TextChannel):
-            getter = dc_channel.guild.get_member
-        else:
-            getter = discord_._client.get_user
+        mentioned = {user.id: user for user in message.mentions}
         for match in cls._mention_regex.finditer(plain):
-            user = getter(int(match.group(1)))
+            id_ = int(match.group(1))
+            if id_ in mentioned:
+                user = mentioned[id_]
+            else:
+                user = mentioned[id_] = discord_._client.get_user(id_)
             if user:
                 changes[match.start()]["mention"] = DiscordUser.from_user(discord_, user)
                 changes[match.end()]["mention"] = None
@@ -319,7 +320,7 @@ class DiscordMessage(immp.Message):
         user = DiscordUser.from_user(discord_, message.author)
         attachments = []
         if message.content:
-            text = DiscordRichText.from_markdown(discord_, message.content, channel)
+            text = DiscordRichText.from_message(discord_, message, channel)
         for attach in message.attachments:
             if attach.filename.endswith((".jpg", ".png", ".gif")):
                 type_ = immp.File.Type.image
