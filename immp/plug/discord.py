@@ -6,6 +6,13 @@ Config:
         Discord token for the bot user.
     bot (bool):
         Whether the token represents a bot user (true by default).
+    members (bool):
+        Whether to use the privileged members intent to retrieve per-server member information.
+        Without this, per-server nicknames will be unavailable.
+
+        Before enabling here, you must enable the intent in Discord's developer site, otherwise the
+        underlying client will fail to connect.  For bots in large numbers of servers, this may
+        cause a significantly longer startup time whilst members are initially retrieved.
     webhooks ((str, str) dict):
         Mapping from named Discord channels to webhook URLs, needed for custom message author names
         and avatars.
@@ -48,6 +55,7 @@ class _Schema:
 
     config = immp.Schema({"token": str,
                           immp.Optional("bot", True): bool,
+                          immp.Optional("members", False): bool,
                           immp.Optional("webhooks", dict): {str: str},
                           immp.Optional("playing"): immp.Nullable(str)})
 
@@ -455,7 +463,9 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
     async def start(self):
         await super().start()
         log.debug("Starting client")
-        self._client = DiscordClient(self)
+        intents = discord.Intents.default()
+        intents.members = self.config["members"]
+        self._client = DiscordClient(self, intents=intents)
         self._task = ensure_future(self._client.start(self.config["token"], bot=self.config["bot"]))
         async with self._starting:
             # Block until the client is ready.
