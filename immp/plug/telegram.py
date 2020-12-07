@@ -17,6 +17,8 @@ Config:
         at a later date, you'll receive a backlog of any messages not yet picked up.
     session (str):
         Optional path to store a session file, used to cache access hashes.
+    stickers (bool):
+        ``True`` to include stickers in messages as proprietary-format attachments (.tgs files).
 
 Bots can be created by talking to `@BotFather <https://t.me/BotFather>`_.  Use the ``/token``
 command to retrieve your API token.  You should also call ``/setprivacy`` to grant the bot
@@ -64,7 +66,8 @@ class _Schema:
                           immp.Optional("api-id"): immp.Nullable(int),
                           immp.Optional("api-hash"): immp.Nullable(str),
                           immp.Optional("client-updates", False): bool,
-                          immp.Optional("session"): immp.Nullable(str)})
+                          immp.Optional("session"): immp.Nullable(str),
+                          immp.Optional("stickers", True): bool})
 
     user = immp.Schema({"id": int,
                         immp.Optional("username"): immp.Nullable(str),
@@ -86,6 +89,8 @@ class _Schema:
             immp.Optional("file_name"): immp.Nullable(str),
             immp.Optional("file_path"): immp.Nullable(str)}
 
+    _sticker = {immp.Optional("emoji"): immp.Nullable(str), **file}
+
     _location = {"latitude": float, "longitude": float}
 
     message = immp.Schema({"message_id": int,
@@ -106,9 +111,7 @@ class _Schema:
                            immp.Optional("entities", list): [entity],
                            immp.Optional("caption_entities", list): [entity],
                            immp.Optional("photo", list): [file],
-                           immp.Optional("sticker"): immp.Nullable({immp.Optional("emoji"):
-                                                                        immp.Nullable(str),
-                                                                    "file_id": str}),
+                           immp.Optional("sticker"): immp.Nullable(_sticker),
                            immp.Optional("animation"): immp.Nullable(file),
                            immp.Optional("video"): immp.Nullable(file),
                            immp.Optional("video_note"): immp.Nullable(file),
@@ -229,7 +232,7 @@ class TelegramUser(immp.User):
             .TelegramUser:
                 Parsed user object.
         """
-        chat = _Schema.channel(json)
+        chat = _Schema.chat(json)
         return cls(id_=chat["id"],
                    plug=telegram,
                    username=chat["username"],
@@ -645,8 +648,10 @@ class TelegramMessage(immp.Message):
                 text = await TelegramRichText.from_bot_entities(telegram, message["caption"],
                                                                 message["caption_entities"])
         elif message["sticker"]:
-            attachments.append(await TelegramFile.from_id(telegram, message["sticker"]["file_id"],
-                                                          immp.File.Type.image))
+            if telegram.config["stickers"] or not message["sticker"]["emoji"]:
+                attachments.append(await TelegramFile.from_id(telegram,
+                                                              message["sticker"]["file_id"],
+                                                              immp.File.Type.image))
             # All real stickers should have an emoji, but webp images uploaded as photos are
             # incorrectly categorised as stickers in the API response.
             if not text and message["sticker"]["emoji"]:
@@ -806,25 +811,29 @@ class TelegramMessage(immp.Message):
         elif message.document:
             type_ = immp.File.Type.unknown
             name = None
+            sticker = False
             for attr in message.document.attributes:
                 if isinstance(attr, tl.types.DocumentAttributeSticker):
                     type_ = immp.File.Type.image
                     if attr.alt and not text:
                         text = "sent {} sticker".format(attr.alt)
                         action = True
+                        sticker = True
                 elif isinstance(attr, tl.types.DocumentAttributeAnimated):
                     type_ = immp.File.Type.image
                 elif isinstance(attr, tl.types.DocumentAttributeVideo):
                     type_ = immp.File.Type.video
                 if isinstance(attr, tl.types.DocumentAttributeFilename):
                     name = attr.file_name
-            try:
-                attach = await TelegramFile.from_id(telegram, pack_bot_file_id(message.document),
-                                                    type_, name)
-            except TelegramAPIRequestError as e:
-                log.warning("Unable to fetch attachment", exc_info=e)
-            else:
-                attachments.append(attach)
+            if telegram.config["stickers"] or not sticker:
+                try:
+                    attach = await TelegramFile.from_id(telegram,
+                                                        pack_bot_file_id(message.document),
+                                                        type_, name)
+                except TelegramAPIRequestError as e:
+                    log.warning("Unable to fetch attachment", exc_info=e)
+                else:
+                    attachments.append(attach)
         elif message.poll:
             action = True
             prefix = "closed the" if message.poll.poll.closed else "opened a"
