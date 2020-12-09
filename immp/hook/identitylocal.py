@@ -218,7 +218,7 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
             return None
 
     async def channel_access(self, channel, user):
-        return bool(await IdentityLink.get(network=user.plug.network_id, user=user.id))
+        return bool(await self.find(user))
 
     async def identity_from_name(self, name):
         group = await self.get(name)
