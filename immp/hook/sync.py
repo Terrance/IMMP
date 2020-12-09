@@ -471,12 +471,12 @@ class _SyncHookBase(immp.Hook):
 
     _identities = immp.ConfigProperty(IdentityProvider)
 
-    def _accept(self, msg):
+    def _accept(self, msg, id_):
         if not self.config["joins"] and (msg.joined or msg.left):
-            log.debug("Not syncing join/part message: %r", msg.id)
+            log.debug("Not syncing join/part message: %r", id_)
             return False
         if not self.config["renames"] and msg.title:
-            log.debug("Not syncing rename message: %r", msg.id)
+            log.debug("Not syncing rename message: %r", id_)
             return False
         return True
 
@@ -793,7 +793,7 @@ class SyncHook(_SyncHookBase):
             label = self.label_for_channel(sent.channel)
         except immp.ConfigError:
             return
-        if not self._accept(source):
+        if not self._accept(source, sent.id):
             return
         async with self._lock:
             # No critical section here, just wait for any pending messages to be sent.
@@ -865,8 +865,8 @@ class ForwardHook(_SyncHookBase):
         # Send all the messages in parallel.
         await gather(*queue)
 
-    def _accept(self, msg):
-        if not super()._accept(msg):
+    def _accept(self, msg, id_):
+        if not super()._accept(msg, id_):
             return False
         if self.config["users"] is not None:
             if not msg.user or msg.user.id not in self.config["users"]:
@@ -876,7 +876,7 @@ class ForwardHook(_SyncHookBase):
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
-        if not primary or not self._accept(source):
+        if not primary or not self._accept(source, sent.id):
             return
         targets = await self._targets(sent.channel)
         if targets:
