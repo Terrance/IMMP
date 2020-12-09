@@ -104,7 +104,7 @@ import re
 
 try:
     from tortoise import Model
-    from tortoise.exceptions import DoesNotExist, IntegrityError
+    from tortoise.exceptions import DoesNotExist
     from tortoise.fields import TextField
 except ImportError:
     Model = TextField = None

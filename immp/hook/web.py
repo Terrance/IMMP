@@ -224,7 +224,7 @@ class WebHook(immp.ResourceHook):
             log.debug("Starting server on socket %s", self.config["path"])
             self._site = web.UnixSite(self._runner, self.config["path"])
         else:
-            log.debug("Starting server on host %s, port %d", self.config["host"], self.config["port"])
+            log.debug("Starting server on host %s:%d", self.config["host"], self.config["port"])
             self._site = web.TCPSite(self._runner, self.config["host"], self.config["port"])
         await self._site.start()
 

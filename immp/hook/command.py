@@ -450,7 +450,7 @@ class CommandHook(immp.Hook):
         super().__init__(name, config, host)
         # Avoiding circular dependency between commands and sync -- use the full path to populate
         # that attribute path in the global `immp` import for later (so unused here).
-        import immp.hook.sync
+        import immp.hook.sync  # noqa
 
     def discover(self, hook):
         """

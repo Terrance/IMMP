@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 
-from immp import LocalFilter  # For backwards compatibility only.
+# Backwards-compatible import route for LocalFilter.
+from immp import LocalFilter  # noqa
 from immp.hook.runner import main
 
 try:

@@ -157,15 +157,14 @@ class Watchable:
             return obj
 
     @classmethod
-    def _watch(cls, target, name):
-        method = getattr(target, name)
+    def _watcher(cls, method):
         @wraps(method)
         def wrapped(self, *args, **kwargs):
             out = method(self, *args, **kwargs)
             if self._callback:
                 self._callback()
             return out
-        setattr(target, name, wrapped)
+        return wrapped
 
     @classmethod
     def watch(cls, *methods):
@@ -179,7 +178,7 @@ class Watchable:
         """
         def inner(target):
             for name in methods:
-                cls._watch(target, name)
+                setattr(target, name, cls._watcher(getattr(target, name)))
             return target
         return inner
 
@@ -276,9 +275,8 @@ class ConfigProperty:
             subspec = spec[0]
             return [self._from_host(instance, value, subspec) for value in name]
         elif isinstance(spec, dict):
-            keyspec, valspec = next(iter(spec.items()))
-            return {self._from_host(instance, key, keyspec):
-                        self._from_host(instance, value, valspec)
+            kspec, vspec = next(iter(spec.items()))
+            return {self._from_host(instance, key, kspec): self._from_host(instance, value, vspec)
                     for key, value in name.items()}
         try:
             obj = instance.host[name]

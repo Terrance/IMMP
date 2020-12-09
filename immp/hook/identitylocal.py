@@ -33,7 +33,6 @@ yourself, so that identities remained assigned to the correct instance.
     This hook requires an active :class:`.AsyncDatabaseHook` to store data.
 """
 
-from asyncio import gather
 from hashlib import sha256
 import logging
 

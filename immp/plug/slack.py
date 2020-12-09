@@ -93,35 +93,34 @@ class _Schema:
 
     msg_unfurl = immp.Schema({"channel_id": str, "ts": str}, attachment)
 
-    _base_msg = immp.Schema({"ts": str,
-                             "type": "message",
-                             immp.Optional("hidden", False): bool,
-                             immp.Optional("channel"): immp.Nullable(str),
-                             immp.Optional("edited", dict):
-                                 {immp.Optional("user"): immp.Nullable(str)},
-                             immp.Optional("thread_ts"): immp.Nullable(str),
-                             immp.Optional("replies", list): [{"ts": str}],
-                             immp.Optional("files", list): [file],
-                             immp.Optional("attachments", list): [attachment],
-                             immp.Optional("is_ephemeral", False): bool})
+    _base_msg = {"ts": str,
+                 "type": "message",
+                 immp.Optional("hidden", False): bool,
+                 immp.Optional("channel"): immp.Nullable(str),
+                 immp.Optional("edited", dict):
+                     {immp.Optional("user"): immp.Nullable(str)},
+                 immp.Optional("thread_ts"): immp.Nullable(str),
+                 immp.Optional("replies", list): [{"ts": str}],
+                 immp.Optional("files", list): [file],
+                 immp.Optional("attachments", list): [attachment],
+                 immp.Optional("is_ephemeral", False): bool}
 
-    _plain_msg = immp.Schema({immp.Optional("user"): immp.Nullable(str),
-                              immp.Optional("bot_id"): immp.Nullable(str),
-                              immp.Optional("username"): immp.Nullable(str),
-                              immp.Optional("icons", dict): dict,
-                              "text": str}, _base_msg)
+    _plain_msg = {immp.Optional("user"): immp.Nullable(str),
+                  immp.Optional("bot_id"): immp.Nullable(str),
+                  immp.Optional("username"): immp.Nullable(str),
+                  immp.Optional("icons", dict): dict,
+                  "text": str,
+                  **_base_msg}
 
-    message = immp.Schema(immp.Any(immp.Schema({"subtype": "file_comment"}, _base_msg),
-                                   immp.Schema({"subtype": "message_changed"}, _base_msg),
-                                   immp.Schema({"subtype": "message_deleted",
-                                                "deleted_ts": str}, _base_msg),
-                                   immp.Schema({"subtype": immp.Any("channel_name", "group_name"),
-                                                "name": str}, _plain_msg),
-                                   immp.Schema({immp.Optional("subtype"):
-                                                    immp.Nullable(str)}, _plain_msg)))
+    message = immp.Schema(immp.Any({"subtype": "file_comment", **_base_msg},
+                                   {"subtype": "message_changed", **_base_msg},
+                                   {"subtype": "message_deleted", "deleted_ts": str, **_base_msg},
+                                   {"subtype": immp.Any("channel_name", "group_name"),
+                                    "name": str, **_plain_msg},
+                                   {immp.Optional("subtype"): immp.Nullable(str), **_plain_msg}))
 
     # Circular references to embedded messages.
-    message.raw.choices[1].raw.update({"message": message, "previous_message": message})
+    message.raw.choices[1].update({"message": message, "previous_message": message})
 
     event = immp.Schema(immp.Any(message,
                                  {"type": "team_pref_change",
