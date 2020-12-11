@@ -100,7 +100,6 @@ class _Schema:
                  immp.Optional("edited", dict):
                      {immp.Optional("user"): immp.Nullable(str)},
                  immp.Optional("thread_ts"): immp.Nullable(str),
-                 immp.Optional("replies", list): [{"ts": str}],
                  immp.Optional("files", list): [file],
                  immp.Optional("attachments", list): [attachment],
                  immp.Optional("is_ephemeral", False): bool}
@@ -562,33 +561,22 @@ class SlackMessage(immp.Message):
             action = True
             # Slack leaves a leading space in the message text: " set up a reminder..."
             text = text.lstrip()
-        thread = recent = None
-        if event["thread_ts"]:
+        if event["thread_ts"] and event["ts"] != event["thread_ts"] and parent:
             thread = immp.Receipt(event["thread_ts"], immp.Channel(slack, event["channel"]))
-        if thread and parent:
-            try:
-                thread = await slack.get_message(thread, False)
-            except MessageNotFound:
-                pass
-        if isinstance(thread, immp.Message):
-            for reply in thread.raw["replies"][::-1]:
-                if reply["ts"] not in (event["ts"], event["thread_ts"]):
-                    # Reply to a thread with at least one other message, use the next most
-                    # recent rather than the parent.
-                    recent = immp.Receipt(reply["ts"], channel)
+            # Look for the current reply in the thread, and take the previous message as reply-to.
+            last = None
+            for entry in await slack.get_replies(thread):
+                if entry.id == event["ts"]:
                     break
-        if recent and parent:
+                last = entry
             try:
-                recent = await slack.get_reply(channel.source, event["thread_ts"],
-                                               recent.id, False)
+                if last:
+                    reply_to = await slack.get_reply(thread, last.id, False)
+                else:
+                    # No previous reply, take the thread parent message as reply-to instead.
+                    reply_to = await slack.get_message(thread, False)
             except MessageNotFound:
-                pass
-        if thread and recent:
-            # Don't walk the whole thread, just link to the parent after one step.
-            recent.reply_to = thread
-            reply_to = recent
-        else:
-            reply_to = recent or thread
+                reply_to = last or thread
         for file in event["files"]:
             try:
                 attachments.append(SlackFile.from_file(slack, file))
@@ -955,9 +943,22 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
         log.debug("Failed to find message %r in %r", receipt.id, receipt.channel.source)
         raise MessageNotFound
 
-    async def get_reply(self, channel_id, thread_ts, reply_ts, parent=True):
-        params = {"channel": channel_id,
-                  "ts": thread_ts,
+    async def get_replies(self, receipt):
+        params = {"channel": receipt.channel.source, "ts": receipt.id}
+        try:
+            replies = await self._api("conversations.replies", _Schema.history, params=params)
+        except SlackAPIError as e:
+            log.debug("API error retrieving replies %r from %r: %r",
+                      receipt.id, receipt.channel.source, e.args[0])
+            raise MessageNotFound from None
+        else:
+            return [immp.Receipt(msg["ts"], receipt.channel,
+                                 at=datetime.fromtimestamp(float(msg["ts"]), timezone.utc))
+                    for msg in replies["messages"] if msg["ts"] != receipt.id]
+
+    async def get_reply(self, receipt, reply_ts, parent=True):
+        params = {"channel": receipt.channel.source,
+                  "ts": receipt.id,
                   "latest": reply_ts,
                   "inclusive": "true",
                   "limit": 1}
@@ -965,14 +966,14 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
             replies = await self._api("conversations.replies", _Schema.history, params=params)
         except SlackAPIError as e:
             log.debug("API error retrieving reply %r -> %r from %r: %r",
-                      thread_ts, reply_ts, channel_id, e.args[0])
+                      receipt.id, reply_ts, receipt.channel.source, e.args[0])
             raise MessageNotFound from None
         if replies["messages"]:
             msg = replies["messages"][-1]
             if msg["ts"] == reply_ts:
-                msg["channel"] = channel_id
+                msg["channel"] = receipt.channel.source
                 return await SlackMessage.from_event(self, msg, parent)
-        log.debug("Failed to find reply %r -> %r in %r", thread_ts, reply_ts, channel_id)
+        log.debug("Reply %r -> %r not found in %r", receipt.id, reply_ts, receipt.channel.source)
         raise MessageNotFound
 
     async def _post(self, channel, parent, msg):
