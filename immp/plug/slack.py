@@ -4,8 +4,6 @@ Connect to a `Slack <https://slack.com>`_ workspace as a bot.
 Config:
     token (str):
         Slack API token for a bot user.
-    fallback-name (str):
-        Name to display for incoming messages without an attached user (default: ``IMMP``).
     fallback-image (str):
         Avatar to display for incoming messages without a user or image (default: none).
     thread-broadcast (bool):
@@ -30,6 +28,7 @@ from functools import partial
 from json import dumps as json_dumps
 import logging
 import re
+import time
 
 from aiohttp import ClientResponseError, FormData
 from emoji import emojize
@@ -48,7 +47,6 @@ class _Schema:
                for size in image_sizes}
 
     config = immp.Schema({"token": str,
-                          immp.Optional("fallback-name", "IMMP"): str,
                           immp.Optional("fallback-image"): immp.Nullable(str),
                           immp.Optional("thread-broadcast", False): bool})
 
@@ -979,12 +977,16 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
     async def _post(self, channel, parent, msg):
         ids = []
         uploads = 0
+        name = None
+        data = {"channel": channel.source, "as_user": True}
         if msg.user:
-            name = msg.user.real_name or msg.user.username
-            image = msg.user.avatar
-        else:
-            name = self.config["fallback-name"]
-            image = self.config["fallback-image"]
+            data["as_user"] = False
+            data["username"] = name = msg.user.real_name or msg.user.username
+            if msg.user.avatar:
+                # Slack permanently caches user icon URLs; add monotonic hashes to keep them fresh.
+                data["icon_url"] = "{}#{}".format(msg.user.avatar, int(time.time()))
+            elif self.config["fallback-image"]:
+                data["icon_url"] = self.config["fallback-image"]
         for attach in msg.attachments:
             if isinstance(attach, immp.File):
                 # Upload each file to Slack.
@@ -996,8 +998,9 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
                     data.add_field("thread_ts", msg.reply_to.id)
                     if self.config["thread-broadcast"]:
                         data.add_field("broadcast", "true")
-                if msg.user:
-                    comment = immp.RichText([immp.Segment(name, bold=True, italic=True),
+                if name:
+                    comment = immp.RichText([immp.Segment(name, bold=True, italic=True,
+                                                          link=msg.user.link),
                                              immp.Segment(" uploaded this file", italic=True)])
                     data.add_field("initial_comment", SlackRichText.to_mrkdwn(self, comment))
                 img_resp = await attach.get_content(self.session)
@@ -1009,10 +1012,6 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
                         ids += [share["ts"] for share in shared[channel.source]]
         if len(ids) < uploads:
             log.warning("Missing some file shares: sent %d, got %d", uploads, len(ids))
-        data = {"channel": channel.source,
-                "as_user": msg.user is None,
-                "username": name,
-                "icon_url": image}
         rich = None
         if msg.text:
             rich = msg.text.clone()
