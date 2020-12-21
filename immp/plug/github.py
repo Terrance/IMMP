@@ -45,7 +45,7 @@ class _Schema:
               "title": str,
               "html_url": str}
 
-    _pull = {immp.Optional("merged", False), bool}
+    _pull = {immp.Optional("merged", False): bool}
     _pull.update(_issue)
 
     event = immp.Schema({"sender": _sender,
