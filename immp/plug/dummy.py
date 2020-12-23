@@ -46,7 +46,7 @@ class DummyPlug(immp.Plug):
                                  action=msg.action)
         log.debug("Returning message: %r", clone)
         self.queue(clone)
-        return [clone.id]
+        return [clone]
 
     async def _timer(self):
         while True:

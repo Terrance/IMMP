@@ -451,7 +451,7 @@ class SyncPlug(immp.Plug):
     async def put(self, channel, msg):
         if channel.source in self._hook.config["channels"]:
             ref = await self._hook.send(channel.source, msg)
-            return [ref.key]
+            return [immp.Receipt(ref.key, channel)]
         else:
             raise immp.PlugError("Send to unknown sync channel: {}".format(repr(channel)))
 
@@ -585,9 +585,9 @@ class _SyncHookBase(immp.Hook):
 
     async def _send(self, channel, msg):
         try:
-            ids = await channel.send(msg)
-            log.debug("Synced IDs in %r: %r", channel, ids)
-            return (channel, ids)
+            receipts = await channel.send(msg)
+            log.debug("Synced IDs in %r: %r", channel, [receipt.id for receipt in receipts])
+            return (channel, receipts)
         except Exception:
             log.exception("Failed to relay message to channel: %r", channel)
             return (channel, [])
@@ -733,7 +733,9 @@ class SyncHook(_SyncHookBase):
         # need to wait for all plugs to complete and have their IDs cached before processing any
         # further messages.
         async with self._lock:
-            ids = dict(await gather(*queue))
+            all_receipts = dict(await gather(*queue))
+            ids = {channel: [receipt.id for receipt in receipts]
+                   for channel, receipts in all_receipts.items()}
             if ref:
                 ref.ids.update(ids)
             else:

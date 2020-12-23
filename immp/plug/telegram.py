@@ -1438,15 +1438,15 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             info = immp.Message(user=msg.user, action=True, text="forwarded a message")
             own_requests = self._requests(chat, info)
         requests += own_requests
-        ids = []
+        receipts = []
         for request in requests:
             result = await request
             if not result:
                 continue
             sent = await TelegramMessage.from_bot_message(self, result)
-            ids.append(sent.id)
+            receipts.append(sent)
             self._post_recv(sent)
-        return ids
+        return receipts
 
     async def delete(self, sent):
         chat, message = sent.id.split(":", 1)

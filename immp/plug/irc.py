@@ -764,7 +764,7 @@ class IRCPlug(immp.Plug):
                 lines += self._lines(text, user, True, msg.edited)
             elif isinstance(attach, immp.Message) and attach.text:
                 lines += self._lines(attach.text, attach.user, attach.action, attach.edited)
-        ids = []
+        receipts = []
         if self.config["puppet"] and msg.user:
             client = await self._puppet(msg.user)
             if not await channel.is_private():
@@ -775,5 +775,5 @@ class IRCPlug(immp.Plug):
             line = client.send(channel.source, text)
             sent = await IRCMessage.from_line(self, line)
             self.queue(sent)
-            ids.append(sent.id)
-        return ids
+            receipts.append(sent)
+        return receipts

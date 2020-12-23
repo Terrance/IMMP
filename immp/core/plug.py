@@ -353,8 +353,8 @@ class Plug(Configurable, Openable):
                 Original message received from another channel or plug.
 
         Returns:
-            list:
-                IDs of new messages sent to the plug.
+            .Receipt list:
+                References to new messages sent to the plug.
         """
         if not self.state == OpenState.active:
             raise PlugError("Can't send messages when not active")
@@ -381,10 +381,11 @@ class Plug(Configurable, Openable):
         # before the send request returns with confirmation.  Use the lock when sending in order
         # return the new message ID(s) in advance of them appearing in the receive queue.
         async with self._lock:
-            ids = await self.put(channel, msg)
+            receipts = await self.put(channel, msg)
+        ids = [receipt.id for receipt in receipts]
         for id_ in ids:
             self._sent[(channel, id_)] = (msg, ids)
-        return ids
+        return receipts
 
     async def put(self, channel, msg):
         """
@@ -400,8 +401,8 @@ class Plug(Configurable, Openable):
                 Original message received from another channel or plug.
 
         Returns:
-            list:
-                IDs of new messages sent to the plug.
+            .Receipt list:
+                References to new messages sent to the plug.
         """
         return []
 

@@ -658,10 +658,14 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
     async def put(self, channel, msg):
         dc_channel, webhook = self._resolve_channel(channel)
         requests = await self._requests(dc_channel, webhook, msg)
-        sent = []
+        receipts = []
         for request in requests:
-            sent.append(await request)
-        return [str(resp.id) for resp in sent]
+            message = await request
+            if not message.channel:
+                # Webhook-sent messages won't have their channel set.
+                message.channel = dc_channel
+            receipts.append(DiscordMessage.from_message(self, message))
+        return receipts
 
     async def delete(self, sent):
         dc_channel = self._resolve_channel(sent.channel)[0]

@@ -160,7 +160,7 @@ class _Schema:
 
     members = _api({"members": [str]})
 
-    post = _api({"ts": str})
+    post = _api({"channel": str, "message": message})
 
     upload = _api({"file": file})
 
@@ -685,6 +685,26 @@ class SlackMessage(immp.Message):
             return await cls._parse_main(slack, json, event, channel, parent)
 
     @classmethod
+    async def from_post(cls, slack, json):
+        """
+        Convert an API post response :class:`dict` to a :class:`.Message`.
+
+        Args:
+            slack (.SlackPlug):
+                Related plug instance that provides the event.
+            json (dict):
+                Slack API response payload from
+                `postMessage <https://api.slack.com/methods/chat.postMessage#response>`_.
+
+        Returns:
+            .SlackMessage:
+                Parsed message object.
+        """
+        post = _Schema.post(json)
+        channel = immp.Channel(slack, post["channel"])
+        return await cls._parse_main(slack, json, post["message"], channel, True)
+
+    @classmethod
     def to_attachment(cls, slack, msg, reply=False):
         """
         Convert a :class:`.Message` to a message attachment structure, suitable for embedding
@@ -975,7 +995,7 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
         raise MessageNotFound
 
     async def _post(self, channel, parent, msg):
-        ids = []
+        receipts = []
         uploads = 0
         name = None
         data = {"channel": channel.source, "as_user": True}
@@ -1009,9 +1029,10 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
                 uploads += 1
                 for shared in upload["file"]["shares"].values():
                     if channel.source in shared:
-                        ids += [share["ts"] for share in shared[channel.source]]
-        if len(ids) < uploads:
-            log.warning("Missing some file shares: sent %d, got %d", uploads, len(ids))
+                        ids = [share["ts"] for share in shared[channel.source]]
+                        receipts += [immp.Receipt(id_, channel) for id_ in ids]
+        if len(receipts) < uploads:
+            log.warning("Missing some file shares: sent %d, got %d", uploads, len(receipts))
         rich = None
         if msg.text:
             rich = msg.text.clone()
@@ -1042,14 +1063,14 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
             if attachments:
                 data["attachments"] = json_dumps(attachments)
             post = await self._api("chat.postMessage", _Schema.post, data=data)
-            ids.append(post["ts"])
-        return ids
+            receipts.append(await SlackMessage.from_post(self, post))
+        return receipts
 
     async def put(self, channel, msg):
         clone = copy(msg)
         if clone.text:
             clone.text = msg.text.clone()
-        forward_ids = []
+        forwards = []
         for attach in msg.attachments:
             if isinstance(attach, immp.Receipt):
                 # No public API to share a message, rely on archive link unfurling instead.
@@ -1060,13 +1081,13 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
                 else:
                     clone.text = immp.RichText([immp.Segment(link)])
             elif isinstance(attach, immp.Message):
-                forward_ids += await self._post(channel, clone, attach)
-        own_ids = await self._post(channel, clone, clone)
-        if forward_ids and not own_ids and msg.user:
+                forwards += await self._post(channel, clone, attach)
+        own = await self._post(channel, clone, clone)
+        if forwards and not own and msg.user:
             # Forwarding a message but no content to show who forwarded it.
             info = immp.Message(user=msg.user, action=True, text="forwarded a message")
-            own_ids += await self._post(channel, msg, info)
-        return forward_ids + own_ids
+            own += await self._post(channel, msg, info)
+        return forwards + own
 
     async def delete(self, sent):
         await self._api("chat.delete", params={"channel": sent.channel.source, "ts": sent.id})

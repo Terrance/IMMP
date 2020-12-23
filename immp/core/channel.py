@@ -111,7 +111,7 @@ class Channel:
 
     async def send(self, msg):
         """
-        Push a message object to the related plug on this channel.
+        Push a message to the related plug on this channel.  Equivalent to :meth:`.Plug.send`.
 
         Args:
             msg (.Message):

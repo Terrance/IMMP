@@ -760,7 +760,9 @@ class HangoutsPlug(immp.HTTPOpenable, immp.Plug):
             info = immp.Message(user=clone.user, action=True, text="forwarded a message")
             own_requests = await self._requests(conv, info)
         requests += own_requests
-        events = []
+        receipts = []
         for request in requests:
-            events.append(await self._client.send_chat_message(request))
-        return [event.created_event.event_id for event in events]
+            response = await self._client.send_chat_message(request)
+            event = hangups.conversation.Conversation._wrap_event(response.created_event)
+            receipts.append(await HangoutsMessage.from_event(self, event))
+        return receipts

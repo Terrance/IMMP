@@ -84,5 +84,5 @@ class AutoRespondHook(immp.Hook):
             if match:
                 log.debug("Matched regex %r in channel: %r", match, sent.channel)
                 response = response.format(*match.groups())
-                for id_ in await sent.channel.send(immp.Message(text=response)):
-                    self._sent.append((sent.channel, id_))
+                for receipt in await sent.channel.send(immp.Message(text=response)):
+                    self._sent.append((sent.channel, receipt.id))
