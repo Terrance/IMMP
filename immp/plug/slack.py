@@ -990,22 +990,22 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
         for attach in msg.attachments:
             if isinstance(attach, immp.File):
                 # Upload each file to Slack.
-                data = FormData({"channels": channel.source,
+                form = FormData({"channels": channel.source,
                                  "filename": attach.title or ""})
                 if isinstance(parent.reply_to, immp.Receipt):
                     # Reply directly to the corresponding thread.  Note that thread_ts can be any
                     # message in the thread, it need not be resolved to the parent.
-                    data.add_field("thread_ts", msg.reply_to.id)
+                    form.add_field("thread_ts", msg.reply_to.id)
                     if self.config["thread-broadcast"]:
-                        data.add_field("broadcast", "true")
+                        form.add_field("broadcast", "true")
                 if name:
                     comment = immp.RichText([immp.Segment(name, bold=True, italic=True,
                                                           link=msg.user.link),
                                              immp.Segment(" uploaded this file", italic=True)])
-                    data.add_field("initial_comment", SlackRichText.to_mrkdwn(self, comment))
+                    form.add_field("initial_comment", SlackRichText.to_mrkdwn(self, comment))
                 img_resp = await attach.get_content(self.session)
-                data.add_field("file", img_resp.content, filename="file")
-                upload = await self._api("files.upload", _Schema.upload, data=data)
+                form.add_field("file", img_resp.content, filename="file")
+                upload = await self._api("files.upload", _Schema.upload, data=form)
                 uploads += 1
                 for shared in upload["file"]["shares"].values():
                     if channel.source in shared:
