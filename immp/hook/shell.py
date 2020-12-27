@@ -24,8 +24,8 @@ Asynchronous
 ~~~~~~~~~~~~
 
 Config:
-    port (int):
-        Port to bind the console on.  Once running, one can connect using e.g. netcat.  See
+    bind (int or str):
+        TCP port or UNIX socket path to bind the console on.  See
         `aioconsole's docs <https://aioconsole.readthedocs.io/en/latest/#serving-the-console>`_
         for more info.
     buffer (int):
@@ -34,15 +34,22 @@ Config:
         the oldest message will be discarded.  Set to ``0`` for an unlimited buffer, not
         recommended on production deployments.
 
-At startup, a console will be launched on the given port.  You can connect to it from a separate
-terminal, for example::
+At startup, a console will be launched on the given port or socket.  You can connect to it from a
+separate terminal, for example with netcat for TCP::
 
     $ rlwrap nc localhost $PORT
 
-Use of ``rlwrap`` provides you with readline-style keybinds, such as ↑ and ↓ to navigate through
-previous commands.  The variables :data:`shell` and :data:`host` are defined, refering to the shell
-hook and the running :class:`.Host` respectively.  This hook also maintains a cache of messages as
-they're received, accessible via :attr:`.AsyncShellHook.buffer`.
+Or socat for sockets::
+
+    $ rlwrap socat $PATH -
+
+.. tip::
+    Use of ``rlwrap`` provides you with readline-style keybinds, such as ↑ and ↓ to navigate
+    through previous commands, and Ctrl-R to search the command history.
+
+The variables :data:`shell` and :data:`host` are defined, refering to the shell hook and the
+running :class:`.Host` respectively.  This hook also maintains a cache of messages as they're
+received, accessible via :attr:`.AsyncShellHook.buffer`.
 
 .. note::
     This hook requires the `aioconsole <https://aioconsole.readthedocs.io>`_ Python module.
