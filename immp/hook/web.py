@@ -1,17 +1,20 @@
 """
 Run a webserver for other plugs or hooks to accept incoming HTTP requests.
 
+Requirements:
+    `aiohttp <https://aiohttp.readthedocs.io/en/latest/>`_
+
+    `aiohttp_jinja2 <https://aiohttp-jinja2.readthedocs.io/en/latest/>`_:
+        Required for page templating.
+
 Config:
     host (str):
         Hostname or IP address to bind to.
     port (int):
         Port number to bind to.
 
-As the server is unauthenticated, you will typically want to bind it to localhost, and proxy it
-behind a full webserver like nginx to separate out routes, lock down access and so on.
-
-.. note::
-    For templating via Jinja2, both :mod:`jinja2` and :mod:`aiohttp_jinja2` must be installed.
+As the server is unauthenticated, you will typically want to bind it to ``localhost``, and proxy it
+behind a full web server like nginx to separate out routes, lock down access and so on.
 """
 
 from functools import wraps

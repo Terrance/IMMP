@@ -1,6 +1,9 @@
 """
 Web-based management UI for a host instance.
 
+Dependencies:
+    :class:`.WebHook` with templating
+
 Config:
     route (str):
         Path to expose the UI pages under.
@@ -19,13 +22,11 @@ This is a simple control panel to add or update plugs and hooks in a running sys
 
 from asyncio import gather
 from collections import defaultdict
-from functools import wraps
 import json
 import re
 import logging
 
 from aiohttp import web
-import aiohttp_jinja2
 
 import immp
 from immp.hook.runner import RunnerHook
@@ -306,7 +307,7 @@ class WebUIHook(immp.ResourceHook):
             new = immp.Channel(self.host.plugs[post["plug"]], post["source"])
         else:
             raise web.HTTPBadRequest
-        hooks = await self.host.channel_migrate(old, new)
+        await self.host.channel_migrate(old, new)
         raise web.HTTPFound(self.ctx.url_for("channel", plug=old.plug.name, source=old.source))
 
     async def channel_invite(self, request):

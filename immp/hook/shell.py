@@ -4,13 +4,16 @@ Interact with and debug a running app in the console.
 Synchronous
 ~~~~~~~~~~~
 
+Requirements:
+    `ptpython <https://github.com/jonathanslenders/ptpython>`_:
+        Can be used with ``console: ptpython`` as described below.
+
 Config:
     all (bool):
         ``True`` to process any message, ``False`` (default) to restrict to defined channels.
     console (str):
         Use a different embedded console.  By default, :meth:`code.interact` is used, but set this
-        to ``ptpython`` (requires the `ptpython <https://github.com/jonathanslenders/ptpython>`_
-        Python module) for a more functional shell.
+        to ``ptpython`` for a more functional shell.
 
 When a new message is received, a console will launch in the terminal where your app is running.
 The variables :data:`channel` and :data:`msg` are defined in the local scope, whilst :data:`self`
@@ -22,6 +25,9 @@ refers to the shell hook itself.
 
 Asynchronous
 ~~~~~~~~~~~~
+
+Requirements:
+    `aioconsole <https://aioconsole.readthedocs.io>`_
 
 Config:
     bind (int or str):
@@ -50,9 +56,6 @@ Or socat for sockets::
 The variables :data:`shell` and :data:`host` are defined, refering to the shell hook and the
 running :class:`.Host` respectively.  This hook also maintains a cache of messages as they're
 received, accessible via :attr:`.AsyncShellHook.buffer`.
-
-.. note::
-    This hook requires the `aioconsole <https://aioconsole.readthedocs.io>`_ Python module.
 
 .. warning::
     The console will be accessible on a locally bound port without authentication.  Do not use on

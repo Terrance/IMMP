@@ -1,6 +1,9 @@
 """
 Self-serve Discord roles for users.
 
+Dependencies:
+    :class:`.DiscordPlug`
+
 Config:
     roles ((str, int) dict):
         Mapping from user-facing role names to Discord role IDs.

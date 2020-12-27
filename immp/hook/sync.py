@@ -5,6 +5,17 @@ one or more others.
 Sync
 ~~~~
 
+Requirements:
+    `Jinja2 <http://jinja.pocoo.org>`_:
+        Required to use ``name-format``.
+    `emoji <https://github.com/carpedm20/emoji/>`_:
+        Required to use ``strip-name-emoji``.
+
+Dependencies:
+    :class:`.AsyncDatabaseHook`:
+        If present, synced message IDs will be persisted to the database, allowing referenced
+        messages (replies, forwards, attachments) to be handled correctly across restarts.
+
 Config:
     channels ((str, str list) dict):
         Mapping from virtual channel names to lists of channel names to bridge.
@@ -55,6 +66,12 @@ synced channels.
 Forward
 ~~~~~~~
 
+Requirements:
+    `Jinja2 <http://jinja.pocoo.org>`_:
+        Required to use ``name-format``.
+    `emoji <https://github.com/carpedm20/emoji/>`_:
+        Required to use ``strip-name-emoji``.
+
 Config:
     channels ((str, str list) dict):
         Mapping from source channel names to lists of channel names to forward to.
@@ -89,10 +106,6 @@ Config:
 
 When a message is received in a configured source channel, a copy is pushed to all downstream
 channels.  Unlike a sync, this is a one-direction copy, useful for announcements or alerts.
-
-.. note::
-    Use of ``name-format`` requires the `Jinja2 <http://jinja.pocoo.org>`_ Python module.  Use of
-    ``strip-name-emoji`` requires the **emoji** Python module.
 """
 
 from asyncio import BoundedSemaphore, gather

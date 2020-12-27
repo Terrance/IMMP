@@ -1,6 +1,12 @@
 """
 Connect to `Telegram <https://telegram.org>`_ as a bot.
 
+Requirements:
+    `aiohttp <https://aiohttp.readthedocs.io/en/latest/>`_
+
+    `telethon <https://telethon.readthedocs.io/en/latest/>`_:
+        Required for use of app features (client updates, user lookups, message history).
+
 Config:
     token (str):
         Telegram bot token for the bot API.
@@ -32,10 +38,6 @@ a bot session -- the bot gains some extra permissions from the "app", but access
 Note that most objects in Telegram cannot be retrieved by ID until you've "seen" them via other
 methods.  With a session file, you need only do this once, after which the reference to it (the
 "access hash") is cached.
-
-.. note::
-    Use of app features requires the `telethon <https://telethon.readthedocs.io/en/latest/>`_
-    Python module.
 """
 
 from asyncio import CancelledError, TimeoutError, ensure_future, gather, sleep, wait

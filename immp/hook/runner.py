@@ -1,7 +1,12 @@
 """
 Utility methods related to loading and saving config files, as used by the console entry point to
-save the config on exit.  Creating and running :class:`.Host` via ``python -m immp`` will attach a
-:class:`RunnerHook` to its resources.
+save the config on exit.  Creating and running :class:`.Host` via ``immp`` or ``python -m immp``
+will attach a :class:`RunnerHook` to its resources.
+
+Requirements:
+    `anyconfig <https://python-anyconfig.readthedocs.io/en/latest/>`_
+
+    Any format-specific libraries for config files (e.g. PyYAML for YAML files)
 
 Commands:
     run-write:

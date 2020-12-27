@@ -1,6 +1,9 @@
 """
 Connect to `Google Hangouts <https://hangouts.google.com>`_ as a regular user.
 
+Requirements:
+    `hangups <https://hangups.readthedocs.io>`_
+
 Config:
     cookie (str):
         Path to a cookie text file read/written by :func:`hangups.get_auth_stdin`.
@@ -15,9 +18,6 @@ cookie file manually by interacting with hangups directly::
     $ python -m hangups.auth
 
 This will generate a cookie file called *refresh_token.txt* in the current directory.
-
-.. note::
-    This plug requires the `hangups <https://hangups.readthedocs.io>`_ Python module.
 """
 
 from asyncio import CancelledError, Condition, ensure_future, gather, sleep

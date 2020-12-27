@@ -26,6 +26,9 @@ For example, ``@fred`` will match *Frederick*, and ``@fredb`` will match *Fred B
 Subscriptions
 ~~~~~~~~~~~~~
 
+Dependencies:
+    :class:`.AsyncDatabaseHook`
+
 Config:
     plugs (str list):
         List of plug names to enable subscription alerts for.
@@ -42,9 +45,6 @@ Commands:
 
 Allows users to opt in to private message notifications when chosen highlight words are used in a
 group conversation.
-
-.. note::
-    This hook requires an active :class:`.AsyncDatabaseHook` to store data.
 """
 
 from asyncio import wait

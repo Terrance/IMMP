@@ -1,6 +1,9 @@
 """
 Connect to `Discord <https://discordapp.com>`_ as a bot.
 
+Requirements:
+    `discord.py <https://discordpy.readthedocs.io>`_
+
 Config:
     token (str):
         Discord token for the bot user.
@@ -28,9 +31,6 @@ an `incoming webhook <https://discordapp.com/developers/docs/resources/webhook>`
 each channel you intend to send messages to.  A new webhook can be created over the API, or in the
 UI via Edit Channel > Webhooks.  A fallback style incorporating the user's name in the message text
 will be used in lieu of a webhook, e.g. with direct messages.
-
-.. note::
-    This plug requires the `discord.py <https://discordpy.readthedocs.io>`_ Python module.
 """
 
 from asyncio import Condition, ensure_future

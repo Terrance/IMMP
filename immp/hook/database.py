@@ -5,6 +5,11 @@ require the asynchronous database provider to be present.
 Synchronous
 ~~~~~~~~~~~
 
+Dependencies:
+    `Peewee <http://docs.peewee-orm.com>`_
+
+    Any database-specific libraries (e.g. Psycopg2 for PostgreSQL)
+
 Config:
     url (str):
         Database connection string, as defined by Peewee's :ref:`db_url`.
@@ -17,16 +22,17 @@ Hooks should subclass :class:`.BaseModel` for their data structures.  At startup
 their models to the database connection by calling :meth:`.DatabaseHook.add_models` (obtained from
 ``host.resources[DatabaseHook]``), which will create any needed tables on first runs.
 
-.. note::
-    This hook requires the `Peewee <http://docs.peewee-orm.com>`_ Python module, along with any
-    database-specific libraries (e.g. Psycopg2 for PostgreSQL).
-
 .. warning::
     Database requests will block all other running tasks; notably, all plugs will be unable to make
     any progress whilst long-running queries are executing.
 
 Asynchronous
 ~~~~~~~~~~~~
+
+Dependencies:
+    `Tortoise <https://tortoise-orm.readthedocs.io>`_
+
+    Any database-specific librariess (e.g. asyncpg for PostgreSQL)
 
 Config:
     url (str):
@@ -37,10 +43,6 @@ This hook provides persistent storage via a database.  Any database types suppor
 be used.  At startup, they can register their models to the database connection by calling
 :meth:`.AsyncDatabaseHook.add_models` (obtained from ``host.resources[AsyncDatabaseHook]``), which
 will create any needed tables on first runs.
-
-.. note::
-    This hook requires the `Tortoise <https://tortoise-orm.readthedocs.io>`_ Python module, along
-    with any database-specific libraries (e.g. asyncpg for PostgreSQL).
 """
 
 import logging

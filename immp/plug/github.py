@@ -1,6 +1,9 @@
 """
 Listen for incoming GitHub webhooks.
 
+Dependencies:
+    :class:`.WebHook`
+
 Config:
     route (str):
         Path to expose the webhook request handler.
@@ -11,9 +14,6 @@ Config:
 Go to your repository > Settings > Webhooks > Add webhook, set the URL to match the configured
 route, and choose the events you wish to handle.  Message summaries for each event will be emitted
 on channels matching the full name of each repository (e.g. ``user/repo``).
-
-.. note::
-    This plug requires an active :class:`.WebHook` to receive incoming messages.
 """
 
 import hashlib

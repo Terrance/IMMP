@@ -1,6 +1,9 @@
 """
 Recallable per-channel lists of text items.
 
+Dependencies:
+    :class:`.AsyncDatabaseHook`
+
 Commands:
     note-add <text>:
         Add a new note for this channel.
@@ -12,9 +15,6 @@ Commands:
         Recall a single note in this channel.
     note-list:
         Recall all notes for this channel.
-
-.. note::
-    This hook requires an active :class:`.AsyncDatabaseHook` to store data.
 """
 
 import time

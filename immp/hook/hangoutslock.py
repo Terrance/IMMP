@@ -1,6 +1,9 @@
 """
 History and link-join setting locks for Hangouts.
 
+Dependencies:
+    :class:`.HangoutsPlug`
+
 Config:
     history ((str, bool) dict):
         Mapping from channel names to desired conversation history settings -- ``True`` to keep

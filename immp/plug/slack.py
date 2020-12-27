@@ -1,6 +1,9 @@
 """
 Connect to a `Slack <https://slack.com>`_ workspace as a bot.
 
+Requirements:
+    `aiohttp <https://aiohttp.readthedocs.io/en/latest/>`_
+
 Config:
     token (str):
         Slack API token for a bot user.

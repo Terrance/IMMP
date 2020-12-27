@@ -1,6 +1,9 @@
 """
 Basic identity management for users in different networks.
 
+Dependencies:
+    :class:`.AsyncDatabaseHook`
+
 Config:
     instance (int):
         Unique instance code.
@@ -28,9 +31,6 @@ In order to support multiple copies of this hook with overlapping plugs (e.g. in
 network in some groups), each hook has an instance code.  If a code isn't defined in the config, a
 new one will be assigned at startup.  If multiple hooks are in use, it's important to define these
 yourself, so that identities remained assigned to the correct instance.
-
-.. note::
-    This hook requires an active :class:`.AsyncDatabaseHook` to store data.
 """
 
 from hashlib import sha256
