@@ -2,8 +2,23 @@
 Provider of database access to other hooks.  All first-party hooks with database support will
 require the asynchronous database provider to be present.
 
+Asynchronous
+~~~~~~~~~~~~
+
+Dependencies:
+    `Tortoise <https://tortoise-orm.readthedocs.io>`_
+
+    Any database-specific librariess (e.g. asyncpg for PostgreSQL)
+
+Config:
+    url (str):
+        Database connection string, as defined by Tortoise's :ref:`tortoise:db_url`.
+
 Synchronous
 ~~~~~~~~~~~
+
+.. deprecated:: 0.10.0
+    Use the asynchronous variant instead.
 
 Dependencies:
     `Peewee <http://docs.peewee-orm.com>`_
@@ -17,21 +32,10 @@ Config:
 .. warning::
     Database requests will block all other running tasks; notably, all plugs will be unable to make
     any progress whilst long-running queries are executing.
-
-Asynchronous
-~~~~~~~~~~~~
-
-Dependencies:
-    `Tortoise <https://tortoise-orm.readthedocs.io>`_
-
-    Any database-specific librariess (e.g. asyncpg for PostgreSQL)
-
-Config:
-    url (str):
-        Database connection string, as defined by Tortoise's :ref:`tortoise:db_url`.
 """
 
 import logging
+from warnings import warn
 
 try:
     from peewee import DatabaseProxy, Model
@@ -91,6 +95,7 @@ class DatabaseHook(immp.ResourceHook, _ModelsMixin):
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
+        warn("DatabaseHook is deprecated, migrate to AsyncDatabaseHook", DeprecationWarning)
         if not Model:
             raise immp.PlugError("'peewee' module not installed")
         self.db = None

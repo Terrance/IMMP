@@ -1,28 +1,6 @@
 """
 Interact with and debug a running app in the console.
 
-Synchronous
-~~~~~~~~~~~
-
-Requirements:
-    `ptpython <https://github.com/jonathanslenders/ptpython>`_:
-        Can be used with ``console: ptpython`` as described below.
-
-Config:
-    all (bool):
-        ``True`` to process any message, ``False`` (default) to restrict to defined channels.
-    console (str):
-        Use a different embedded console.  By default, :meth:`code.interact` is used, but set this
-        to ``ptpython`` for a more functional shell.
-
-When a new message is received, a console will launch in the terminal where your app is running.
-The variables :data:`channel` and :data:`msg` are defined in the local scope, whilst :data:`self`
-refers to the shell hook itself.
-
-.. warning::
-    The console will block all other running tasks; notably, all plugs will be unable to make any
-    progress whilst the console is open.
-
 Asynchronous
 ~~~~~~~~~~~~
 
@@ -60,6 +38,31 @@ received, accessible via :attr:`.AsyncShellHook.buffer`.
 .. warning::
     The console will be accessible on a locally bound port without authentication.  Do not use on
     shared or untrusted systems, as the host and all connected plugs are exposed.
+
+Synchronous
+~~~~~~~~~~~
+
+.. deprecated:: 0.10.0
+    Use the asynchronous shell with a buffer in order to interact with incoming messages.
+
+Requirements:
+    `ptpython <https://github.com/jonathanslenders/ptpython>`_:
+        Can be used with ``console: ptpython`` as described below.
+
+Config:
+    all (bool):
+        ``True`` to process any message, ``False`` (default) to restrict to defined channels.
+    console (str):
+        Use a different embedded console.  By default, :meth:`code.interact` is used, but set this
+        to ``ptpython`` for a more functional shell.
+
+When a new message is received, a console will launch in the terminal where your app is running.
+The variables :data:`channel` and :data:`msg` are defined in the local scope, whilst :data:`self`
+refers to the shell hook itself.
+
+.. warning::
+    The console will block all other running tasks; notably, all plugs will be unable to make any
+    progress whilst the console is open.
 """
 
 import code
@@ -67,9 +70,7 @@ from collections import deque
 from functools import partial
 import logging
 from pprint import pformat
-
-import immp
-
+from warnings import warn
 
 try:
     import ptpython.repl
@@ -80,6 +81,8 @@ try:
     import aioconsole
 except ImportError:
     aioconsole = None
+
+import immp
 
 
 log = logging.getLogger(__name__)
@@ -95,6 +98,7 @@ class ShellHook(immp.ResourceHook):
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
+        warn("ShellHook is deprecated, migrate to AsyncShellHook", DeprecationWarning)
         if self.config["console"] == "ptpython":
             if ptpython:
                 log.debug("Using ptpython console")

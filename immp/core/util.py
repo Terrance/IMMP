@@ -6,6 +6,7 @@ from importlib import import_module
 import logging
 import re
 import time
+from warnings import warn
 
 try:
     from aiohttp import ClientSession
@@ -331,7 +332,20 @@ class IDGen:
 class LocalFilter(logging.Filter):
     """
     Logging filter that restricts capture to loggers within the ``immp`` namespace.
+
+    .. deprecated:: 0.10.0
+        Pure logging config offers a cleaner solution to using this filter::
+
+            root:
+              level: WARNING
+            loggers:
+              immp:
+                level: DEBUG
     """
+
+    def __init__(self, name=""):
+        super().__init__(self, name)
+        warn("LocalFilter is deprecated, use `loggers` in logging config", DeprecationWarning)
 
     def filter(self, record):
         return record.name == "__main__" or record.name.split(".", 1)[0] == "immp"
