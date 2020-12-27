@@ -12,15 +12,7 @@ Dependencies:
 
 Config:
     url (str):
-        Database connection string, as defined by Peewee's :ref:`db_url`.
-
-This hook provides persistent storage via a database.  Any database types supported by Peewee can
-be used, though the usual caveats apply: if a hook requires fields specific to a single database
-type, the app is effectively locked-in to that type.
-
-Hooks should subclass :class:`.BaseModel` for their data structures.  At startup, they can register
-their models to the database connection by calling :meth:`.DatabaseHook.add_models` (obtained from
-``host.resources[DatabaseHook]``), which will create any needed tables on first runs.
+        Database connection string, as defined by Peewee's :ref:`peewee:db_url`.
 
 .. warning::
     Database requests will block all other running tasks; notably, all plugs will be unable to make
@@ -36,13 +28,7 @@ Dependencies:
 
 Config:
     url (str):
-        Tortoise `database connection string
-        <https://tortoise-orm.readthedocs.io/en/latest/databases.html>`_.
-
-This hook provides persistent storage via a database.  Any database types supported by Tortoise can
-be used.  At startup, they can register their models to the database connection by calling
-:meth:`.AsyncDatabaseHook.add_models` (obtained from ``host.resources[AsyncDatabaseHook]``), which
-will create any needed tables on first runs.
+        Database connection string, as defined by Tortoise's :ref:`tortoise:db_url`.
 """
 
 import logging
@@ -87,9 +73,18 @@ if Model:
 
 class DatabaseHook(immp.ResourceHook, _ModelsMixin):
     """
-    Hook that provides generic database access to other hooks, backed by :mod:`peewee`.  Because
-    models are in the global scope, they can only be attached to a single database, therefore this
-    hook acts as the single source of truth for obtaining a "global" database.
+    Hook that provides generic data access to other hooks, backed by :ref:`Peewee <peewee:api>`.
+    Because models are in the global scope, they can only be attached to a single database,
+    therefore this hook acts as the single source of truth for obtaining that "global" database.
+
+    Hooks should subclass :class:`.BaseModel` for their data structures, in order to gain the
+    database connection.  At startup, they can register their models to the database connection by
+    calling :meth:`add_models` (obtained from ``host.resources[DatabaseHook]``), which will create
+    any needed tables the first time models are added.
+
+    Any database types supported by Peewee can be used, though the usual caveats apply: if a hook
+    requires fields specific to a single database type, the system as a whole is effectively
+    locked-in to that type.
     """
 
     schema = immp.Schema({"url": str})
@@ -118,9 +113,13 @@ class DatabaseHook(immp.ResourceHook, _ModelsMixin):
 
 class AsyncDatabaseHook(immp.ResourceHook, _ModelsMixin):
     """
-    Hook that provides generic database access to other hooks, backed by :mod:`tortoise`.  Because
+    Hook that provides generic data access to other hooks, backed by :mod:`tortoise`.  Because
     models are in the global scope, they can only be attached to a single database, therefore this
-    hook acts as the single source of truth for obtaining a "global" database.
+    hook acts as the single source of truth for obtaining that "global" database.
+
+    Hooks should register their models to the database connection at startup by calling
+    :meth:`add_models` (obtained from ``host.resources[AsyncDatabaseHook]``), which will create any
+    needed tables the first time models are added.
     """
 
     schema = immp.Schema({"url": str})
