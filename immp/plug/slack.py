@@ -656,14 +656,14 @@ class SlackMessage(immp.Message):
         event = _Schema.message(json)
         if event["hidden"]:
             # Ignore UI-hidden events (e.g. tombstones of deleted files).
-            raise NotImplementedError
+            raise NotImplementedError("hidden")
         if event["is_ephemeral"]:
             # Ignore user-private messages from Slack (e.g. over quota warnings, link unfurling
             # opt-in prompts etc.) which shouldn't be served to message processors.
-            raise NotImplementedError
+            raise NotImplementedError("ephemeral")
         if event["subtype"] == "file_comment":
             # Deprecated in favour of file threads, but Slack may still emit these.
-            raise NotImplementedError
+            raise NotImplementedError("deprecated")
         channel = immp.Channel(slack, event["channel"])
         if event["subtype"] == "message_deleted":
             id_, at = cls._parse_meta(slack, event)
@@ -676,11 +676,11 @@ class SlackMessage(immp.Message):
         elif event["subtype"] == "message_changed":
             if event["message"]["hidden"]:
                 # In theory this should match event["hidden"], but redefined here just in case.
-                raise NotImplementedError
+                raise NotImplementedError("hidden")
             if event["message"]["text"] == event["previous_message"]["text"]:
                 # Message remains unchanged.  Can be caused by link unfurling (adds an attachment)
                 # or deleting replies (reply is removed from event.replies in new *and old*).
-                raise NotImplementedError
+                raise NotImplementedError("unchanged")
             revision = event["ts"]
             # Original message details are under a nested "message" key.
             return await cls._parse_main(slack, json, event["message"], channel, parent, revision)
@@ -1142,7 +1142,7 @@ class SlackPlug(immp.HTTPOpenable, immp.Plug):
                 # A new message arrived, push it back to the host.
                 try:
                     sent = await SlackMessage.from_event(self, event)
-                except NotImplementedError:
-                    log.debug("Ignoring message with ts %r", event.get("ts"))
+                except NotImplementedError as e:
+                    log.debug("Ignoring message with ts %r (%s)", event.get("ts"), e.args[0])
                 else:
                     self.queue(sent)
