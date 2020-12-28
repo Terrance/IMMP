@@ -11,7 +11,7 @@ Config:
         (``False`` by default).
     sets ((str, str list) dict):
         Subsets of hook commands by name, to restrict certain features.
-    mapping (str, dict) dict):
+    mapping ((str, dict) dict):
         Named config groups to enable commands in selected channels.
 
         groups (str list):
@@ -321,7 +321,7 @@ class BaseCommand:
         Args:
             name (str):
                 Command name, used to access the command when directly following the prefix.
-            fixed_args (tuple):
+            args (tuple):
                 Additional arguments to pass to the underlying method.
 
         Returns:
@@ -436,6 +436,9 @@ class DynamicCommands:
 class CommandHook(immp.Hook):
     """
     Generic command handler for other hooks.
+
+    Hooks should wrap command handler methods with the :func:`command` decorator, which will be
+    picked up by any instances of this class configured to include that hook.
     """
 
     schema = immp.Schema({"prefix": [str],
