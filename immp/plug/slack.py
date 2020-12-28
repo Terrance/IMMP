@@ -563,7 +563,7 @@ class SlackMessage(immp.Message):
             # Slack leaves a leading space in the message text: " set up a reminder..."
             text = text.lstrip()
         if event["thread_ts"] and event["ts"] != event["thread_ts"] and parent:
-            thread = immp.Receipt(event["thread_ts"], immp.Channel(slack, event["channel"]))
+            thread = immp.Receipt(event["thread_ts"], channel)
             # Look for the current reply in the thread, and take the previous message as reply-to.
             last = None
             for entry in await slack.get_replies(thread):
