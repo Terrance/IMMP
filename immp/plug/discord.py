@@ -33,7 +33,7 @@ UI via Edit Channel > Webhooks.  A fallback style incorporating the user's name 
 will be used in lieu of a webhook, e.g. with direct messages.
 """
 
-from asyncio import Condition, ensure_future
+from asyncio import Condition, ensure_future, gather
 from collections import defaultdict
 from datetime import timezone
 from functools import partial
@@ -307,7 +307,7 @@ class DiscordMessage(immp.Message):
     """
 
     @classmethod
-    def from_message(cls, discord_, message, edited=False, deleted=False):
+    async def from_message(cls, discord_, message, edited=False, deleted=False):
         """
         Convert a :class:`discord.Message` into a :class:`.Message`.
 
@@ -325,12 +325,16 @@ class DiscordMessage(immp.Message):
             .DiscordMessage:
                 Parsed message object.
         """
-        text = None
+        text = reply_to = None
         channel = immp.Channel(discord_, message.channel.id)
         user = DiscordUser.from_user(discord_, message.author)
         attachments = []
         if message.content:
             text = DiscordRichText.from_message(discord_, message, channel)
+        if message.reference:
+            receipt = immp.Receipt(message.reference.message_id,
+                                   immp.Channel(discord_, message.reference.channel_id))
+            reply_to = await discord_.get_message(receipt)
         for attach in message.attachments:
             if attach.filename.endswith((".jpg", ".png", ".gif")):
                 type_ = immp.File.Type.image
@@ -356,6 +360,7 @@ class DiscordMessage(immp.Message):
                                 deleted=deleted,
                                 text=text,
                                 user=user,
+                                reply_to=reply_to,
                                 attachments=attachments,
                                 raw=message)
 
@@ -428,18 +433,18 @@ class DiscordClient(discord.Client):
 
     async def on_message(self, message):
         log.debug("Received a new message")
-        self._plug.queue(DiscordMessage.from_message(self._plug, message))
+        self._plug.queue(await DiscordMessage.from_message(self._plug, message))
 
     async def on_message_edit(self, before, after):
         log.debug("Received an updated message")
         if before.content == after.content:
             # Text content hasn't changed -- maybe just a link unfurl embed added.
             return
-        self._plug.queue(DiscordMessage.from_message(self._plug, after, edited=True))
+        self._plug.queue(await DiscordMessage.from_message(self._plug, after, edited=True))
 
     async def on_message_delete(self, message):
         log.debug("Received a deleted message")
-        self._plug.queue(DiscordMessage.from_message(self._plug, message, deleted=True))
+        self._plug.queue(await DiscordMessage.from_message(self._plug, message, deleted=True))
 
 
 class DiscordPlug(immp.HTTPOpenable, immp.Plug):
@@ -551,13 +556,14 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
         dc_channel = self._get_channel(channel)
         dc_before = await dc_channel.fetch_message(before.id) if before else None
         history = dc_channel.history(before=dc_before, oldest_first=False)
-        messages = [DiscordMessage.from_message(self, message) async for message in history]
+        messages = await gather(*[DiscordMessage.from_message(self, message)
+                                  async for message in history])
         return list(reversed(messages))
 
     async def get_message(self, receipt):
         dc_channel = self._get_channel(receipt.channel)
         message = await dc_channel.fetch_message(receipt.id)
-        return DiscordMessage.from_message(self, message)
+        return await DiscordMessage.from_message(self, message)
 
     def _resolve_channel(self, channel):
         dc_channel = self._get_channel(channel)
@@ -664,7 +670,7 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
             if not message.channel:
                 # Webhook-sent messages won't have their channel set.
                 message.channel = dc_channel
-            receipts.append(DiscordMessage.from_message(self, message))
+            receipts.append(await DiscordMessage.from_message(self, message))
         return receipts
 
     async def delete(self, sent):
