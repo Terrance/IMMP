@@ -238,16 +238,30 @@ class IRCMessage(immp.Message):
         elif line.command == "KICK":
             target = await irc.user_from_username(line.args[1])
             text = immp.RichText([immp.Segment("kicked "),
-                                  immp.Segment(target.username, bold=True),
+                                  immp.Segment(target.username, bold=True, mention=target),
                                   immp.Segment(" ({})".format(line.args[2]))])
             action = True
             left.append(target)
         elif line.command == "PRIVMSG":
-            text = line.args[1]
-            match = re.match(r"\x01ACTION ([^\x01]*)\x01", text)
+            plain = line.args[1]
+            match = re.match(r"\x01ACTION ([^\x01]*)\x01", plain)
             if match:
-                text = match.group(1)
+                plain = match.group(1)
                 action = True
+            text = immp.RichText()
+            puppets = {client.nick: user for user, client in irc._puppets.items()}
+            for match in re.finditer(r"[\w\d_\-\[\]{}\|`]+", plain):
+                word = match.group(0)
+                if word in puppets:
+                    target = puppets[word]
+                else:
+                    target = irc.get_user(word)
+                if target:
+                    if len(text) < match.start():
+                        text.append(immp.Segment(plain[len(text):match.start()]))
+                    text.append(immp.Segment(word, mention=target))
+            if len(text) < len(plain):
+                text.append(immp.Segment(plain[len(text):]))
         else:
             raise NotImplementedError
         return immp.SentMessage(id_=Line.next_ts(),
@@ -607,19 +621,18 @@ class IRCPlug(immp.Plug):
             await client.disconnect(self.config["quit"])
         self._puppets.clear()
 
+    def get_user(self, nick):
+        return self._client.users.get(nick)
+
     async def user_from_id(self, id_):
         nick = id_.split("!", 1)[0]
         user = await self.user_from_username(nick)
-        if user:
-            return user
-        else:
-            return IRCUser.from_id(self, id_)
+        return user or IRCUser.from_id(self, id_)
 
     async def user_from_username(self, username):
-        try:
-            return self._client.users[username]
-        except KeyError:
-            pass
+        user = self.get_user(username)
+        if user:
+            return user
         for user in await self._client.who(username):
             if user.username == username:
                 return user
