@@ -119,8 +119,13 @@ class DiscordRichText(immp.RichText):
     _pre_regex = re.compile(r"```\n?(.+?)\n?```", re.DOTALL)
 
     _mention_regex = re.compile(r"<@!?(\d+)>")
+    _role_mention_regex = re.compile(r"<@&(\d+)>")
     _channel_regex = re.compile(r"<#(\d+)>")
     _emoji_regex = re.compile(r"<(:[^: ]+?:)\d+>")
+
+    @classmethod
+    def _sub_role_mention(cls, roles, match):
+        return "@{}".format(roles.get(int(match.group(1)), "&{}".format(match.group(1))))
 
     @classmethod
     def _sub_channel(cls, discord_, match):
@@ -194,6 +199,7 @@ class DiscordRichText(immp.RichText):
         segments = []
         points = list(sorted(changes.keys()))
         formatting = {}
+        roles = {role.id: role.name for role in message.role_mentions}
         # Iterate through text in change start/end pairs.
         for start, end in zip([0] + points, points + [len(plain)]):
             formatting.update(changes[start])
@@ -206,6 +212,7 @@ class DiscordRichText(immp.RichText):
             else:
                 part = emojize(plain[start:end], use_aliases=True)
                 # Strip Discord channel/emoji tags, replace with a plain text representation.
+                part = cls._role_mention_regex.sub(partial(cls._sub_role_mention, roles), part)
                 part = cls._channel_regex.sub(partial(cls._sub_channel, discord_), part)
                 part = cls._emoji_regex.sub(r"\1", part)
             segments.append(immp.Segment(part, **formatting))
