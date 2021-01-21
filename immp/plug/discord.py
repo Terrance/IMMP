@@ -584,6 +584,7 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
 
     async def _requests(self, dc_channel, webhook, msg):
         name = image = None
+        reply_to = reply_ref = reply_embed = None
         embeds = []
         files = []
         if msg.user:
@@ -615,14 +616,21 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
                 resolved = await self.resolve_message(attach)
                 embeds.append((await DiscordMessage.to_embed(self, resolved), "sent a message"))
         if msg.reply_to:
-            # Discord offers no reply mechanism, so instead we just fetch the referenced message
-            # and render it manually.
-            resolved = await self.resolve_message(msg.reply_to)
-            embeds.append((await DiscordMessage.to_embed(self, resolved, True), None))
-        if webhook:
+            if isinstance(msg.reply_to, immp.Receipt):
+                if msg.reply_to.channel.plug.network_id == self.network_id:
+                    reply_to = await self.resolve_message(msg.reply_to)
+                    reply_ref = reply_to.raw.to_reference()
+            if not reply_to:
+                reply_to = msg.reply_to
+            reply_embed = await DiscordMessage.to_embed(self, reply_to, True)
+        if webhook and msg.user:
             # Sending via webhook: multiple embeds and files supported.
             requests = []
             text = None
+            if reply_embed:
+                # Webhooks can't reply to other messages, quote the target in an embed instead.
+                # https://github.com/discord/discord-api-docs/issues/2251
+                embeds.append((reply_embed, None))
             if msg.text:
                 rich = msg.text.clone()
                 if msg.action:
@@ -646,19 +654,21 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
             # Sending via client: only a single embed per message.
             requests = []
             text = embed = None
+            lines = []
             rich = msg.render(link_name=False, edit=msg.edited) or None
             if rich:
-                lines = DiscordRichText.chunk_split(DiscordRichText.to_markdown(self, rich))
-                if len(lines) > 1:
-                    # Multiple messages required to accommodate the text.
-                    requests.extend(dc_channel.send(content=line) for line in lines)
-                else:
-                    text = lines[0]
+                text, *lines = DiscordRichText.chunk_split(DiscordRichText.to_markdown(self, rich))
+            if reply_embed and not reply_ref:
+                embeds.append((reply_embed, None))
             if len(embeds) == 1:
                 # Attach the only embed to the message text.
                 embed, _ = embeds.pop()
             if text or embed or files:
-                requests.append(dc_channel.send(content=text, embed=embed, files=files))
+                # Primary message: set reference for reply-to if applicable.
+                requests.append(dc_channel.send(content=text, embed=embed, files=files,
+                                                reference=reply_ref))
+            # Send the remaining text if multiple messages were required to accommodate it.
+            requests.extend(dc_channel.send(content=line) for line in lines)
             for embed, desc in embeds:
                 # Send any additional embeds in their own separate messages.
                 content = None
