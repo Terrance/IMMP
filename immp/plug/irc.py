@@ -282,8 +282,7 @@ class Wait:
     line is received.  On failure, a :class:`ValueError` is raised.
     """
 
-    def __init__(self, lines, success, fail, collect):
-        self.lines = lines
+    def __init__(self, success, fail, collect):
         self._success = tuple(success)
         self._fail = tuple(fail)
         self._collect = tuple(collect)
@@ -355,19 +354,25 @@ class IRCClient:
         # Capture answers to pending queries.
         self._waits = []
 
+    async def set_nick(self, value):
+        if self._nicklen:
+            value = value[:self._nicklen]
+        if self._nick == value:
+            return
+        if self._writer:
+            await self._wait(Line("NICK", value),
+                             success=("001", "NICK"),
+                             fail=("431", "432", "433", "436"))
+        else:
+            self._nick = value
+
     @property
     def nick(self):
         return self._nick
 
     @nick.setter
     def nick(self, value):
-        if self._nicklen:
-            value = value[:self._nicklen]
-        if self._nick == value:
-            return
-        self._nick = value
-        if self._writer:
-            self._write(Line("NICK", self._nick))
+        ensure_future(self.set_nick(value))
 
     @property
     def nickmask(self):
@@ -397,7 +402,7 @@ class IRCClient:
             self._writer.write("{}\r\n".format(line).encode())
 
     async def _wait(self, *lines, success=(), fail=(), collect=()):
-        wait = Wait((), success, fail, collect)
+        wait = Wait(success, fail, collect)
         log.debug("Adding wait: %r", wait)
         self._waits.append(wait)
         self._write(*lines)
@@ -439,10 +444,16 @@ class IRCClient:
                     self._nicklen = int(value)
                 elif key == "NETWORK":
                     self.network = value
-        elif line.command == "433":
+        elif line.command in ("431", "432"):
+            # Nick change rejected, revert internal nick to who the server says we are.
+            if self._nick != line.args[0]:
+                log.debug("Reverting failed nick change: %s -> %s", self._nick, line.args[0])
+                self._nick = line.args[0]
+        elif line.command in ("433", "436"):
             # Re-request the current nick with a trailing underscore.
             # Remove characters from the nick if needed to make it fit.
             parsed = line.args[1]
+            log.debug("Nick collision: %s", parsed)
             if len(parsed) < len(self._nick):
                 # We got silently truncated, set the max nick length.
                 self._nicklen = len(parsed)
@@ -479,6 +490,7 @@ class IRCClient:
             old = line.source.split("!", 1)[0]
             new = line.args[0]
             if self._nick == old:
+                log.debug("Updating own nick: %s -> %s", self._nick, new)
                 self._nick = new
             for name, members in list(self.members.items()):
                 if name == old:
@@ -740,7 +752,7 @@ class IRCPlug(immp.Plug):
         else:
             log.debug("Reusing puppet %r for user %r", puppet.nickmask, user)
             if puppet.nick.rstrip("_") != nick:
-                puppet.nick = nick
+                await puppet.set_nick(nick)
             return puppet
         if user.plug and user.plug.network_id == self.network_id:
             for puppet in self._puppets.values():
