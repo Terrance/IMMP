@@ -178,10 +178,13 @@ class _HiddenSender:
     # @GroupAnonymousBot, "Group": author of group chat messages on behalf of anonymous admins.
     anonymous_user_id = 1087968824
 
+    # @ChatsImportBot, "Imported Message": author of group chat messages imported from other apps.
+    import_user_id = 1474613229
+
     @classmethod
     def has(cls, value):
-        return value in (cls.hidden_channel_id, cls.hidden_chat_id,
-                         cls.service_user_id, cls.anonymous_user_id)
+        return value in (cls.hidden_channel_id, cls.hidden_chat_id, cls.service_user_id,
+                         cls.anonymous_user_id, cls.import_user_id)
 
 
 class TelegramUser(immp.User):
@@ -693,21 +696,33 @@ class TelegramMessage(immp.Message):
         elif not text:
             # No support for this message type.
             raise NotImplementedError
+        ignore_forward = False
+        if message["from"] and message["from"]["id"] == _HiddenSender.import_user_id:
+            # Import bot forwarded the message.  Copy the forward metadata to the main message.
+            ignore_forward = True
+            if message["forward_date"]:
+                at = datetime.fromtimestamp(message["forward_date"], timezone.utc)
+            if message["forward_from"]:
+                user = TelegramUser.from_bot_user(telegram, message["forward_from"])
+            elif message["forward_sender_name"]:
+                user = immp.User(real_name=message["forward_sender_name"])
         common = dict(id_=id_,
                       revision=revision,
                       at=at,
                       channel=channel,
                       user=user,
                       raw=message)
-        if message["forward_date"]:
+        if message["forward_date"] and not ignore_forward:
             # Event is a message containing another message.  Forwarded messages have no ID, so we
             # use a Message instead of a SentMessage here, unless they come from a channel.
-            forward_id = forward_channel = forward_user = None
+            forward_id = forward_channel = forward_date = forward_user = None
             chat = message["forward_from_chat"]
             sender = message["forward_from"]
             if chat and message["forward_from_message_id"]:
-                forward_channel = immp.Channel(telegram, chat["id"])
                 forward_id = "{}:{}".format(chat["id"], message["forward_from_message_id"])
+                forward_channel = immp.Channel(telegram, chat["id"])
+            if message["forward_date"]:
+                at = datetime.fromtimestamp(message["forward_date"], timezone.utc)
             if sender and not _HiddenSender.has(sender["id"]):
                 forward_user = TelegramUser.from_bot_user(telegram, sender)
             elif chat and not _HiddenSender.has(chat["id"]):
@@ -728,6 +743,7 @@ class TelegramMessage(immp.Message):
             if forward_id:
                 forward = immp.SentMessage(id_=forward_id,
                                            channel=forward_channel,
+                                           at=forward_date,
                                            **forward_common)
             else:
                 forward = immp.Message(**forward_common)
@@ -781,6 +797,7 @@ class TelegramMessage(immp.Message):
                 Parsed message object.
         """
         id_ = "{}:{}".format(message.chat_id, message.id)
+        at = message.date
         channel = immp.Channel(telegram, message.chat_id)
         edited = bool(message.edit_date)
         if edited:
@@ -894,20 +911,33 @@ class TelegramMessage(immp.Message):
         if not text and not attachments:
             # No support for this message type.
             raise NotImplementedError
+        ignore_forward = False
+        if message.sender_id == _HiddenSender.import_user_id:
+            # Import bot forwarded the message.  Copy the forward metadata to the main message.
+            ignore_forward = True
+            if message.forward.date:
+                at = message.forward.date
+            if message.forward.sender_id:
+                sender = await message.forward.get_sender()
+                user = TelegramUser.from_proto_user(telegram, sender)
+            elif message.forward.from_name:
+                user = immp.User(real_name=message.forward.from_name)
         common = dict(id_=id_,
                       revision=revision,
-                      at=message.date,
+                      at=at,
                       channel=channel,
                       user=user,
                       raw=message)
-        if message.forward:
+        if message.forward and not ignore_forward:
             # Event is a message containing another message.  Forwarded messages have no ID, so we
             # use a Message instead of a SentMessage here, unless they come from a channel.
-            forward_id = forward_channel = forward_user = None
+            forward_id = forward_channel = forward_date = forward_user = None
             if message.forward.chat_id and message.forward.channel_post:
-                forward_channel = immp.Channel(telegram, message.forward.chat_id)
                 forward_id = "{}:{}".format(message.forward.chat_id,
                                             message.forward.channel_post)
+                forward_channel = immp.Channel(telegram, message.forward.chat_id)
+            if message.forward.date:
+                forward_date = message.forward.date
             if message.forward.sender_id and not _HiddenSender.has(message.forward.sender_id):
                 sender = await message.forward.get_sender()
                 forward_user = TelegramUser.from_proto_user(telegram, sender)
@@ -930,6 +960,7 @@ class TelegramMessage(immp.Message):
             if forward_id:
                 forward = immp.SentMessage(id_=forward_id,
                                            channel=forward_channel,
+                                           at=forward_date,
                                            **forward_common)
             else:
                 forward = immp.Message(**forward_common)
