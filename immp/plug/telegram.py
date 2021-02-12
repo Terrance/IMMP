@@ -1344,9 +1344,11 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         if not self._client:
             log.debug("Client auth required to retrieve messages")
             return None
-        message = await self._client.get_messages(int(receipt.channel.source), ids=int(receipt.id))
+        id_ = int(receipt.id.split(":", 1)[1])
+        chat = int(receipt.channel.source)
+        message = await self._client.get_messages(chat, ids=id_)
         if not message:
-            log.debug("Failed to find message %d in %d", receipt.id, receipt.channel.source)
+            log.debug("Failed to find message %d in chat %d", id_, chat)
             return None
         try:
             return await TelegramMessage.from_proto_message(self, message)
@@ -1406,7 +1408,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
         quote = False
         rich = None
         if isinstance(msg.reply_to, immp.Receipt):
-            reply_to = int(msg.reply_to.id.split(":")[1])
+            reply_to = int(msg.reply_to.id.split(":", 1)[1])
         elif isinstance(msg.reply_to, immp.Message):
             quote = True
         if msg.text or quote:
@@ -1469,7 +1471,7 @@ class TelegramPlug(immp.HTTPOpenable, immp.Plug):
             # Generate requests for attached messages first.
             if isinstance(attach, immp.Receipt):
                 # Forward the messages natively using the given chat/ID.
-                forward_chat, forward_id = map(int, attach.id.split(":"))
+                forward_chat, forward_id = map(int, attach.id.split(":", 1))
                 requests.append(self._api("forwardMessage", _Schema.message,
                                           params={"chat_id": chat,
                                                   "from_chat_id": forward_chat,
