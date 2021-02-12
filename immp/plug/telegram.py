@@ -89,7 +89,8 @@ class _Schema:
 
     file = {"file_id": str,
             immp.Optional("file_name"): immp.Nullable(str),
-            immp.Optional("file_path"): immp.Nullable(str)}
+            immp.Optional("file_path"): immp.Nullable(str),
+            immp.Optional("mime_type"): immp.Nullable(str)}
 
     _sticker = {immp.Optional("emoji"): immp.Nullable(str), **file}
 
@@ -664,14 +665,18 @@ class TelegramMessage(immp.Message):
                 if message[key]:
                     obj = message[key]
                     break
-            if key == "animation":
+            mime = obj["mime_type"] or ""
+            if key == "animation" or mime.startswith("image/"):
                 type_ = immp.File.Type.image
-            elif key in ("video", "video_note"):
+            elif key in ("video", "video_note") or mime.startswith("video/"):
                 type_ = immp.File.Type.video
             else:
                 type_ = immp.File.Type.unknown
             attachments.append(await TelegramFile.from_id(telegram, obj["file_id"], type_,
                                                           obj["file_name"]))
+            if message["caption"]:
+                text = await TelegramRichText.from_bot_entities(telegram, message["caption"],
+                                                                message["caption_entities"])
         elif message["venue"]:
             attachments.append(immp.Location(latitude=message["venue"]["location"]["latitude"],
                                              longitude=message["venue"]["location"]["longitude"],
@@ -815,7 +820,9 @@ class TelegramMessage(immp.Message):
             name = None
             sticker = False
             for attr in message.document.attributes:
-                if isinstance(attr, tl.types.DocumentAttributeSticker):
+                if isinstance(attr, tl.types.DocumentAttributeFilename):
+                    name = attr.file_name
+                elif isinstance(attr, tl.types.DocumentAttributeSticker):
                     type_ = immp.File.Type.image
                     if attr.alt and not text:
                         text = "sent {} sticker".format(attr.alt)
@@ -825,8 +832,12 @@ class TelegramMessage(immp.Message):
                     type_ = immp.File.Type.image
                 elif isinstance(attr, tl.types.DocumentAttributeVideo):
                     type_ = immp.File.Type.video
-                if isinstance(attr, tl.types.DocumentAttributeFilename):
-                    name = attr.file_name
+            if type_ == immp.File.Type.unknown:
+                mime = message.document.mime_type or ""
+                if mime.startswith("image/"):
+                    type_ = immp.File.Type.image
+                elif mime.startswith("video/"):
+                    type_ = immp.File.Type.video
             if telegram.config["stickers"] or not sticker:
                 try:
                     attach = await TelegramFile.from_id(telegram,
