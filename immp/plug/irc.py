@@ -725,7 +725,7 @@ class IRCPlug(immp.Plug):
             await self._client.join(line.args[1])
 
     @classmethod
-    def _lines(cls, rich, user, action, edited):
+    def _lines(cls, rich, user, action, edited, plain=False):
         if not rich:
             return []
         elif not isinstance(rich, immp.RichText):
@@ -738,7 +738,8 @@ class IRCPlug(immp.Plug):
             if edited:
                 text = "[edit] {}".format(text)
             if not user and action:
-                text = "\x01ACTION {}\x01".format(text)
+                template = "* {}" if plain else "\x01ACTION {}\x01"
+                text = template.format(text)
             lines.append(text)
         return lines
 
@@ -778,6 +779,12 @@ class IRCPlug(immp.Plug):
     async def put(self, channel, msg):
         user = None if self.config["puppet"] else msg.user
         lines = []
+        if isinstance(msg.reply_to, immp.Message):
+            quote = self._lines(msg.reply_to.text, msg.reply_to.user,
+                                msg.reply_to.action, msg.edited, True)
+            if quote:
+                snippet = "{}{}".format(quote[0], " [...]" if len(quote) > 1 else "")
+                lines += self._lines(snippet, user, False, msg.edited)
         if msg.text:
             lines += self._lines(msg.text, user, msg.action, msg.edited)
         for attach in msg.attachments:
@@ -788,7 +795,9 @@ class IRCPlug(immp.Plug):
                 text = "shared a location: {}".format(attach)
                 lines += self._lines(text, user, True, msg.edited)
             elif isinstance(attach, immp.Message) and attach.text:
-                lines += self._lines(attach.text, attach.user, attach.action, attach.edited)
+                forward = self._lines(attach.text, attach.user, attach.action, attach.edited, True)
+                if forward:
+                    lines += self._lines("\n".join(forward), user, False, msg.edited)
         receipts = []
         if self.config["puppet"] and msg.user:
             client = await self._puppet(msg.user)
