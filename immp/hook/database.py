@@ -5,10 +5,12 @@ require the asynchronous database provider to be present.
 Asynchronous
 ~~~~~~~~~~~~
 
-Dependencies:
+Requirements:
+    Extra name: ``db``
+
     `Tortoise <https://tortoise-orm.readthedocs.io>`_
 
-    Any database-specific librariess (e.g. asyncpg for PostgreSQL)
+    Any database-specific libraries (e.g. asyncpg for PostgreSQL)
 
 Config:
     url (str):
@@ -20,7 +22,7 @@ Synchronous
 .. deprecated:: 0.10.0
     Use the asynchronous variant instead.
 
-Dependencies:
+Requirements:
     `Peewee <http://docs.peewee-orm.com>`_
 
     Any database-specific libraries (e.g. Psycopg2 for PostgreSQL)

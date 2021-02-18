@@ -2,6 +2,8 @@
 Run a webserver for other plugs or hooks to accept incoming HTTP requests.
 
 Requirements:
+    Extra name: ``web``
+
     `aiohttp <https://aiohttp.readthedocs.io/en/latest/>`_
 
     `aiohttp_jinja2 <https://aiohttp-jinja2.readthedocs.io/en/latest/>`_:

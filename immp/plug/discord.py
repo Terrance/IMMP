@@ -2,6 +2,8 @@
 Connect to `Discord <https://discordapp.com>`_ as a bot.
 
 Requirements:
+    Extra name: ``discord``
+
     `discord.py <https://discordpy.readthedocs.io>`_
 
 Config:

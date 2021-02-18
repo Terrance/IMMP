@@ -2,6 +2,8 @@
 Connect to `Telegram <https://telegram.org>`_ as a bot.
 
 Requirements:
+    Extra name: ``telegram``
+
     `aiohttp <https://aiohttp.readthedocs.io/en/latest/>`_
 
     `telethon <https://telethon.readthedocs.io/en/latest/>`_:

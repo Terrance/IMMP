@@ -5,6 +5,8 @@ Asynchronous
 ~~~~~~~~~~~~
 
 Requirements:
+    Extra name: ``console``
+
     `aioconsole <https://aioconsole.readthedocs.io>`_
 
 Config:

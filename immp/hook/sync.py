@@ -6,6 +6,8 @@ Sync
 ~~~~
 
 Requirements:
+    Extra name: ``sync``
+
     `Jinja2 <http://jinja.pocoo.org>`_:
         Required to use ``name-format``.
     `emoji <https://github.com/carpedm20/emoji/>`_:
@@ -67,6 +69,8 @@ Forward
 ~~~~~~~
 
 Requirements:
+    Extra name: ``sync``
+
     `Jinja2 <http://jinja.pocoo.org>`_:
         Required to use ``name-format``.
     `emoji <https://github.com/carpedm20/emoji/>`_:

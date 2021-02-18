@@ -4,6 +4,8 @@ save the config on exit.  Creating and running :class:`.Host` via ``immp`` or ``
 will attach a :class:`RunnerHook` to its resources.
 
 Requirements:
+    Extra name: ``runner``
+
     `anyconfig <https://python-anyconfig.readthedocs.io/en/latest/>`_
 
     Any format-specific libraries for config files (e.g. PyYAML for YAML files)

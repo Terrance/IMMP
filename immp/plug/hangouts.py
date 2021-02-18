@@ -2,6 +2,8 @@
 Connect to `Google Hangouts <https://hangouts.google.com>`_ as a regular user.
 
 Requirements:
+    Extra name: ``hangouts``
+
     `hangups <https://hangups.readthedocs.io>`_
 
 Config:
