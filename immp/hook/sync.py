@@ -550,13 +550,13 @@ class _SyncHookBase(immp.Hook):
             if not EMOJI_REGEX:
                 raise immp.PlugError("'emoji' module not installed")
             name = EMOJI_REGEX.sub(_emoji_replace, name).strip()
-        if renamed:
+        if not renamed:
+            log.debug("Adding real name: %r", name)
+            renamed = immp.User(real_name=name)
+        elif renamed.real_name != name:
             log.debug("Replacing real name: %r -> %r", renamed.real_name, name)
             renamed = copy(renamed)
             renamed.real_name = name
-        else:
-            log.debug("Adding real name: %r", name)
-            renamed = immp.User(real_name=name)
         return renamed
 
     async def _alter_name(self, msg):
