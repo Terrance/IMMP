@@ -114,7 +114,6 @@ channels.  Unlike a sync, this is a one-direction copy, useful for announcements
 
 from asyncio import BoundedSemaphore, gather
 from collections import defaultdict
-from copy import copy
 from itertools import chain
 import logging
 import re
@@ -133,9 +132,9 @@ from immp.hook.identity import IdentityProvider
 
 
 try:
-    from jinja2 import Template
+    from jinja2 import Template, TemplateSyntaxError
 except ImportError:
-    Template = None
+    Template = TemplateSyntaxError = None
 
 try:
     from emoji import get_emoji_regexp
@@ -521,10 +520,9 @@ class _SyncHookBase(immp.Hook):
 
     async def _rename_user(self, user, channel):
         # Use name-format or identities to render a suitable author real name.
-        renamed = name = identity = None
-        if not self.config["reset-author"]:
-            renamed = user
-        if self._identities:
+        name = (user.real_name or user.username) if user else None
+        identity = None
+        if user and self._identities:
             try:
                 identity = await self._identities.identity_from_user(user)
             except Exception as e:
@@ -535,29 +533,25 @@ class _SyncHookBase(immp.Hook):
                 raise immp.PlugError("'jinja2' module not installed")
             title = await channel.title() if channel else None
             context = {"user": user, "identity": identity, "channel": title}
-            name = Template(self.config["name-format"]).render(**context)
-            if not name and self.config["reset-author"]:
-                user = None
-        elif self.config["reset-author"]:
-            user = None
+            try:
+                name = Template(self.config["name-format"]).render(**context)
+            except TemplateSyntaxError:
+                log.warning("Bad name format template", exc_info=True)
         elif identity:
             name = "{} ({})".format(user.real_name or user.username, identity.name)
-        elif self.config["strip-name-emoji"] and user:
-            name = user.real_name or user.username
-        if not name:
-            return user
-        if self.config["strip-name-emoji"]:
+        if name and self.config["strip-name-emoji"]:
             if not EMOJI_REGEX:
                 raise immp.PlugError("'emoji' module not installed")
             name = EMOJI_REGEX.sub(_emoji_replace, name).strip()
-        if not renamed:
-            log.debug("Adding real name: %r", name)
-            renamed = immp.User(real_name=name)
-        elif renamed.real_name != name:
-            log.debug("Replacing real name: %r -> %r", renamed.real_name, name)
-            renamed = copy(renamed)
-            renamed.real_name = name
-        return renamed
+        if self.config["reset-author"] or not user:
+            log.debug("Creating unlinked user with real name: %r", name)
+            return immp.User(real_name=name)
+        elif user.real_name != name:
+            log.debug("Copying user with new real name: %r -> %r", user, name)
+            return immp.User(id_=user.id, plug=user.plug, real_name=name,
+                             avatar=user.avatar, link=user.link)
+        else:
+            return user
 
     async def _alter_name(self, msg):
         channel = msg.channel if isinstance(msg, immp.Receipt) else None
