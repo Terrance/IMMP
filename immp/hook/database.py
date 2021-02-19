@@ -103,6 +103,7 @@ class DatabaseHook(immp.ResourceHook, _ModelsMixin):
         self.db = None
 
     async def start(self):
+        await super().start()
         log.debug("Opening connection to database")
         self.db = connect(self.config["url"])
         BaseModel._meta.database.initialize(self.db)
@@ -112,6 +113,7 @@ class DatabaseHook(immp.ResourceHook, _ModelsMixin):
             self.db.create_tables(self.models, safe=True)
 
     async def stop(self):
+        await super().stop()
         if self.db:
             log.debug("Closing connection to database")
             self.db.close()
@@ -137,6 +139,7 @@ class AsyncDatabaseHook(immp.ResourceHook, _ModelsMixin):
             raise immp.PlugError("'tortoise' module not installed")
 
     async def start(self):
+        await super().start()
         log.debug("Opening connection to database")
         modules = sorted(set(model.__module__ for model in self.models))
         log.debug("Registering model modules: %s", ", ".join(modules))
@@ -144,5 +147,6 @@ class AsyncDatabaseHook(immp.ResourceHook, _ModelsMixin):
         await Tortoise.generate_schemas(safe=True)
 
     async def stop(self):
+        await super().stop()
         log.debug("Closing connection to database")
         await Tortoise.close_connections()

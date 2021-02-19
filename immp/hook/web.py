@@ -224,6 +224,7 @@ class WebHook(immp.ResourceHook):
         return self.app.router.add_static(*args, **kwargs)
 
     async def start(self):
+        await super().start()
         await self._runner.setup()
         if "path" in self.config:
             log.debug("Starting server on socket %s", self.config["path"])
@@ -234,6 +235,7 @@ class WebHook(immp.ResourceHook):
         await self._site.start()
 
     async def stop(self):
+        await super().stop()
         if self._site:
             log.debug("Stopping server")
             await self._runner.cleanup()

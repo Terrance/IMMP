@@ -167,6 +167,7 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
                                                           IdentityRole)
 
     async def start(self):
+        await super().start()
         if not self.config["instance"]:
             # Find a non-conflicting number and assign it.
             codes = {hook.config["instance"] for hook in self.host.hooks.values()

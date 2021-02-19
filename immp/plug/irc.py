@@ -610,6 +610,7 @@ class IRCPlug(immp.Plug):
         return "irc:{}".format(self.config["server"]["host"])
 
     async def start(self):
+        await super().start()
         self._client = IRCClient(self,
                                  self.config["server"]["host"],
                                  self.config["server"]["port"],
@@ -626,6 +627,7 @@ class IRCPlug(immp.Plug):
                 await self._client.join(channel.source)
 
     async def stop(self):
+        await super().stop()
         if self._client:
             await self._client.disconnect(self.config["quit"])
             self._client = None

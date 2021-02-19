@@ -30,9 +30,11 @@ class DummyPlug(immp.Plug):
         self._task = None
 
     async def start(self):
+        await super().start()
         self._task = ensure_future(self._timer())
 
     async def stop(self):
+        await super().stop()
         if self._task:
             self._task.cancel()
             self._task = None
