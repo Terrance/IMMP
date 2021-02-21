@@ -2,6 +2,8 @@
 Connect to a `Slack <https://slack.com>`_ workspace as a bot.
 
 Requirements:
+    Extra name: ``slack``
+
     `aiohttp <https://aiohttp.readthedocs.io/en/latest/>`_
 
 Config:
