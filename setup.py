@@ -1,9 +1,25 @@
+from glob import glob
 import os.path
 
-from setuptools import setup
+from setuptools import find_namespace_packages, setup
 
 
 README = os.path.join(os.path.abspath(os.path.dirname(__file__)), "README.rst")
+
+
+BASE = "immp"
+PACKAGES = [BASE]
+DATA = {}
+SCRIPTS = glob("bin/*")
+
+for name in find_namespace_packages(BASE):
+    pkg = "{}.{}".format(BASE, name)
+    parent, sub = pkg.rsplit(".", 1)
+    if parent and sub == "templates":
+        DATA[parent] = ["{}/**".format(sub)]
+    else:
+        PACKAGES.append(pkg)
+
 
 AIOHTTP = "aiohttp>=3.0.0"
 
@@ -14,10 +30,10 @@ setup(name="IMMP",
       long_description_content_type="text/x-rst",
       license="BSD 3-Clause License",
       platforms=["Any"],
-      packages=["immp", "immp.core", "immp.hook", "immp.hook.webui", "immp.plug"],
-      package_data={"immp.hook.webui": ["templates/**"]},
+      packages=PACKAGES,
+      package_data=DATA,
+      scripts=SCRIPTS,
       entry_points={"console_scripts": ["immp=immp.__main__:entrypoint"]},
-      scripts=["bin/immp-migrate-hangoutsbot.py"],
       python_requires=">=3.6",
       extras_require={"runner": ["anyconfig>=0.9.5",
                                  "ruamel.yaml>=0.15.75"],
