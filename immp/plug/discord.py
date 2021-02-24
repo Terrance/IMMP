@@ -620,8 +620,10 @@ class DiscordPlug(immp.HTTPOpenable, immp.Plug):
         if msg.reply_to:
             if isinstance(msg.reply_to, immp.Receipt):
                 if msg.reply_to.channel.plug.network_id == self.network_id:
-                    reply_to = await self.resolve_message(msg.reply_to)
-                    reply_ref = reply_to.raw.to_reference()
+                    guild_id = dc_channel.guild.id if dc_channel.guild else None
+                    reply_ref = discord.MessageReference(message_id=int(msg.reply_to.id),
+                                                         channel_id=dc_channel.id,
+                                                         guild_id=guild_id)
             if not reply_to:
                 reply_to = msg.reply_to
             reply_embed = await DiscordMessage.to_embed(self, reply_to, True)
