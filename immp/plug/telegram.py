@@ -824,7 +824,8 @@ class TelegramMessage(immp.Message):
         title = None
         attachments = []
         if message.reply_to_msg_id:
-            receipt = immp.Receipt(message.reply_to_msg_id, channel)
+            reply_id = "{}:{}".format(message.chat_id, message.reply_to_msg_id)
+            receipt = immp.Receipt(reply_id, channel)
             reply_to = await telegram.resolve_message(receipt)
         if message.photo:
             try:
