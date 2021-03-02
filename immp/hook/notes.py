@@ -185,21 +185,24 @@ class NotesHook(immp.Hook):
             count = len(matches)
         else:
             matches = enumerate(notes, 1)
-        title = ("{}{} note{} in this channel{}"
-                 .format(count, " matching" if query else "",
-                         "" if count == 1 else "s", ":" if count else "."))
-        text = immp.RichText([immp.Segment(title, bold=bool(notes))])
-        for num, note in matches:
-            text.append(immp.Segment("\n"),
-                        immp.Segment("{}.".format(num), bold=True),
-                        immp.Segment("\t"),
-                        *immp.RichText.unraw(note.text, self.host),
-                        immp.Segment("\t"),
-                        immp.Segment(note.ago, italic=True))
+        if count:
+            title = ("{}{} note{} in this channel{}"
+                     .format(count or "No", " matching" if query else "",
+                             "" if count == 1 else "s", ":" if count else "."))
+            text = immp.RichText([immp.Segment(title, bold=True)])
+            for num, note in matches:
+                text.append(immp.Segment("\n"),
+                            immp.Segment("{}.".format(num), bold=True),
+                            immp.Segment("\t"),
+                            *immp.RichText.unraw(note.text, self.host),
+                            immp.Segment("\t"),
+                            immp.Segment(note.ago, italic=True))
+        else:
+            text = "{} No {}".format(CROSS, "matches" if query and notes else "notes")
         target = None
-        if msg.user:
+        if count and msg.user:
             target = await msg.user.private_channel()
-        if target:
+        if target and msg.channel != target:
             await target.send(immp.Message(text=text))
             await msg.channel.send(immp.Message(text="{} Sent".format(TICK)))
         else:
