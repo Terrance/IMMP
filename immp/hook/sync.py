@@ -543,7 +543,9 @@ class _SyncHookBase(immp.Hook):
             if not EMOJI_REGEX:
                 raise immp.PlugError("'emoji' module not installed")
             name = EMOJI_REGEX.sub(_emoji_replace, name).strip()
-        if self.config["reset-author"] or not user:
+        if not name:
+            return user
+        elif self.config["reset-author"] or not user:
             log.debug("Creating unlinked user with real name: %r", name)
             return immp.User(real_name=name)
         elif user.real_name != name:
