@@ -327,6 +327,9 @@ class IRCClient:
     Minimal, standalone IRC client.
     """
 
+    # Acceptable characters: A-Z 0-9 ^ _ - [ ] { } |
+    _nick_bad_chars = re.compile(r"[^A-Z0-9^_\-\[\]{}\|]", re.I)
+
     def __init__(self, plug, host, port, ssl, nick, password=None,
                  user=None, name=None, listener=False):
         self._plug = plug
@@ -334,7 +337,7 @@ class IRCClient:
         self._host = host
         self._port = port
         self._ssl = ssl
-        self._nick = nick
+        self._nick = self._nick_bad_chars.sub("", nick)
         self._password = password
         self._user = user
         self._name = name
@@ -355,6 +358,7 @@ class IRCClient:
         self._waits = []
 
     async def set_nick(self, value):
+        value = self._nick_bad_chars.sub("", value)
         if self._nicklen:
             value = value[:self._nicklen]
         if self._nick == value:
@@ -572,6 +576,9 @@ class IRCClient:
         line.source = self.nickmask
         return line
 
+    def __repr__(self):
+        return "<{}: {!r}>".format(self.__class__.__name__, self.nickmask or self.nick)
+
 
 class IRCPlug(immp.Plug):
     """
@@ -753,7 +760,7 @@ class IRCPlug(immp.Plug):
         except KeyError:
             pass
         else:
-            log.debug("Reusing puppet %r for user %r", puppet.nickmask, user)
+            log.debug("Reusing puppet %r for user %r", puppet, user)
             if puppet.nick.rstrip("_") != nick:
                 await puppet.set_nick(nick)
             return puppet
@@ -765,7 +772,8 @@ class IRCPlug(immp.Plug):
         log.debug("Adding puppet %r for user %r", nick, user)
         real_name = user.real_name or user.username
         if user.plug:
-            real_name = "{} ({})".format(real_name, user.plug.network_name)
+            real_name = "{} ({}{})".format(real_name, user.plug.network_name,
+                                           ": {}".format(user.id) if user.id else "")
         puppet = IRCClient(self,
                            self.config["server"]["host"],
                            self.config["server"]["port"],
