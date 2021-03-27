@@ -520,8 +520,10 @@ class _SyncHookBase(immp.Hook):
 
     async def _rename_user(self, user, channel):
         # Use name-format or identities to render a suitable author real name.
-        name = (user.real_name or user.username) if user else None
+        base = (user.real_name or user.username) if user else None
+        name = None
         identity = None
+        force = False
         if user and self._identities:
             try:
                 identity = await self._identities.identity_from_user(user)
@@ -537,23 +539,27 @@ class _SyncHookBase(immp.Hook):
                 name = Template(self.config["name-format"]).render(**context)
             except TemplateSyntaxError:
                 log.warning("Bad name format template", exc_info=True)
+            else:
+                # Remove the user's username, so that this name is always used.
+                force = True
         elif identity:
-            name = "{} ({})".format(user.real_name or user.username, identity.name)
-        if name and self.config["strip-name-emoji"]:
+            name = "{} ({})".format(base, identity.name)
+        if self.config["strip-name-emoji"]:
             if not EMOJI_REGEX:
                 raise immp.PlugError("'emoji' module not installed")
-            name = EMOJI_REGEX.sub(_emoji_replace, name).strip()
+            current = name or base
+            if current:
+                name = EMOJI_REGEX.sub(_emoji_replace, current).strip()
         if not name:
             return user
         elif self.config["reset-author"] or not user:
             log.debug("Creating unlinked user with real name: %r", name)
             return immp.User(real_name=name)
-        elif user.real_name != name:
+        else:
             log.debug("Copying user with new real name: %r -> %r", user, name)
             return immp.User(id_=user.id, plug=user.plug, real_name=name,
+                             username=(None if force else user.username),
                              avatar=user.avatar, link=user.link)
-        else:
-            return user
 
     async def _alter_name(self, msg):
         channel = msg.channel if isinstance(msg, immp.Receipt) else None
