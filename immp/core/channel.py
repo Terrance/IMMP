@@ -120,7 +120,7 @@ class Channel:
         return await self.plug.send(self, msg)
 
     def __eq__(self, other):
-        return (isinstance(other, self.__class__) and
+        return (isinstance(other, Channel) and
                 self.plug == other.plug and self.source == other.source)
 
     def __hash__(self):

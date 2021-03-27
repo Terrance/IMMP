@@ -76,7 +76,7 @@ class User:
         return await self.plug.channel_for_user(self)
 
     def __eq__(self, other):
-        if not isinstance(other, self.__class__):
+        if not isinstance(other, User):
             return False
         if self.plug and not (other.plug and self.plug.name == other.plug.name):
             return False
@@ -191,10 +191,10 @@ class Segment:
             bool:
                 ``True`` if the segments match.
         """
-        return isinstance(other, self.__class__) and self._tuple[1:] == other._tuple[1:]
+        return isinstance(other, Segment) and self._tuple[1:] == other._tuple[1:]
 
     def __eq__(self, other):
-        return isinstance(other, self.__class__) and self._tuple == other._tuple
+        return isinstance(other, Segment) and self._tuple == other._tuple
 
     def __hash__(self):
         return hash(self._tuple)
@@ -531,7 +531,7 @@ class RichText:
         return self
 
     def __eq__(self, other):
-        return (isinstance(other, self.__class__) and len(self) == len(other) and
+        return (isinstance(other, RichText) and len(self) == len(other) and
                 all(x == y for x, y in zip(self, other)))
 
     def __hash__(self):
@@ -602,6 +602,9 @@ class File:
         else:
             raise PlugError("No accessible URL to the file")
 
+    def __eq__(self, other):
+        return isinstance(other, File) and self.source and self.source == other.source
+
     def __str__(self):
         if self.title and self.source:
             return "{} ({})".format(self.title, self.source)
@@ -665,7 +668,7 @@ class Location:
                 .format(self.latitude, self.longitude, width, height or width))
 
     def __eq__(self, other):
-        return isinstance(other, self.__class__) and self.coordinates == other.coordinates
+        return isinstance(other, Location) and self.coordinates == other.coordinates
 
     def __hash__(self):
         return hash(self.coordinates)
@@ -844,10 +847,9 @@ class Message(_SentMessageSlots):
         return clone
 
     def __eq__(self, other):
-        if not isinstance(other, self.__class__):
-            return False
-        return ((self.text, self.user, self.action, self.reply_to) ==
-                (other.text, other.user, other.action, other.reply_to))
+        return (isinstance(other, Message) and 
+                ((self.text, self.user, self.action, self.reply_to) ==
+                 (other.text, other.user, other.action, other.reply_to)))
 
     def __hash__(self):
         return hash((self.user, self.text, self.action, self.reply_to))
@@ -918,9 +920,9 @@ class Receipt(_SentMessageSlots):
         return await self.channel.plug.delete(self)
 
     def __eq__(self, other):
-        if not isinstance(other, self.__class__):
-            return False
-        return (self.id, self.revision, self.channel) == (other.id, other.revision, other.channel)
+        return (isinstance(other, Receipt) and 
+                ((self.id, self.revision, self.channel) ==
+                 (other.id, other.revision, other.channel)))
 
     def __hash__(self):
         return hash((self.id, self.revision, self.channel))
@@ -944,6 +946,9 @@ class SentMessage(Receipt, Message):
         Message.__init__(self, text=text, user=user, edited=edited, action=action,
                          reply_to=reply_to, joined=joined, left=left, title=title,
                          attachments=attachments, raw=raw)
+
+    def __eq__(self, other):
+        return Receipt.__eq__(self, other)
 
     def __repr__(self):
         parts = self._repr_parts()

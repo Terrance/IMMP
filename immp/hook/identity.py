@@ -81,7 +81,7 @@ class Identity:
         self.roles = roles
 
     def __eq__(self, other):
-        return (isinstance(other, self.__class__) and
+        return (isinstance(other, Identity) and
                 (self.name, self.provider) == (other.name, other.provider))
 
     def __hash__(self):

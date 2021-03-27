@@ -172,7 +172,7 @@ class BoundCommand:
         return getattr(self.cmd, name)
 
     def __eq__(self, other):
-        return (isinstance(other, self.__class__) and
+        return (isinstance(other, BoundCommand) and
                 (self.hook, self.cmd) == (other.hook, other.cmd))
 
     def __hash__(self):
@@ -335,7 +335,7 @@ class BaseCommand:
         return BoundCommand(instance, self) if instance else self
 
     def __eq__(self, other):
-        return isinstance(other, self.__class__) and self.fn == other.fn
+        return isinstance(other, BaseCommand) and self.fn == other.fn
 
     def __hash__(self):
         return hash(self.fn)
