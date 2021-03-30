@@ -391,7 +391,12 @@ class IRCClient:
 
     async def _read_loop(self):
         while True:
-            raw = await self._reader.readline()
+            try:
+                raw = await self._reader.readline()
+            except ConnectionError:
+                log.debug("Client %r disconnected", self._nick, exc_info=True)
+                self._reader = self._writer = None
+                break
             if not raw:
                 # Connection has been closed.
                 self._writer.close()
@@ -402,7 +407,7 @@ class IRCClient:
             await self._handle(line)
         log.debug("Reconnecting in 3 seconds")
         await sleep(3)
-        await self.connect()
+        ensure_future(self.connect())
 
     def _write(self, *lines):
         for line in lines:
