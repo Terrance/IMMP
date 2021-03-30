@@ -186,9 +186,9 @@ class IRCRichText(immp.RichText):
 class IRCUser(immp.User):
 
     @classmethod
-    def from_id(cls, irc, id_):
+    def from_id(cls, irc, id_, real_name=None):
         nick = id_.split("!", 1)[0]
-        return immp.User(id_=id_, plug=irc, username=nick, raw=id_)
+        return immp.User(id_=id_, plug=irc, username=nick, real_name=real_name, raw=id_)
 
     @classmethod
     def from_who(cls, irc, line):
@@ -384,6 +384,10 @@ class IRCClient:
             return "{}!{}".format(self._nick, self._mask)
         else:
             return None
+
+    @property
+    def name(self):
+        return self._name
 
     async def _read_loop(self):
         while True:
@@ -654,10 +658,14 @@ class IRCPlug(immp.Plug):
         user = self.get_user(username)
         if user:
             return user
+        for client in self._puppets.values():
+            if username == client.nick:
+                return IRCUser.from_id(self, client.nickmask, client.name)
         for user in await self._client.who(username):
             if user.username == username:
                 return user
-        return None
+        else:
+            return None
 
     async def user_is_system(self, user):
         if user.id == self._client.nickmask:
@@ -684,6 +692,8 @@ class IRCPlug(immp.Plug):
         names = set()
         for line in raw:
             names.update(name.lstrip(self._client.prefixes) for name in line.args[3].split())
+        for client in self._puppets.values():
+            names.remove(client.nick)
         return [immp.Channel(self, name) for name in names
                 if name != self.config["user"]["nick"]]
 
