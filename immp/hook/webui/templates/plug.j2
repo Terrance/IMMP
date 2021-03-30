@@ -134,5 +134,9 @@
     </div>
   </form>
   {% endif %}
+  {%- if doc %}
+  <h3 class="title">Documentation</h3>
+  <pre>{{ doc }}</pre>
+  {%- endif %}
 </div>
 {%- endblock %}

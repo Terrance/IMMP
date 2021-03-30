@@ -22,6 +22,8 @@ This is a simple control panel to add or update plugs and hooks in a running sys
 
 from asyncio import gather
 from collections import defaultdict
+from importlib import import_module
+from inspect import cleandoc
 import json
 import re
 import logging
@@ -124,6 +126,7 @@ class WebUIHook(immp.ResourceHook):
             return {"path": path,
                     "config": config,
                     "class": cls,
+                    "doc": cleandoc(import_module(cls.__module__).__doc__),
                     "hook": issubclass(cls, immp.Hook)}
         try:
             name = post["name"]
@@ -174,6 +177,7 @@ class WebUIHook(immp.ResourceHook):
             title = await immp.Channel(plug, source).title()
             name = re.sub(r"[^a-z0-9]+", "-", title, flags=re.I).strip("-") if title else ""
         return {"plug": plug,
+                "doc": cleandoc(import_module(plug.__module__).__doc__),
                 "add_name": name,
                 "add_source": source,
                 "channels": {name: channel for name, channel in self.host.channels.items()
@@ -425,6 +429,7 @@ class WebUIHook(immp.ResourceHook):
         hook = self._resolve_hook(request)
         can_stop = not isinstance(hook, (WebHook, WebUIHook))
         return {"hook": hook,
+                "doc": cleandoc(import_module(hook.__module__).__doc__),
                 "resource": isinstance(hook, immp.ResourceHook),
                 "priority": self.host.priority.get(hook.name),
                 "can_stop": can_stop}
