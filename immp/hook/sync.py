@@ -132,9 +132,9 @@ from immp.hook.identity import IdentityProvider
 
 
 try:
-    from jinja2 import Template, TemplateSyntaxError
+    from jinja2 import Template, TemplateError
 except ImportError:
-    Template = TemplateSyntaxError = None
+    Template = TemplateError = None
 
 try:
     from emoji import get_emoji_regexp
@@ -527,9 +527,9 @@ class _SyncHookBase(immp.Hook):
         if user and self._identities:
             try:
                 identity = await self._identities.identity_from_user(user)
-            except Exception as e:
+            except Exception:
                 log.warning("Failed to retrieve identity information for %r", user,
-                            exc_info=e)
+                            exc_info=True)
         if self.config["name-format"]:
             if not Template:
                 raise immp.PlugError("'jinja2' module not installed")
@@ -537,7 +537,7 @@ class _SyncHookBase(immp.Hook):
             context = {"user": user, "identity": identity, "channel": title}
             try:
                 name = Template(self.config["name-format"]).render(**context)
-            except TemplateSyntaxError:
+            except TemplateError:
                 log.warning("Bad name format template", exc_info=True)
             else:
                 # Remove the user's username, so that this name is always used.
