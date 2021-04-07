@@ -331,7 +331,7 @@ class IRCClient:
     _nick_bad_chars = re.compile(r"[^A-Z0-9^_\-\[\]{}\|]", re.I)
 
     def __init__(self, plug, host, port, ssl, nick, password=None,
-                 user=None, name=None, listener=False):
+                 user=None, name=None, on_connect=None, on_receive=None):
         self._plug = plug
         # Server parameters for (re)connections.
         self._host = host
@@ -341,7 +341,8 @@ class IRCClient:
         self._password = password
         self._user = user
         self._name = name
-        self._listener = listener
+        self._on_connect = on_connect
+        self._on_receive = on_receive
         # Cache our user-host as seen by the server.
         self._mask = None
         # Connection streams.
@@ -514,8 +515,8 @@ class IRCClient:
                     log.debug("Replacing %s with %s in %s members", old, new, name)
                     members.remove(old)
                     members.add(new)
-        if self._listener:
-            await self._plug._handle(line)
+        if self._on_receive:
+            await self._on_receive(line)
 
     async def connect(self):
         self._reader, self._writer = await open_connection(self._host, self._port, ssl=self._ssl)
@@ -528,6 +529,8 @@ class IRCClient:
         for user in await self.who(self._nick):
             if user.username == self._nick:
                 self._mask = user.id.split("!", 1)[-1]
+        if self._on_connect:
+            await self._on_connect()
 
     async def disconnect(self, msg):
         for wait in self._waits:
@@ -635,12 +638,9 @@ class IRCPlug(immp.Plug):
                                  self.config["server"]["password"],
                                  "immp",
                                  self.config["user"]["real-name"],
-                                 True)
+                                 self._connected,
+                                 self._handle)
         await self._client.connect()
-        for channel in self.host.channels.values():
-            if channel.plug == self and channel.source.startswith("#"):
-                self._joins.add(channel.source)
-                await self._client.join(channel.source)
 
     async def stop(self):
         await super().stop()
@@ -727,6 +727,12 @@ class IRCPlug(immp.Plug):
 
     async def channel_remove(self, channel, user):
         self._client.kick(channel.source, user.username)
+
+    async def _connected(self):
+        for channel in self.host.channels.values():
+            if channel.plug == self and channel.source.startswith("#"):
+                self._joins.add(channel.source)
+                await self._client.join(channel.source)
 
     async def _handle(self, line):
         if line.command in ("JOIN", "PART", "KICK", "PRIVMSG"):
