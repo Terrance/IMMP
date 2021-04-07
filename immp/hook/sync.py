@@ -810,11 +810,11 @@ class SyncHook(_SyncHookBase):
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)
+        if not primary or not self._accept(source, sent.id):
+            return
         try:
             label = self.label_for_channel(sent.channel)
         except immp.ConfigError:
-            return
-        if not self._accept(source, sent.id):
             return
         async with self._lock:
             # No critical section here, just wait for any pending messages to be sent.
