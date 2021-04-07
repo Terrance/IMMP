@@ -27,7 +27,7 @@ Config:
         Leading characters to include in nicks of puppet users.
 """
 
-from asyncio import (CancelledError, Future, ensure_future,
+from asyncio import (CancelledError, Event, Future, ensure_future,
                      open_connection, sleep, TimeoutError, wait_for)
 import logging
 import re
@@ -346,7 +346,10 @@ class IRCClient:
         # Cache our user-host as seen by the server.
         self._mask = None
         # Connection streams.
-        self._reader = self._writer = self._task = None
+        self._reader = self._writer = self._read_task = None
+        # Background task to send pings if we don't receive any for a while.
+        self._live = Event()
+        self._live_task = None
         # Store channel and nick prefixes for matching and cleanup.
         self.types = ""
         self.prefixes = ""
@@ -395,20 +398,30 @@ class IRCClient:
             try:
                 raw = await self._reader.readline()
             except ConnectionError:
-                log.debug("Client %r disconnected", self._nick, exc_info=True)
-                self._reader = self._writer = None
+                log.debug("Client disconnected: %r", self, exc_info=True)
                 break
             if not raw:
-                # Connection has been closed.
-                self._writer.close()
-                self._reader = self._writer = None
+                log.debug("Client reached EOF: %r", self)
                 break
             line = Line.parse(raw.decode().rstrip("\r\n"))
-            log.debug("Client %r received line: %r", self._nick, line)
+            log.debug("Client received line: %r %r", self._nick, line)
             await self._handle(line)
-        log.debug("Reconnecting in 3 seconds")
-        await sleep(3)
-        ensure_future(self.connect())
+        ensure_future(self._reconnect("Disconnected"))
+
+    async def _keepalive_loop(self):
+        while True:
+            try:
+                await wait_for(self._live.wait(), timeout=120)
+            except TimeoutError:
+                # Nothing from the server in 2 minutes, send a PING.
+                try:
+                    await self._wait(Line("PING", self._nick), success=("PONG",))
+                except TimeoutError:
+                    log.debug("Client ping timeout: %r", self)
+                    break
+            finally:
+                self._live.clear()
+        ensure_future(self._reconnect("Ping timeout"))
 
     def _write(self, *lines):
         for line in lines:
@@ -431,6 +444,7 @@ class IRCClient:
         return result
 
     async def _handle(self, line):
+        self._live.set()
         # Route lines to any waits listening for them.
         for wait in self._waits:
             if wait.wants(line):
@@ -520,7 +534,7 @@ class IRCClient:
 
     async def connect(self):
         self._reader, self._writer = await open_connection(self._host, self._port, ssl=self._ssl)
-        self._task = ensure_future(self._read_loop())
+        self._read_task = ensure_future(self._read_loop())
         if self._password:
             self._write(Line("PASS", self._password))
         await self._wait(Line("USER", self._user, "0", "*", self._name),
@@ -529,6 +543,7 @@ class IRCClient:
         for user in await self.who(self._nick):
             if user.username == self._nick:
                 self._mask = user.id.split("!", 1)[-1]
+        self._live_task = ensure_future(self._keepalive_loop())
         if self._on_connect:
             await self._on_connect()
 
@@ -536,15 +551,24 @@ class IRCClient:
         for wait in self._waits:
             wait.cancel()
         self._waits.clear()
-        if self._task:
-            self._task.cancel()
-            self._task = None
+        if self._live_task:
+            self._live_task.cancel()
+            self._live_task = None
+        if self._read_task:
+            self._read_task.cancel()
+            self._read_task = None
         self._reader = None
         if self._writer:
             self._write(Line("QUIT", msg))
             await self._writer.drain()
             self._writer.close()
             self._writer = None
+
+    async def _reconnect(self, msg):
+        await self.disconnect(msg)
+        log.debug("Reconnecting in 3 seconds")
+        await sleep(3)
+        await self.connect()
 
     async def who(self, name):
         if name in self.users:
