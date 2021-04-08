@@ -347,6 +347,7 @@ class IRCClient:
         self._mask = None
         # Connection streams.
         self._reader = self._writer = self._read_task = None
+        self._closing = False
         # Background task to send pings if we don't receive any for a while.
         self._live = Event()
         self._live_task = None
@@ -393,20 +394,30 @@ class IRCClient:
     def name(self):
         return self._name
 
+    @property
+    def closing(self):
+        return self._closing
+
     async def _read_loop(self):
         while True:
             try:
                 raw = await self._reader.readline()
             except ConnectionError:
-                log.debug("Client disconnected: %r", self, exc_info=True)
+                log.debug("Client %r disconnected", self._nick, exc_info=True)
                 break
             if not raw:
-                log.debug("Client reached EOF: %r", self)
+                log.debug("Client %r reached EOF", self._nick)
                 break
             line = Line.parse(raw.decode().rstrip("\r\n"))
-            log.debug("Client received line: %r %r", self._nick, line)
+            if line.command == "QUIT" and line.source == self.nickmask:
+                log.debug("Client %r quitting", self._nick)
+                break
+            log.debug("Client %r received line: %r", self._nick, line)
             await self._handle(line)
-        ensure_future(self._reconnect("Disconnected"))
+        self._writer.close()
+        self._reader = self._writer = None
+        if not self._closing:
+            ensure_future(self._reconnect("Disconnected"))
 
     async def _keepalive_loop(self):
         while True:
@@ -417,11 +428,12 @@ class IRCClient:
                 try:
                     await self._wait(Line("PING", self._nick), success=("PONG",))
                 except TimeoutError:
-                    log.debug("Client ping timeout: %r", self)
+                    log.debug("Client %r ping timeout", self._nick)
                     break
             finally:
                 self._live.clear()
-        ensure_future(self._reconnect("Ping timeout"))
+        if not self._closing:
+            ensure_future(self._reconnect("Disconnected"))
 
     def _write(self, *lines):
         for line in lines:
@@ -430,14 +442,14 @@ class IRCClient:
 
     async def _wait(self, *lines, success=(), fail=(), collect=()):
         wait = Wait(success, fail, collect)
-        log.debug("Adding wait: %r", wait)
+        log.debug("Client %r adding wait: %r", self._nick, wait)
         self._waits.append(wait)
         self._write(*lines)
         try:
             result = await wait_for(wait, 10)
-            log.debug("Completing wait: %r", wait)
+            log.debug("Client %r completing wait: %r", self._nick, wait)
         except TimeoutError:
-            log.warning("Timeout on wait: %r", wait, exc_info=True)
+            log.warning("Client %r timed out on wait: %r", self._nick, wait)
             raise
         finally:
             self._waits.remove(wait)
@@ -533,6 +545,7 @@ class IRCClient:
             await self._on_receive(line)
 
     async def connect(self):
+        self._closing = False
         self._reader, self._writer = await open_connection(self._host, self._port, ssl=self._ssl)
         self._read_task = ensure_future(self._read_loop())
         if self._password:
@@ -548,21 +561,29 @@ class IRCClient:
             await self._on_connect()
 
     async def disconnect(self, msg):
+        self._closing = True
         for wait in self._waits:
             wait.cancel()
         self._waits.clear()
         if self._live_task:
             self._live_task.cancel()
             self._live_task = None
+        if self._writer:
+            self._write(Line("QUIT", msg))
+            if self._read_task:
+                try:
+                    await wait_for(self._read_task, 10)
+                except TimeoutError:
+                    log.debug("Server didn't hangup after QUIT")
         if self._read_task:
             self._read_task.cancel()
             self._read_task = None
-        self._reader = None
         if self._writer:
-            self._write(Line("QUIT", msg))
-            await self._writer.drain()
             self._writer.close()
             self._writer = None
+        self._reader = None
+        self.users.clear()
+        self.members.clear()
 
     async def _reconnect(self, msg):
         await self.disconnect(msg)
@@ -736,6 +757,8 @@ class IRCPlug(immp.Plug):
         return channel.source
 
     async def channel_members(self, channel):
+        if self._client.closing:
+            return None
         try:
             nicks = self._client.members[channel.source]
         except KeyError:
@@ -761,10 +784,13 @@ class IRCPlug(immp.Plug):
     async def _handle(self, line):
         if line.command in ("JOIN", "PART", "KICK", "PRIVMSG"):
             sent = await IRCMessage.from_line(self, line)
+            # Suppress initial joins and final parts.
             if sent.joined and sent.joined[0].id == self._client.nickmask:
                 if sent.channel.source in self._joins:
                     self._joins.remove(sent.channel.source)
                     return
+            elif sent.left and sent.left[0].id == self._client.nickmask and self._client.closing:
+                return
             puppets = [client.nickmask for client in self._puppets.values()]
             # Don't yield messages sent by puppets, or for puppet kicks.
             if sent.user.id in puppets:
