@@ -59,7 +59,7 @@ class WebUIHook(immp.ResourceHook):
                                                              # `zip` doesn't seem to work.
                                                              "zipped": zip})
         # Home:
-        self.ctx.route("GET", "", self.noop, "main.j2", "main")
+        self.ctx.route("GET", "", self.main, "main.j2", "main")
         # Add:
         self.ctx.route("GET", "add", self.noop, "add.j2", "add")
         self.ctx.route("POST", "add", self.add, "add.j2", "add:post")
@@ -108,6 +108,13 @@ class WebUIHook(immp.ResourceHook):
 
     async def noop(self, request):
         return {}
+
+    async def main(self, request):
+        loggers = ([("<root>", logging.getLevelName(logging.root.level))] +
+                   [(module, logging.getLevelName(logger.level))
+                    for module, logger in sorted(logging.root.manager.loggerDict.items())
+                    if isinstance(logger, logging.Logger) and logger.level != logging.NOTSET])
+        return {"loggers": loggers}
 
     async def add(self, request):
         post = await request.post()

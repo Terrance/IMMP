@@ -111,6 +111,14 @@
       {%- else %}
       <p class="content">None loaded.</p>
       {%- endif %}
+      <h3 class="title"><i class="fas fa-cog"></i> Logging</h3>
+      <nav class="panel">
+        {%- for module, level in loggers %}
+        <div class="panel-block">
+          <span><strong>{{ module }}</strong> {{ level }}</span>
+        </div>
+        {%- endfor %}
+      </nav>
     </div>
   </div>
 </div>
