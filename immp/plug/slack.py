@@ -126,7 +126,7 @@ class _Schema:
 
     event = immp.Schema(immp.Any(message,
                                  {"type": "team_pref_change",
-                                  "name": "str",
+                                  "name": str,
                                   "value": immp.Any()},
                                  {"type": immp.Any("team_join", "user_change"),
                                   "user": user},
