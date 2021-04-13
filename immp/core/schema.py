@@ -591,7 +591,7 @@ class JSONSchema(Walker):
                 root["required"] = required
         typed = tuple(key for key in obj if isinstance(key, type))
         if typed:
-            root["additonalItems"] = cls.any(Any(*(obj[key] for key in typed)), path, seen)
+            root["additionalItems"] = cls.any(Any(*(obj[key] for key in typed)), path, seen)
         return root
 
     @classmethod
