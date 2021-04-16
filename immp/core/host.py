@@ -382,6 +382,11 @@ class Host:
         await self._try_state(OpenState.active, self.plugs.values(), 30)
         log.debug("Opening remaining hooks")
         await self._try_state(OpenState.active, self.plain_hooks.values(), 30)
+        log.debug("Triggering ready event")
+        for plug in self.plugs.values():
+            plug.on_ready()
+        for hook in self.hooks.values():
+            hook.on_ready()
 
     async def close(self):
         """

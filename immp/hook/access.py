@@ -18,7 +18,7 @@ channel.  To make full use of it, other hooks with support for channel access ca
 user satisfies membership of an external group or application.
 """
 
-import asyncio
+from asyncio import ensure_future
 from collections import defaultdict
 import logging
 
@@ -110,10 +110,9 @@ class ChannelAccessHook(immp.Hook, AccessPredicate):
                 await self._verify(channel, user)
         log.debug("Finished startup access checks")
 
-    async def start(self):
-        await super().start()
+    def on_ready(self):
         if self.config["startup"]:
-            asyncio.ensure_future(self._startup_check())
+            ensure_future(self._startup_check())
 
     async def on_receive(self, sent, source, primary):
         await super().on_receive(sent, source, primary)

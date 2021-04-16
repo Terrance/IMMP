@@ -70,6 +70,16 @@ class Plug(Configurable, Openable):
         """
         await super().stop()
 
+    def on_load(self):
+        """
+        Perform any additional one-time setup that requires other plugs or hooks to be loaded.
+        """
+
+    def on_ready(self):
+        """
+        Perform any post-startup tasks once all hooks and plugs are ready.
+        """
+
     async def user_from_id(self, id_):
         """
         Retrieve a :class:`.User` based on the underlying network's identifier.
@@ -413,11 +423,6 @@ class Plug(Configurable, Openable):
         Args:
             sent (.SentMessage):
                 Existing message to be removed.
-        """
-
-    def on_load(self):
-        """
-        Perform any additional one-time setup that requires other plugs or hooks to be loaded.
         """
 
     def __repr__(self):

@@ -33,6 +33,11 @@ class Hook(Configurable, Openable):
         Perform any additional one-time setup that requires other plugs or hooks to be loaded.
         """
 
+    def on_ready(self):
+        """
+        Perform any post-startup tasks once all hooks and plugs are ready.
+        """
+
     async def channel_migrate(self, old, new):
         """
         Move any private data between channels on admin request.  This is intended to cover data
