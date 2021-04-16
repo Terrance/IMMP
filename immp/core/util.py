@@ -466,7 +466,12 @@ class Openable:
 
     async def start(self):
         """
-        Perform any operations needed to open this resource.
+        Perform any underlying operations needed to ready this resource for use, such as opening
+        connections to an external network or API.
+
+        If using an event-driven framework that yields and runs in the background, you should use
+        a signal of some form (e.g. :class:`asyncio.Condition`) to block this method until the
+        framework is ready for use.
         """
 
     async def close(self):
@@ -489,7 +494,11 @@ class Openable:
 
     async def stop(self):
         """
-        Perform any operations needed to close this resource.
+        Perform any underlying operations needed to stop using this resource and tidy up, such as
+        terminating open network connections.
+
+        Like with :meth:`start`, this should block as needed to wait for other frameworks -- this
+        method should return only when ready to be started again.
         """
 
     def disable(self):

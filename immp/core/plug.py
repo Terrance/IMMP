@@ -51,25 +51,6 @@ class Plug(Configurable, Openable):
         # Hook lock, to put a hold on retrieving messages whilst a send is in progress.
         self._lock = BoundedSemaphore()
 
-    async def start(self):
-        """
-        Start a connection to the external network.
-
-        If using an event-driven framework that yields and runs in the background, you should use
-        a signal of some form (e.g. :class:`asyncio.Condition`) to block this method until the
-        underlying network is ready for use.
-        """
-        await super().start()
-
-    async def stop(self):
-        """
-        Terminate the external network connection.
-
-        Like with :meth:`start`, this should block if needed, such that this method ends when the
-        plug can be started again.
-        """
-        await super().stop()
-
     def on_load(self):
         """
         Perform any additional one-time setup that requires other plugs or hooks to be loaded.

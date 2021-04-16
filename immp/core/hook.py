@@ -18,16 +18,6 @@ class Hook(Configurable, Openable):
         super().__init__(name, config, host)
         self.virtual = virtual
 
-    async def start(self):
-        """
-        Perform any setup tasks.
-        """
-
-    async def stop(self):
-        """
-        Perform any teardown tasks.
-        """
-
     def on_load(self):
         """
         Perform any additional one-time setup that requires other plugs or hooks to be loaded.
