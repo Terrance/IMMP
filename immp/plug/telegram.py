@@ -1006,7 +1006,7 @@ if SQLiteSession:
                                  username)
 
 
-class TelegramPlug(immp.HTTPOpenable, immp.Plug):
+class TelegramPlug(immp.Plug, immp.HTTPOpenable):
     """
     Plug for a `Telegram <https://telegram.org>`_ bot.
     """

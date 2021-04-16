@@ -520,15 +520,15 @@ class HTTPOpenable(Openable):
             Managed session object.
     """
 
-    def __init__(self, name, config, host):
-        super().__init__(name, config, host)
+    def __init__(self):
+        super().__init__()
         self.session = None
 
     async def start(self):
-        await super().start()
         if not ClientSession:
             raise ConfigError("'aiohttp' module not installed")
         self.session = ClientSession()
+        await super().start()
 
     async def stop(self):
         await super().stop()

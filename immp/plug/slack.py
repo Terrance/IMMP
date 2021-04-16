@@ -753,7 +753,7 @@ class SlackMessage(immp.Message):
         return quote
 
 
-class SlackPlug(immp.HTTPOpenable, immp.Plug):
+class SlackPlug(immp.Plug, immp.HTTPOpenable):
     """
     Plug for a `Slack <https://slack.com>`_ team.
     """

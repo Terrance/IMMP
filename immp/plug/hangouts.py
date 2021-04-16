@@ -426,7 +426,7 @@ class HangoutsMessage(immp.Message):
                                 raw=event)
 
 
-class HangoutsPlug(immp.HTTPOpenable, immp.Plug):
+class HangoutsPlug(immp.Plug, immp.HTTPOpenable):
     """
     Plug for `Google Hangouts <https://hangouts.google.com>`_.
     """

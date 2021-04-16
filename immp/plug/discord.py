@@ -456,7 +456,7 @@ class DiscordClient(discord.Client):
         self._plug.queue(await DiscordMessage.from_message(self._plug, message, deleted=True))
 
 
-class DiscordPlug(immp.HTTPOpenable, immp.Plug):
+class DiscordPlug(immp.Plug, immp.HTTPOpenable):
     """
     Plug for a `Discord <https://discordapp.com>`_ server.
     """
