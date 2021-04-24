@@ -1318,11 +1318,20 @@ class TelegramPlug(immp.Plug, immp.HTTPOpenable):
             if private_seq:
                 request = tl.functions.channels.GetFullChannelRequest(int(channel.source))
                 chat = await self._client(request)
-                before = immp.Receipt("{}:{}".format(channel.source, chat.full_chat.pts), channel)
+                # The following behaviour has been observed:
+                # * Supergroups have a read_outbox_max_id equal to the latest message ID.
+                # * Channels that the authenticated user is a member of have a read_outbox_max_id of
+                #   zero, and an unread_count equal to the latest message ID.
+                # * Channels we're not a member of have no information (all counts zero).
+                last = chat.full_chat.read_outbox_max_id or chat.full_chat.unread_count
+                if not last:
+                    log.debug("No unread or outbox message counts for chat: {!s}", channel.source)
+                    return []
+                before = immp.Receipt("{}:{}".format(channel.source, last + 1), channel)
             elif self._last_id:
                 before = immp.Receipt("{}:{}".format(channel.source, self._last_id + 1), channel)
             else:
-                log.debug("Before message required to retrieve messages")
+                log.debug("Before message required to retrieve messages for chat: {!s}", channel.source)
                 return []
         chat, message = (int(field) for field in before.id.split(":", 1))
         # For a channel-private sequence, we can just retrieve the last batch of messages.  For the
