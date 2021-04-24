@@ -292,11 +292,40 @@ class TelegramUser(immp.User):
             .TelegramUser:
                 Parsed user object.
         """
+        username = chat.username if isinstance(chat, tl.types.Channel) else None
         return cls(id_="-100{}".format(chat.id),
                    plug=telegram,
-                   username=chat.username,
+                   username=username,
                    real_name=author or chat.title,
                    raw=chat)
+
+    @classmethod
+    async def from_proto_message(cls, telegram, message):
+        """
+        Try to find the sender or chat of a message, and produce a related :class:`.User`.
+
+        Args:
+            telegram (.TelegramPlug):
+                Related plug instance that provides the user.
+            message (telethon.tl.patched.Message):
+                Telegram message retrieved from the MTProto API.
+
+        Returns:
+            .TelegramUser:
+                Parsed user object, or ``None`` if no sender information is present.
+        """
+        if message.sender_id and not _HiddenSender.has(message.sender_id):
+            sender = await message.get_sender()
+        elif message.chat_id and not _HiddenSender.has(message.chat_id):
+            sender = await message.get_chat()
+        else:
+            return None
+        if isinstance(sender, tl.types.User):
+            return TelegramUser.from_proto_user(telegram, sender)
+        elif isinstance(sender, (tl.types.Chat, tl.types.Channel)):
+            return TelegramUser.from_proto_channel(telegram, sender, message.post_author)
+        else:
+            return None
 
     @classmethod
     def from_entity(cls, telegram, entity):
@@ -810,13 +839,7 @@ class TelegramMessage(immp.Message):
             revision = None
         text = await TelegramRichText.from_proto_entities(telegram, message.message,
                                                           message.entities)
-        user = None
-        if message.sender_id and not _HiddenSender.has(message.sender_id):
-            sender = await message.get_sender()
-            user = TelegramUser.from_proto_user(telegram, sender)
-        elif message.chat_id and not _HiddenSender.has(message.chat_id):
-            chat = await message.get_chat()
-            user = TelegramUser.from_proto_channel(telegram, chat, message.post_author)
+        user = await TelegramUser.from_proto_message(telegram, message)
         action = False
         reply_to = None
         joined = []
@@ -921,8 +944,7 @@ class TelegramMessage(immp.Message):
             if message.forward.date:
                 at = message.forward.date
             if message.forward.sender_id:
-                sender = await message.forward.get_sender()
-                user = TelegramUser.from_proto_user(telegram, sender)
+                user = await TelegramUser.from_proto_message(telegram, message.forward)
             elif message.forward.from_name:
                 user = immp.User(real_name=message.forward.from_name)
         common = dict(id_=id_,
@@ -941,14 +963,8 @@ class TelegramMessage(immp.Message):
                 forward_channel = immp.Channel(telegram, message.forward.chat_id)
             if message.forward.date:
                 forward_date = message.forward.date
-            if message.forward.sender_id and not _HiddenSender.has(message.forward.sender_id):
-                sender = await message.forward.get_sender()
-                forward_user = TelegramUser.from_proto_user(telegram, sender)
-            elif message.forward.chat_id and not _HiddenSender.has(message.forward.chat_id):
-                chat = await message.forward.get_chat()
-                forward_user = TelegramUser.from_proto_channel(telegram, chat,
-                                                               message.forward.post_author)
-            elif message.forward.from_name:
+            forward_user = await TelegramUser.from_proto_message(telegram, message.forward)
+            if not forward_user and message.forward.from_name:
                 forward_user = immp.User(real_name=message.forward.from_name)
             forward_common = dict(text=text,
                                   user=forward_user,
