@@ -27,8 +27,9 @@ Config:
         Leading characters to include in nicks of puppet users.
 """
 
-from asyncio import (CancelledError, Event, Future, ensure_future,
-                     open_connection, sleep, TimeoutError, wait_for)
+from asyncio import (CancelledError, ensure_future, Event, Future, open_connection, sleep,
+                     TimeoutError, wait_for)
+import codecs
 import logging
 import re
 
@@ -36,6 +37,14 @@ import immp
 
 
 log = logging.getLogger(__name__)
+
+
+def _codec_error_latin1(exc):
+    return (exc.object[exc.start:exc.end].decode("latin-1", "ignore"), exc.end)
+
+
+# Fall back to Latin-1 decoding if UTF-8 fails: bytes.decode("utf-8", "retry-latin1")
+codecs.register_error("retry-latin1", _codec_error_latin1)
 
 
 class IRCError(immp.PlugError):
@@ -408,7 +417,11 @@ class IRCClient:
             if not raw:
                 log.debug("Client %r reached EOF", self._nick)
                 break
-            line = Line.parse(raw.decode().rstrip("\r\n"))
+            try:
+                line = Line.parse(raw.decode("utf-8", "retry-latin1").rstrip("\r\n"))
+            except UnicodeDecodeError:
+                log.warning("Client %r failed to decode IRC line", self._nick, exc_info=True)
+                continue
             if line.command == "QUIT" and line.source == self.nickmask:
                 log.debug("Client %r quitting", self._nick)
                 break
