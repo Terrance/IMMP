@@ -254,6 +254,9 @@ class DiscordRichText(immp.RichText):
                     text += tag
                     active.remove(tag)
             for tag, attr in cls.tags.items():
+                # Skip duplicate form of italic.
+                if tag == "*":
+                    continue
                 # Add any new tags that start at this segment.
                 if getattr(segment, attr) and tag not in active:
                     text += tag
