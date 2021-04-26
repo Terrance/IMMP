@@ -61,10 +61,14 @@ class Note(Model):
                    .order_by("timestamp"))
 
     @classmethod
-    def select_position(cls, channel, num):
+    async def select_position(cls, channel, num):
         if num < 1:
             raise ValueError
-        return cls.select_channel(channel).limit(1).offset(num - 1).get()
+        note = await cls.select_channel(channel).offset(num - 1).first()
+        if note:
+            return note
+        else:
+            raise DoesNotExist
 
     @classmethod
     async def select_position_multi(cls, channel, *nums):
