@@ -134,7 +134,7 @@ class NotesHook(immp.Hook):
             text = "{} Does not exist".format(CROSS)
         else:
             note.text = text.raw()
-            note.save()
+            await note.save()
             text = "{} Edited".format(TICK)
         await msg.channel.send(immp.Message(text=text))
 
