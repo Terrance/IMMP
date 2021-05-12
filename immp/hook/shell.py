@@ -179,6 +179,7 @@ class AsyncShellHook(immp.ResourceHook):
         context = {"host": self.host, "shell": self, "immp": immp}
         console = aioconsole.AsynchronousConsole(locals=context, streams=streams)
         context["pprint"] = partial(self._pprint, console)
+        log.debug("Accepted console connection")
         return console
 
     async def on_receive(self, sent, source, primary):
