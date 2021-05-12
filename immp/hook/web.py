@@ -20,6 +20,7 @@ behind a full web server like nginx to separate out routes, lock down access and
 """
 
 from functools import wraps
+from importlib.util import find_spec
 import json
 import logging
 import os.path
@@ -70,7 +71,10 @@ class WebContext:
         if env:
             self.env.update(env)
         self._routes = {}
-        self.hook.add_loader(self.module)
+        # Add Jinja2 only if the module is a full package (i.e. a directory).
+        spec = find_spec(self.module)
+        if spec and spec.submodule_search_locations:
+            self.hook.add_loader(self.module)
 
     def route(self, method, route, fn, template=None, name=None):
         """
