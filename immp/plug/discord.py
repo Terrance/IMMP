@@ -106,8 +106,9 @@ class DiscordUser(immp.User):
 
 class DiscordRichText(immp.RichText):
 
-    tags = {"**": "bold", "*": "italic", "_": "italic", "__": "underline", "~~": "strike",
-            "`": "code", "```": "pre"}
+    base_tags = {"**": "bold", "_": "italic", "__": "underline", "~~": "strike",
+                 "`": "code", "```": "pre"}
+    all_tags = dict({"*": "italic"}, **base_tags)
     # A rather complicated expression to match formatting tags according to the following rules:
     # 1) Outside of formatting may not be adjacent to alphanumeric or other formatting characters.
     # 2) Inside of formatting may not be adjacent to whitespace or the current formatting character.
@@ -134,7 +135,7 @@ class DiscordRichText(immp.RichText):
         return "#{}".format(discord_._client.get_channel(int(match.group(1))).name)
 
     @classmethod
-    def from_message(cls, discord_, message, channel=None):
+    def from_message(cls, discord_, message):
         """
         Convert a string of Markdown from a Discord message into a :class:`.RichText`.
 
@@ -143,8 +144,6 @@ class DiscordRichText(immp.RichText):
                 Related plug instance that provides the text.
             message (discord.Message):
                 Containing message object, in order to resolve mentions.
-            channel (.Channel):
-                Related channel, used to retrieve mentioned users as members.
 
         Returns:
             .DiscordRichText:
@@ -176,7 +175,7 @@ class DiscordRichText(immp.RichText):
                 parse = parse[:start] + match.group(2) + parse[end:]
                 end -= 2 * len(tag)
                 # Record the range where the format is applied.
-                field = cls.tags[tag]
+                field = cls.all_tags[tag]
                 changes[offset + start][field] = True
                 changes[offset + end][field] = False
                 # Shift any future tags back.
@@ -249,11 +248,11 @@ class DiscordRichText(immp.RichText):
         for segment in rich.normalise():
             for tag in reversed(active):
                 # Check all existing tags, and remove any that end at this segment.
-                attr = cls.tags[tag]
+                attr = cls.base_tags[tag]
                 if not getattr(segment, attr):
                     text += tag
                     active.remove(tag)
-            for tag, attr in cls.tags.items():
+            for tag, attr in cls.base_tags.items():
                 # Skip duplicate form of italic.
                 if tag == "*":
                     continue
@@ -342,7 +341,7 @@ class DiscordMessage(immp.Message):
         user = DiscordUser.from_user(discord_, message.author)
         attachments = []
         if message.content:
-            text = DiscordRichText.from_message(discord_, message, channel)
+            text = DiscordRichText.from_message(discord_, message)
         if message.reference:
             receipt = immp.Receipt(message.reference.message_id,
                                    immp.Channel(discord_, message.reference.channel_id))
