@@ -32,6 +32,11 @@ Bots can be created by talking to `@BotFather <https://t.me/BotFather>`_.  Use t
 command to retrieve your API token.  You should also call ``/setprivacy`` to grant the bot
 permission to see all messages as they come in.
 
+Channel sources should be Telegram's numerical IDs but quoted as strings, e.g. ``"12345678"``.
+Telegram supergroups and channels should include the ``-100`` prefix.  Note that channel usernames
+can't be used as a source, though they can be passed to :meth:`.Plug.user_from_username` in order
+to reveal the corresponding identifier.
+
 Telegram bots are rather limited by the bot API.  To make use of some features (including lookup of
 arbitrary users and listing members in chats), you'll need to combine bot authorisation with an
 MTProto application.  This is done via `app credentials <https://my.telegram.org/apps>`_ applied to

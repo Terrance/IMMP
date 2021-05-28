@@ -23,6 +23,11 @@ You may alternatively use a full user account, with a token obtained from the `L
 adding or removing users in channels.
 
 If multiple Slack workspaces are involved, you will need a separate bot and plug setup per team.
+
+Channel sources should be Slack's channel IDs, typically of the form ``C12345678`` where ``C`` is
+the channel type and the rest forms its random identifier.  Note that using channel display names
+like ``#channel`` is not supported (it may work for sending, but each message received will only be
+attributed to its identifier rather than name).
 """
 
 from asyncio import CancelledError, ensure_future, gather, sleep

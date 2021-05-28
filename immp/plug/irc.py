@@ -25,6 +25,9 @@ Config:
         be made when sending a message with an unseen username, and reused for later messages.
     puppet-prefix (str):
         Leading characters to include in nicks of puppet users.
+
+Channel sources should include the correct channel prefix or prefixes (typically just ``#``) for
+shared channels, and bare IRC nicks for private channels.
 """
 
 from asyncio import (CancelledError, ensure_future, Event, Future, open_connection, sleep,

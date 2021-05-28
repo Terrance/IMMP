@@ -1,8 +1,9 @@
 """
 For testing, a plug with no external network.
 
-Messages with sequential identifiers are created and returned every 10 seconds.  Any messages sent
-to the plug are cloned and returned as if a network had processed them.
+Messages with sequential identifiers are created and posted to the ``dummy`` channel every 10
+seconds.  Any messages sent to the plug are echoed to this channel as if a network had itself
+processed them.
 """
 
 from asyncio import ensure_future, sleep

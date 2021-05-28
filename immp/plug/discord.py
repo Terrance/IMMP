@@ -28,6 +28,10 @@ Note that the token is neither a client ID nor client secret -- you need to enab
 your app, and collect the token from there.  New apps can be created from the `My Apps
 <https://discordapp.com/developers/applications/me>`_ page in the developer docs.
 
+Channel sources should be Discord's numerical IDs but quoted as strings, e.g. ``"123456789012"``.
+You can enable Advanced > Developer Mode in your Discord app settings in order to enable Copy ID
+menu options in various places across the UI.
+
 Because gateway connections can't customise the sender when pushing new messages, you may also want
 an `incoming webhook <https://discordapp.com/developers/docs/resources/webhook>`_  configured for
 each channel you intend to send messages to.  A new webhook can be created over the API, or in the
