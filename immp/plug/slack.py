@@ -8,21 +8,59 @@ Requirements:
 
 Config:
     token (str):
-        Slack API token for a bot user.
+        Slack API user or bot token (``xoxb`` prefix).
+    app-token (str):
+        Slack API app token, if using a modern app (``xapp`` prefix).
     fallback-image (str):
         Avatar to display for incoming messages without a user or image (default: none).
     thread-broadcast (bool):
         ``True`` to always send outgoing thread replies back to the channel.
+    real-names (bool):
+        ``True`` to prefer user real names when sending messages, ``False`` to prefer usernames.
 
-You'll need to create either a full `Slack App <https://api.slack.com/apps>`_ and add a bot, or
-a `Bot Integration <https://my.slack.com/apps/A0F7YS25R-bots>`_.  In either case, you should end up
-with a token prefixed ``xoxb-``.
+Slack supports multiple types of apps and legacy integrations; this plug supports most of them.  If
+you're starting fresh, you should `create a new Slack App <https://api.slack.com/apps>`_ and follow
+the modern app steps below.
 
-You may alternatively use a full user account, with a token obtained from the `Legacy tokens
-<https://api.slack.com/custom-integrations/legacy-tokens>`_ page.  This is required to make use of
-adding or removing users in channels.
+If you have an existing Slack App created on or after December 2019, then it is a modern app.  Apps
+created before then are of classic type, and classic apps with an existing bot user should work
+without further setup; just enter the current bot API token in the ``token`` config field.  You can
+alternatively use any tokens that have access to the RTM APIs, including those from `legacy bot
+integrations <https://slack.com/apps/A0F7YS25R-bots>`_ and `legacy tester tokens
+<https://api.slack.com/custom-integrations/legacy-tokens>`_, if you have them.
+
+The events and scopes listed below cover everything that's supported by this plug -- you are free
+to grant a subset of these as desired, with the obvious caveat that the corresponding features you
+deny access to will not work.  Note that classic app bots do not have any channel management
+permissions, so cannot add or remove users in channels.
+
+Modern apps:
+  * `Create an app <https://api.slack.com/apps?new_app=1>`_ if you haven't already.
+  * Socket Mode page -- enable it for your app.
+  * Event Subscriptions page -- enable the following events:
+      channel_archive, channel_left, channel_rename, channel_unarchive,
+      group_archive, group_deleted, group_left, group_rename, group_unarchive,
+      message.channels, message.groups, message.im, message.mpim,
+      member_joined_channel, member_left_channel, team_join, team_rename, user_change
+  * OAuth & Permissions page -- grant the following scopes:
+      channels:read, channels:history, channels:manage, groups:read, groups:history,
+      im:read, im:history, im:write, mpim:read, mpim:history, chat:write, chat:write.customize,
+      files:read, files:write, team:read, users:read
+  * App Home page -- enable the Messages tab and sending of messages, and add a bot user.
+  * Install App page -- install the app to your workspace, collect your bot OAuth token, and enter
+    that in the ``token`` config field.
+  * Basic Information page -- generate or collect an app-level token with the ``connections:write``
+    scope, and enter that in the ``app-token`` config field.
+
+Classic apps:
+  * `Create a classic app <https://api.slack.com/apps?new_classic_app=1>`_ if you haven't already.
+  * OAuth & Permissions page -- grant the ``bot`` scope.
+  * App Home page -- enable the Messages tab and sending of messages, and add a bot user.
+  * Install App page -- install the app to your workspace, collect your bot OAuth token, and enter
+    that in the ``token`` config field.
 
 If multiple Slack workspaces are involved, you will need a separate bot and plug setup per team.
+There is no special handling of Enterprise Grid workspaces.
 
 Channel sources should be Slack's channel IDs, typically of the form ``C12345678`` where ``C`` is
 the channel type and the rest forms its random identifier.  Note that using channel display names
@@ -57,14 +95,10 @@ class _Schema:
                for size in image_sizes}
 
     config = immp.Schema({"token": str,
+                          immp.Optional("app-token"): immp.Nullable(str),
                           immp.Optional("fallback-image"): immp.Nullable(str),
-                          immp.Optional("thread-broadcast", False): bool})
-
-    team = immp.Schema({"id": str,
-                        "name": str,
-                        "domain": str,
-                        "prefs": {immp.Optional("display_real_names", False): bool,
-                                  str: immp.Any()}})
+                          immp.Optional("thread-broadcast", False): bool,
+                          immp.Optional("real-names", True): bool})
 
     user = immp.Schema({"id": str,
                         "name": str,
@@ -77,7 +111,9 @@ class _Schema:
                        "name": str,
                        "icons": _images})
 
-    channel = immp.Schema({"id": str, "name": str})
+    _channel = {"id": str,
+                immp.Optional("name"): immp.Nullable(str),
+                immp.Optional("is_im", False): bool}
 
     direct = immp.Schema({"id": str, "user": str})
 
@@ -148,6 +184,13 @@ class _Schema:
                                   immp.Optional("subtype"): immp.Nullable(str)},
                                  {"type": str}))
 
+    socket_event = immp.Schema(immp.Any({"type": "events_api",
+                                         immp.Optional("envelope_id"): immp.Nullable(str),
+                                         "payload": {"type": "event_callback",
+                                                     "event": event}},
+                                        {"type": str,
+                                         immp.Optional("envelope_id"): immp.Nullable(str)}))
+
     def _api(nested={}):
         return immp.Schema(immp.Any({"ok": True,
                                      immp.Optional("response_metadata", dict):
@@ -156,25 +199,17 @@ class _Schema:
                                     {"ok": False,
                                      "error": str}))
 
-    rtm = _api({"url": str,
-                "self": {"id": str},
-                "team": {"id": str, "name": str, "domain": str},
-                "users": [user],
-                "channels": [channel],
-                "groups": [channel],
-                "ims": [direct],
-                "bots": [{"id": str,
-                          "deleted": bool}]})
-
-    im_open = _api({"channel": direct})
-
-    members = _api({"members": [str]})
-
-    post = _api({"channel": str, "message": message})
-
-    upload = _api({"file": file})
-
-    history = _api({"messages": [message]})
+    socket_open = _api({"url": str})
+    auth_test = _api({"user_id": str})
+    team_info = _api({"team": {"id": str, "name": str, "domain": str}})
+    users_list = _api({"members": [user]})
+    bot_info = _api({"bot": bot})
+    convs_list = _api({"channels": [_channel]})
+    conv_open = _api({"channel": direct})
+    conv_members = _api({"members": [str]})
+    conv_history = _api({"messages": [message]})
+    chat_post = _api({"channel": str, "message": message})
+    file_upload = _api({"file": file})
 
     api = _api()
 
@@ -215,7 +250,7 @@ class SlackUser(immp.User):
     def real_name(self):
         if self._real_name_override:
             return self._real_name_override
-        elif self.plug._use_real_names:
+        elif self.plug.config["real-names"]:
             return self._real_name or self._display_name
         else:
             return self._display_name or self._real_name
@@ -521,12 +556,21 @@ class SlackMessage(immp.Message):
             raise TypeError("Need either event or author")
         elif event["user"]:
             author = event["user"]
-        elif event["bot_id"] in slack._bot_to_user:
-            # Event has the bot's app ID, not user ID.
-            author = slack._bot_to_user[event["bot_id"]]
-        elif event["bot_id"] in slack._bots:
-            # Slack app with no bot presence, use the app metadata.
-            user = slack._bots[event["bot_id"]]
+        elif event["bot_id"]:
+            if event["bot_id"] in slack._bot_to_user:
+                # Event has the bot's app ID, not user ID.
+                author = slack._bot_to_user[event["bot_id"]]
+            elif event["bot_id"] in slack._bots:
+                # Slack app with no bot presence, use the app metadata.
+                user = slack._bots[event["bot_id"]]
+            else:
+                try:
+                    bot = await slack._api("bots.info", _Schema.bot_info,
+                                           params={"bot": event["bot_id"]})
+                except SlackAPIError:
+                    log.warning("Failed to resolve bot ID %r", event["bot_id"], exc_info=True)
+                else:
+                    user = SlackUser.from_bot(slack, bot["bot"])
         if author:
             user = await slack.user_from_id(author) or SlackUser(id_=author, plug=slack)
         if event["username"]:
@@ -710,7 +754,7 @@ class SlackMessage(immp.Message):
             .SlackMessage:
                 Parsed message object.
         """
-        post = _Schema.post(json)
+        post = _Schema.chat_post(json)
         channel = immp.Channel(slack, post["channel"])
         return await cls._parse_main(slack, json, post["message"], channel, True)
 
@@ -771,7 +815,7 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
 
     @property
     def network_id(self):
-        return "slack:{}:{}".format(self._team["id"], self._bot_user["id"]) if self._team else None
+        return "slack:{}:{}".format(self._team["id"], self._bot_user) if self._team else None
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
@@ -780,6 +824,7 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
         self._bots = self._bot_to_user = self._members = None
         # Connection objects that need to be closed on disconnect.
         self._socket = self._receive = None
+        self._app_socket = False
         self._closing = False
 
     def same_team(self, other):
@@ -796,16 +841,13 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
         """
         return isinstance(other, self.__class__) and self._team["id"] == other._team["id"]
 
-    @property
-    def _use_real_names(self):
-        return bool(self._team["prefs"]["display_real_names"])
-
-    async def _api(self, endpoint, schema=_Schema.api, params=None, **kwargs):
-        params = params or {}
-        params["token"] = self.config["token"]
-        log.debug("Making API request to %r", endpoint)
+    async def _api(self, endpoint, schema=_Schema.api, app=False, *, headers=None, **kwargs):
+        headers = headers or {}
+        token = app and self.config["app-token"] or self.config["token"]
+        headers["Authorization"] = "Bearer {}".format(token)
+        log.debug("User %r making API request to %r", self._bot_user, endpoint)
         async with self.session.post("https://slack.com/api/{}".format(endpoint),
-                                     params=params, **kwargs) as resp:
+                                     headers=headers, **kwargs) as resp:
             try:
                 resp.raise_for_status()
             except ClientResponseError as e:
@@ -817,12 +859,11 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
             raise SlackAPIError(data["error"])
         return data
 
-    async def _paged(self, endpoint, schema, key, params=None, **kwargs):
+    async def _paged(self, endpoint, schema, key, app=False, *, params=None, **kwargs):
         params = params or {}
-        params["token"] = self.config["token"]
         items = []
         while True:
-            data = await self._api(endpoint, schema, params, **kwargs)
+            data = await self._api(endpoint, schema, app, params=params, **kwargs)
             items += data[key]
             if data["response_metadata"]["next_cursor"]:
                 params["cursor"] = data["response_metadata"]["next_cursor"]
@@ -831,23 +872,33 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
         return items
 
     async def _rtm(self):
-        log.debug("Requesting RTM session")
-        rtm = await self._api("rtm.start", _Schema.rtm)
+        auth = await self._api("auth.test", _Schema.auth_test)
+        self._bot_user = auth["user_id"]
         # Cache useful information about users and channels, to save on queries later.
-        self._bot_user = rtm["self"]
-        self._team = _Schema.team(rtm["team"])
-        self._users = {u["id"]: SlackUser.from_member(self, u) for u in rtm["users"]}
-        self._channels = {c["id"]: c for c in rtm["channels"] + rtm["groups"]}
-        self._directs = {c["id"]: c for c in rtm["ims"]}
-        self._bots = {b["id"]: SlackUser.from_bot(self, b)
-                      for b in rtm["bots"] if not b["deleted"]}
-        log.debug("Cached %d users, %d channels, %d IMs, %d bots",
-                  len(self._users), len(self._channels), len(self._directs), len(self._bots))
+        reqs = (self._api("team.info", _Schema.team_info),
+                self._paged("users.list", _Schema.users_list, "members"),
+                self._paged("conversations.list", _Schema.convs_list, "channels",
+                            params={"types": "public_channel,private_channel,mpim,im"}))
+        team, users, convs = await gather(*reqs)
+        self._team = team["team"]
+        self._users = {u["id"]: SlackUser.from_member(self, u) for u in users}
+        self._directs = {c["id"]: c for c in convs if c["is_im"]}
+        self._channels = {c["id"]: c for c in convs if c["id"] not in self._directs}
+        log.debug("User %r cached %d users, %d channels, %d IMs", self._bot_user,
+                  len(self._users), len(self._channels), len(self._directs))
         self._members = {}
+        self._bots = {}
         # Create a map of bot IDs to users, as the bot cache doesn't contain references to them.
         self._bot_to_user = {user.bot_id: user.id for user in self._users.values() if user.bot_id}
+        log.debug("User %r requesting websocket session", self._bot_user)
+        if self.config["app-token"]:
+            rtm = await self._api("apps.connections.open", _Schema.socket_open, True)
+            self._app_socket = True
+        else:
+            rtm = await self._api("rtm.connect", _Schema.socket_open)
+            self._app_socket = False
         self._socket = await self.session.ws_connect(rtm["url"], heartbeat=60.0)
-        log.debug("Connected to websocket")
+        log.debug("User %r connected to websocket", self._bot_user)
 
     async def start(self):
         await super().start()
@@ -884,7 +935,7 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
         return None
 
     async def user_is_system(self, user):
-        return user.id == self._bot_user["id"]
+        return user.id == self._bot_user
 
     async def public_channels(self):
         return [immp.Channel(self, id_) for id_ in self._channels]
@@ -899,10 +950,12 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
             if direct["user"] == user.id:
                 return immp.Channel(self, direct["id"])
         # Private channel doesn't exist yet or isn't cached.
-        params = {"user": user.id,
+        params = {"users": user.id,
                   "return_im": "true"}
-        opened = await self._api("im.open", _Schema.im_open, params=params)
-        return immp.Channel(self, opened["channel"]["id"])
+        opened = await self._api("conversations.open", _Schema.conv_open, params=params)
+        channel = opened["channel"]
+        self._directs[channel["id"]] = channel
+        return immp.Channel(self, channel["id"])
 
     async def channel_is_private(self, channel):
         return channel.source in self._directs
@@ -922,21 +975,21 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
         if channel.plug is not self:
             return None
         if channel.source not in self._members:
-            members = await self._paged("conversations.members", _Schema.members, "members",
+            members = await self._paged("conversations.members", _Schema.conv_members, "members",
                                         data={"channel": channel.source})
             self._members[channel.source] = members
         return await gather(*(self.user_from_id(member)
                               for member in self._members[channel.source]))
 
     async def channel_invite(self, channel, user):
-        if user.id == self._bot_user["id"]:
+        if user.id == self._bot_user:
             await self._api("conversations.join", params={"channel": channel.source})
         else:
             await self._api("conversations.invite", params={"channel": channel.source,
                                                             "user": user.id})
 
     async def channel_remove(self, channel, user):
-        if user.id == self._bot_user["id"]:
+        if user.id == self._bot_user:
             await self._api("conversations.leave", params={"channel": channel.source})
         else:
             await self._api("conversations.kick", params={"channel": channel.source,
@@ -946,7 +999,7 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
         params = {"channel": channel.source}
         if before:
             params["latest"] = before.id
-        history = await self._api("conversations.history", _Schema.history, params=params)
+        history = await self._api("conversations.history", _Schema.conv_history, params=params)
         messages = list(reversed(history["messages"]))
         for msg in messages:
             msg["channel"] = channel.source
@@ -958,7 +1011,7 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
                   "inclusive": "true",
                   "limit": 1}
         try:
-            history = await self._api("conversations.history", _Schema.history, params=params)
+            history = await self._api("conversations.history", _Schema.conv_history, params=params)
         except SlackAPIError:
             log.debug("API error retrieving message %r from %r", receipt.id, receipt.channel.source,
                       exc_info=True)
@@ -974,7 +1027,7 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
     async def get_replies(self, receipt):
         params = {"channel": receipt.channel.source, "ts": receipt.id}
         try:
-            replies = await self._api("conversations.replies", _Schema.history, params=params)
+            replies = await self._api("conversations.replies", _Schema.conv_history, params=params)
         except SlackAPIError as e:
             log.debug("API error retrieving replies %r from %r: %r",
                       receipt.id, receipt.channel.source, e.args[0])
@@ -991,7 +1044,7 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
                   "inclusive": "true",
                   "limit": 1}
         try:
-            replies = await self._api("conversations.replies", _Schema.history, params=params)
+            replies = await self._api("conversations.replies", _Schema.conv_history, params=params)
         except SlackAPIError as e:
             log.debug("API error retrieving reply %r -> %r from %r: %r",
                       receipt.id, reply_ts, receipt.channel.source, e.args[0])
@@ -1008,15 +1061,16 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
         receipts = []
         uploads = 0
         name = None
-        data = {"channel": channel.source, "as_user": True}
+        data = {"channel": channel.source}
         if msg.user:
-            data["as_user"] = False
             data["username"] = name = msg.user.real_name or msg.user.username
             if msg.user.avatar:
                 # Slack permanently caches user icon URLs; add monotonic hashes to keep them fresh.
                 data["icon_url"] = "{}#{}".format(msg.user.avatar, int(time.time()))
             elif self.config["fallback-image"]:
                 data["icon_url"] = self.config["fallback-image"]
+        if not self.config["app-token"]:
+            data["as_user"] = False if msg.user else True
         for attach in msg.attachments:
             if isinstance(attach, immp.File):
                 # Upload each file to Slack.
@@ -1035,7 +1089,7 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
                     form.add_field("initial_comment", SlackRichText.to_mrkdwn(self, comment))
                 img_resp = await attach.get_content(self.session)
                 form.add_field("file", img_resp.content, filename="file")
-                upload = await self._api("files.upload", _Schema.upload, data=form)
+                upload = await self._api("files.upload", _Schema.file_upload, data=form)
                 uploads += 1
                 for shared in upload["file"]["shares"].values():
                     if channel.source in shared:
@@ -1072,7 +1126,7 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
                 data["text"] = SlackRichText.to_mrkdwn(self, rich)
             if attachments:
                 data["attachments"] = json_dumps(attachments)
-            post = await self._api("chat.postMessage", _Schema.post, data=data)
+            post = await self._api("chat.postMessage", _Schema.chat_post, data=data)
             receipts.append(await SlackMessage.from_post(self, post))
         return receipts
 
@@ -1104,28 +1158,39 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
 
     async def _poll(self):
         while self.state == immp.OpenState.active and not self._closing:
-            fetch = ensure_future(self._socket.receive_json())
             try:
-                json = await fetch
+                json = await self._socket.receive_json()
             except CancelledError:
-                log.debug("Cancelling polling")
+                log.debug("User %r cancelling polling", self._bot_user)
                 return
             except TypeError as e:
                 if self._closing:
                     return
-                log.debug("Unexpected socket state: %r", e)
+                log.debug("User %r in unexpected socket state: %r", self._bot_user, e)
                 await self._socket.close()
                 self._socket = None
                 log.debug("Reconnecting in 3 seconds")
                 await sleep(3)
                 await self._rtm()
                 continue
-            event = _Schema.event(json)
-            log.debug("Received a %r event", event["type"])
-            if event["type"] == "team_pref_change":
-                # A setting changed, update the team-wide preference cache.
-                self._team["prefs"][event["name"]] = event["value"]
-            elif event["type"] in ("team_join", "user_change"):
+            if self._app_socket:
+                wrapper = _Schema.socket_event(json)
+                if "envelope_id" in wrapper:
+                    await self._socket.send_json({"envelope_id": wrapper["envelope_id"]})
+                if wrapper["type"] != "events_api" or not wrapper["payload"]:
+                    log.debug("User %r ignpring unknown Socket Mode event %r",
+                              self._bot_user, wrapper["type"])
+                    continue
+                payload = wrapper["payload"]
+                if payload["type"] != "event_callback":
+                    log.debug("User %r ignoring unknown Events API callback %r",
+                              self._bot_user, payload["type"])
+                    continue
+                event = payload["event"]
+            else:
+                event = payload = _Schema.event(json)
+            log.debug("User %r received a %r event", self._bot_user, event["type"])
+            if event["type"] in ("team_join", "user_change"):
                 # A user appeared or changed, update our cache.
                 self._users[event["user"]["id"]] = SlackUser.from_member(self, event["user"])
             elif event["type"] in ("channel_created", "channel_joined", "channel_rename",
