@@ -205,6 +205,9 @@ class IRCRichText(immp.RichText):
 
 
 class IRCUser(immp.User):
+    """
+    User present in IRC.
+    """
 
     # All non-greyscale colours: https://modern.ircdocs.horse/formatting.html#color
     _nick_colours = [str(colour).zfill(2) for colour in range(2, 14)]
@@ -228,11 +231,39 @@ class IRCUser(immp.User):
 
     @classmethod
     def from_id(cls, irc, id_, real_name=None):
+        """
+        Extract the nick from a nickmask into a :class:`.User`.
+
+        Args:
+            irc (.IRCPlug):
+                Related plug instance that provides the user.
+            id_ (str):
+                Nickmask of the target user.
+            real_name (str):
+                Display name of the user, if known.
+
+        Returns:
+            .User:
+                Parsed user object.
+        """
         nick = id_.split("!", 1)[0]
         return immp.User(id_=id_, plug=irc, username=nick, real_name=real_name, raw=id_)
 
     @classmethod
     def from_who(cls, irc, line):
+        """
+        Convert the response of a ``WHO`` query into a :class:`.User`.
+
+        Args:
+            irc (.IRCPlug):
+                Related plug instance that provides the user.
+            line (.Line):
+                352-numeric line containing a user's nickmask and real name.
+
+        Returns:
+            .User:
+                Parsed user object.
+        """
         id_ = "{}!{}@{}".format(line.args[5], line.args[2], line.args[3])
         username = line.args[5]
         real_name = line.args[-1].split(" ", 1)[-1]
@@ -320,7 +351,11 @@ class Wait:
     Request-like object for sending a :class:`.Line` and waiting on a response.
 
     After sending, await an instance of this class to retrieve all collected lines after a success
-    line is received.  On failure, a :class:`ValueError` is raised.
+    line is received.  On failure, an :class:`IRCError` is raised.
+
+    Attributes:
+        done (bool):
+            ``True`` once a success or fail line has been received.
     """
 
     def __init__(self, success, fail, collect):
@@ -330,25 +365,34 @@ class Wait:
         self._data = []
         self._result = Future()
 
-    def wants(self, line):
-        return (line.command == IRCTryAgain.COMMAND or
-                line.command in self._success + self._fail + self._collect)
-
     @property
     def done(self):
         return self._result.done()
 
     def add(self, line):
+        """
+        Consume and handle a line, or raise :class:`TypeError` if it's not applicable to this wait.
+
+        Args:
+            line (.Line):
+                Incoming line to be handled.
+        """
         if line.command == IRCTryAgain.COMMAND:
             self._result.set_exception(IRCTryAgain(line))
+            return
         if line.command in self._collect:
             self._data.append(line)
         if line.command in self._success:
             self._result.set_result(self._data)
         elif line.command in self._fail:
             self._result.set_exception(IRCError(line))
+        elif line.command not in self._collect:
+            raise TypeError("Line not applicable")
 
     def cancel(self):
+        """
+        Cancel any tasks waiting on this wait.
+        """
         self._result.set_exception(CancelledError("Wait was cancelled"))
 
     def __await__(self):
@@ -366,6 +410,14 @@ class Wait:
 class IRCClient:
     """
     Minimal, standalone IRC client.
+
+    Attributes:
+        nick (str):
+            Connected user's nickname.
+        nickmask (str):
+            Combination of the connected user's nick and hostname.
+        name (str):
+            Connected user's display name.
     """
 
     # Acceptable characters: A-Z 0-9 ^ _ - [ ] { } |
@@ -404,6 +456,14 @@ class IRCClient:
         self._waits = []
 
     async def set_nick(self, value):
+        """
+        Set the user's nick, and wait until it's successful.  If connected and the desired nick is
+        not available, underscores will be appended until a free nick is found.
+
+        Args:
+            value (str):
+                Desired new nick.
+        """
         value = self._nick_bad_chars.sub("", value)
         if self._nicklen:
             value = value[:self._nicklen]
@@ -504,8 +564,11 @@ class IRCClient:
         self._live.set()
         # Route lines to any waits listening for them.
         for wait in self._waits:
-            if wait.wants(line):
+            try:
                 wait.add(line)
+            except TypeError:
+                continue
+            else:
                 break
         if line.command == "001":
             # Update our nick again in case it was truncated or otherwise changed.
@@ -590,6 +653,9 @@ class IRCClient:
             await self._on_receive(line)
 
     async def connect(self):
+        """
+        Join the target IRC server.
+        """
         self._closing = False
         self._reader, self._writer = await open_connection(self._host, self._port, ssl=self._ssl)
         self._read_task = ensure_future(self._read_loop())
@@ -606,6 +672,13 @@ class IRCClient:
             await self._on_connect()
 
     async def disconnect(self, msg):
+        """
+        Quit from the connected IRC server.
+
+        Args:
+            msg (str):
+                Disconnect message sent to the server.
+        """
         self._closing = True
         for wait in self._waits:
             wait.cancel()
@@ -637,6 +710,17 @@ class IRCClient:
         await self.connect()
 
     async def who(self, name):
+        """
+        Perform a user lookup on the server.
+
+        Args:
+            name (str):
+                User nick or channel name.
+
+        Returns:
+            .Line list:
+                Response lines from the server.
+        """
         if name in self.users:
             self.members[name] = {name}
             return {self.users[name]}
@@ -655,24 +739,76 @@ class IRCClient:
         return users
 
     async def join(self, channel):
+        """
+        Attempt to join the given channel.
+
+        Args:
+            channel (str):
+                Target channel name.
+        """
         if channel in self.members and self._nick in self.members[channel]:
             return
         await self._wait(Line("JOIN", channel), success=("JOIN",))
         await self.who(channel)
 
     def invite(self, channel, nick):
+        """
+        Invite another user to a channel you're partipating in.
+
+        Args:
+            channel (str):
+                Target channel name.
+            nick (str):
+                User to be invited.
+        """
         self._write(Line("INVITE", nick, channel))
 
     def kick(self, channel, nick):
+        """
+        Remove a user from a channel you're an operator of.
+
+        Args:
+            channel (str):
+                Target channel name.
+            nick (str):
+                User to be kicked.
+        """
         self._write(Line("KICK", channel, nick))
 
     async def list(self):
+        """
+        Request a list of open channels on the server.
+
+        Returns:
+            .Line list:
+                Response lines from the server.
+        """
         return await self._wait(Line("LIST"), success=("323",), collect=("322",))
 
     async def names(self):
+        """
+        Request a list of users in channels you're participating in.
+
+        Returns:
+            .Line list:
+                Response lines from the server.
+        """
         return await self._wait(Line("NAMES"), success=("366",), fail=("401",), collect=("353",))
 
     def send(self, channel, text):
+        """
+        Send a message to a user or channel.
+
+        Args:
+            channel (str):
+                Target channel name or user nick.
+            text (str):
+                IRC-formatted message text.
+
+        Returns:
+            .Line:
+                Resulting line sent to the server.
+        """
         line = Line("PRIVMSG", channel, text)
         self._write(line)
         line.source = self.nickmask
