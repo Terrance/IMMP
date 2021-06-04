@@ -329,7 +329,10 @@ class SlackRichText(immp.RichText):
     Wrapper for Slack-specific parsing of formatting.
     """
 
-    tags = {"*": "bold", "_": "italic", "~": "strike", "`": "code", "```": "pre"}
+    # If bold comes before italic here, "<b,i,l=http://example.com>B+I+L</> <i>just I</>" becomes
+    # "*_<http://example.com|B+I+L>_* _just I_" and the first segment's italic breaks.  For some
+    # reason this doesn't happen with bold and italic swapped here and in the text.
+    tags = {"_": "italic", "*": "bold", "~": "strike", "`": "code", "```": "pre"}
     # A rather complicated expression to match formatting tags according to the following rules:
     # 1) Outside of formatting may not be adjacent to alphanumeric or other formatting characters.
     # 2) Inside of formatting may not be adjacent to whitespace or the current formatting character.
