@@ -68,7 +68,7 @@ like ``#channel`` is not supported (it may work for sending, but each message re
 attributed to its identifier rather than name).
 """
 
-from asyncio import CancelledError, ensure_future, gather, sleep
+from asyncio import CancelledError, ensure_future, gather, Lock, sleep
 from copy import copy
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -536,6 +536,8 @@ class SlackMessage(immp.Message):
     Message originating from Slack.
     """
 
+    _bot_lookup = Lock()
+
     @classmethod
     def from_unfurl(cls, slack, attach):
         unfurl = _Schema.msg_unfurl(attach)
@@ -557,20 +559,27 @@ class SlackMessage(immp.Message):
         elif event["user"]:
             author = event["user"]
         elif event["bot_id"]:
-            if event["bot_id"] in slack._bot_to_user:
-                # Event has the bot's app ID, not user ID.
-                author = slack._bot_to_user[event["bot_id"]]
-            elif event["bot_id"] in slack._bots:
-                # Slack app with no bot presence, use the app metadata.
-                user = slack._bots[event["bot_id"]]
-            else:
-                try:
-                    bot = await slack._api("bots.info", _Schema.bot_info,
-                                           params={"bot": event["bot_id"]})
-                except SlackAPIError:
-                    log.warning("Failed to resolve bot ID %r", event["bot_id"], exc_info=True)
+            # Fetching a slice of channel history may call this method many times in parallel, with
+            # many parallel lookups of the same bot ID -- force serial lookups here to try and avoid
+            # unnecessary API requests if several of them refer to the same legacy bot user.
+            async with cls._bot_lookup:
+                bot_id = event["bot_id"]
+                if bot_id in slack._bot_to_user:
+                    # Event has the bot's app ID, not user ID.
+                    author = slack._bot_to_user[bot_id]
+                elif bot_id in slack._bot_to_app:
+                    # Slack app with no bot presence, use the app metadata.
+                    user = slack._bot_to_app[bot_id]
                 else:
-                    user = SlackUser.from_bot(slack, bot["bot"])
+                    # Legacy bot (owned by the Slack API Tester app), or a bot from an uninstalled
+                    # app, do a lookup and cache the resulting user.
+                    try:
+                        bot = await slack._api("bots.info", _Schema.bot_info, params={"bot": bot_id})
+                    except SlackAPIError:
+                        log.warning("Failed to resolve bot ID %r", bot_id, exc_info=True)
+                    else:
+                        user = SlackUser.from_bot(slack, bot["bot"])
+                        slack._bot_to_app[bot_id] = user
         if author:
             user = await slack.user_from_id(author) or SlackUser(id_=author, plug=slack)
         if event["username"]:
@@ -821,7 +830,7 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
         super().__init__(name, config, host)
         self._team = self._bot_user = None
         self._users = self._channels = self._directs = None
-        self._bots = self._bot_to_user = self._members = None
+        self._bot_to_app = self._bot_to_user = self._members = None
         # Connection objects that need to be closed on disconnect.
         self._socket = self._receive = None
         self._app_socket = False
@@ -887,7 +896,7 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
         log.debug("User %r cached %d users, %d channels, %d IMs", self._bot_user,
                   len(self._users), len(self._channels), len(self._directs))
         self._members = {}
-        self._bots = {}
+        self._bot_to_app = {}
         # Create a map of bot IDs to users, as the bot cache doesn't contain references to them.
         self._bot_to_user = {user.bot_id: user.id for user in self._users.values() if user.bot_id}
         log.debug("User %r requesting websocket session", self._bot_user)
