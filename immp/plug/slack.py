@@ -490,7 +490,7 @@ class SlackFile(immp.File):
     File attachment originating from Slack.
     """
 
-    def __init__(self, slack, title=None, type_=None, source=None):
+    def __init__(self, slack, title=None, type_=immp.File.Type.unknown, source=None):
         super().__init__(title=title, type_=type_)
         self.slack = slack
         # Private source as the URL is not publicly accessible.
@@ -498,7 +498,7 @@ class SlackFile(immp.File):
 
     async def get_content(self, sess):
         headers = {"Authorization": "Bearer {}".format(self.slack.config["token"])}
-        return await self.slack.session.get(self._source, headers=headers)
+        return await sess.get(self._source, headers=headers)
 
     @classmethod
     def from_file(cls, slack, json):
