@@ -20,6 +20,9 @@ Config:
         Quit message, sent as part of disconnection from the server.
     accept-invites (bool):
         ``True`` to auto-join channels when an INVITE is received.
+    colour-nicks (bool):
+        ``True`` to apply IRC colour formatting to nicks when including author names in messages
+        (i.e. when not using puppets).
     puppet (bool):
         Whether to use multiple IRC clients for sending.  If enabled, new client connections will
         be made when sending a message with an unseen username, and reused for later messages.
@@ -33,6 +36,7 @@ shared channels, and bare IRC nicks for private channels.
 from asyncio import (CancelledError, ensure_future, Event, Future, open_connection, sleep,
                      TimeoutError, wait_for)
 import codecs
+from hashlib import md5
 import logging
 import re
 
@@ -146,6 +150,12 @@ class IRCSegment(immp.Segment):
     """
 
     @classmethod
+    def _coloured(cls, colour, text):
+        # Includes a default background colour to avoid accidental combinations with a literal comma
+        # following the text.
+        return "\x03{}{}\x0399,99".format(colour, text)
+
+    @classmethod
     def to_formatted(cls, segment):
         """
         Convert a :class:`.Segment` into text formatted using IRC ASCII escape sequences.
@@ -166,9 +176,8 @@ class IRCSegment(immp.Segment):
         if segment.underline:
             text = "\x1f{}\x1f".format(text)
         if segment.strike:
-            # Muted text by colouring it grey.  Includes a default background colour to avoid
-            # accidental combinations with a literal comma in a following segment.
-            text = "\x0314{}\x0399,99".format(text)
+            # Muted text by colouring it grey.
+            text = cls._coloured(14, text)
         if segment.link and segment.text != segment.link:
             text = "{} [{}]".format(text, segment.link)
         return text
@@ -196,6 +205,26 @@ class IRCRichText(immp.RichText):
 
 
 class IRCUser(immp.User):
+
+    # All non-greyscale colours: https://modern.ircdocs.horse/formatting.html#color
+    _nick_colours = [str(colour).zfill(2) for colour in range(2, 14)]
+
+    @classmethod
+    def nick_colour(cls, nick):
+        """
+        Assign a random but stable colour to a string, similar to IRC clients' display of nicks.
+
+        Args:
+            nick (str):
+                Name of a user.
+
+        Returns:
+            int:
+                IRC colour code, between 2 and 13 inclusive.
+        """
+        # Values from Python's hash() will vary across restarts, so use a stable hash function.
+        hashed = int.from_bytes(md5(nick.encode()).digest(), "little")
+        return cls._nick_colours[hashed % len(cls._nick_colours)]
 
     @classmethod
     def from_id(cls, irc, id_, real_name=None):
@@ -666,6 +695,7 @@ class IRCPlug(immp.Plug):
                                    "real-name": str},
                           immp.Optional("quit", "Disconnecting"): str,
                           immp.Optional("accept-invites", False): bool,
+                          immp.Optional("colour-nicks", False): bool,
                           immp.Optional("puppet", False): bool,
                           immp.Optional("puppet-prefix", ""): str})
 
@@ -820,8 +850,7 @@ class IRCPlug(immp.Plug):
         elif line.command == "INVITE" and self.config["accept-invites"]:
             await self._client.join(line.args[1])
 
-    @classmethod
-    def _lines(cls, rich, user, action, edited, plain=False):
+    def _lines(self, rich, user, action, edited, plain=False):
         if not rich:
             return []
         elif not isinstance(rich, immp.RichText):
@@ -830,7 +859,10 @@ class IRCPlug(immp.Plug):
         for text in IRCRichText.to_formatted(rich).split("\n"):
             if user:
                 template = "* {} {}" if action else "<{}> {}"
-                text = template.format(user.username or user.real_name, text)
+                name = user.username or user.real_name
+                if self.config["colour-nicks"]:
+                    name = IRCSegment._coloured(IRCUser.nick_colour(name), name)
+                text = template.format(name, text)
             if edited:
                 text = "[edit] {}".format(text)
             if not user and action:
