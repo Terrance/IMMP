@@ -111,11 +111,19 @@
       {%- else %}
       <p class="content">None loaded.</p>
       {%- endif %}
-      <h3 class="title"><i class="fas fa-cog"></i> Logging</h3>
+      <h3 class="title"><i class="fas fa-history"></i> Logging</h3>
       <nav class="panel">
         {%- for module, level in loggers %}
         <div class="panel-block">
           <span><strong>{{ module }}</strong> {{ level }}</span>
+        </div>
+        {%- endfor %}
+      </nav>
+      <h3 class="title"><i class="fas fa-cog"></i> Versions</h3>
+      <nav class="panel">
+        {%- for name, version in versions %}
+        <div class="panel-block">
+          <span><strong>{{ name }}</strong> {{ version }}</span>
         </div>
         {%- endfor %}
       </nav>

@@ -25,8 +25,15 @@ from collections import defaultdict
 from importlib import import_module
 from inspect import cleandoc
 import json
-import re
 import logging
+import re
+import sys
+
+try:
+    from pkg_resources import get_distribution
+except ImportError:
+    # Setuptools might not be available.
+    get_distribution = None
 
 from aiohttp import web
 
@@ -48,6 +55,8 @@ class WebUIHook(immp.ResourceHook):
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
         self.ctx = None
+        self._host_version = get_distribution(immp.__name__).version if get_distribution else None
+        self._python_version = ".".join(str(v) for v in sys.version_info[:3])
 
     def on_load(self):
         log.debug("Registering routes")
@@ -114,7 +123,8 @@ class WebUIHook(immp.ResourceHook):
                    [(module, logging.getLevelName(logger.level))
                     for module, logger in sorted(logging.root.manager.loggerDict.items())
                     if isinstance(logger, logging.Logger) and logger.level != logging.NOTSET])
-        return {"loggers": loggers}
+        return {"loggers": loggers,
+                "versions": [("Python", self._python_version), ("IMMP", self._host_version)]}
 
     async def add(self, request):
         post = await request.post()
