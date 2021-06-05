@@ -14,6 +14,7 @@ Transfers and converts data for:
 """
 
 from argparse import ArgumentParser, FileType
+from asyncio import get_event_loop
 from collections import defaultdict
 from functools import partial
 import json
@@ -22,12 +23,12 @@ import os.path
 import re
 
 import anyconfig
-from playhouse.db_url import connect
 from requests import Session
+from tortoise import Tortoise
+from tortoise.transactions import atomic
 
 from immp import Any, Nullable, Optional, Schema
 from immp.hook.alerts.subscriptions import SubTrigger
-from immp.hook.database import BaseModel
 from immp.hook.identitylocal import IdentityGroup, IdentityLink
 from immp.hook.notes import Note
 
@@ -139,8 +140,6 @@ class Data:
     def __init__(self, config, memory, db_url, path):
         self.config = config
         self.memory = memory
-        self.database = connect(db_url)
-        BaseModel._meta.database.initialize(self.database)
         # Find the bot self user to construct the network ID, needed by other hooks.
         for uid, user in memory["user_data"].items():
             if user["_hangups"]["is_self"]:
@@ -153,7 +152,7 @@ class Data:
         self.plugs = {"hangouts": {"path": "immp.plug.hangouts.HangoutsPlug",
                                    "config": {"cookie": os.path.join(path, "cookies.json")}}}
         self.channels = RevDict()
-        self.hooks = {"db": {"path": "immp.hook.database.DatabaseHook",
+        self.hooks = {"db": {"path": "immp.hook.database.AsyncDatabaseHook",
                              "config": {"url": db_url}}}
         self.identities = MultiRevDict()
         self.syncs = MultiRevDict()
@@ -398,10 +397,10 @@ class Data:
 
     # Migrate tldrs, assign to synced conversations if relevant.
 
-    def tldr(self):
+    @atomic()
+    async def tldr(self):
         self.hooks["notes"] = {"path": "immp.hook.notes.NotesHook"}
-        self.database.drop_tables([Note], safe=True)
-        self.database.create_tables([Note], safe=True)
+        await Note.all().delete()
         syncs = set()
         for ho, tldr in self.memory["tldr"].items():
             if not tldr:
@@ -418,14 +417,13 @@ class Data:
                 network = "sync:sync"
                 syncs.add(source)
             log.debug("Adding {} note(s) to channel: {}/{}".format(len(tldr), plug, source))
-            with self.database.atomic():
-                for ts, note in sorted(tldr.items()):
-                    Note.create(timestamp=int(float(ts)), network=network,
-                                channel=source, text=note)
+            for ts, note in sorted(tldr.items()):
+                await Note.create(timestamp=int(float(ts)), network=network,
+                                    channel=source, text=note)
 
     # Putting it all together now.
 
-    def migrate_all(self):
+    async def migrate_all(self):
         self.ho_identities()
         if self.config["sync_rooms"]:
             self.syncrooms_syncs()
@@ -441,20 +439,20 @@ class Data:
             self.forwarding()
         self.keywords()
         if self.memory["tldr"]:
-            self.tldr()
+            await self.tldr()
 
-    def compile_identities(self):
-        self.database.drop_tables([IdentityGroup, IdentityLink], safe=True)
-        self.database.create_tables([IdentityGroup, IdentityLink], safe=True)
+    @atomic()
+    async def compile_identities(self):
+        await IdentityLink.all().delete()
+        await IdentityGroup.all().delete()
         self.hooks["identity"] = {"path": "immp.hook.identitylocal.LocalIdentityHook",
                                   "config": {"instance": 1, "plugs": list(self.plugs)}}
-        with self.database.atomic():
-            for nick, links in self.identities.inverse.items():
-                # Invalid password hash by default.
-                # Users must `id-password` before they can manage their identities.
-                group = IdentityGroup.create(instance=1, name=nick, pwd="")
-                for network, user in links:
-                    IdentityLink.create(group=group, network=network, user=user)
+        for nick, links in self.identities.inverse.items():
+            # Invalid password hash by default.
+            # Users must `id-password` before they can manage their identities.
+            group = await IdentityGroup.create(instance=1, name=nick, pwd="")
+            for network, user in links:
+                await IdentityLink.create(group=group, network=network, user=user)
 
     def compile_syncs(self):
         identities = "identity" if self.identities else None
@@ -468,15 +466,14 @@ class Data:
                                      "config": {"channels": dict(self.forwards),
                                                 "identities": identities}}
 
-    def compile_subs(self):
-        self.database.drop_tables([SubTrigger], safe=True)
-        self.database.create_tables([SubTrigger], safe=True)
+    @atomic()
+    async def compile_subs(self):
+        await SubTrigger.all().delete()
         self.hooks["subs"] = {"path": "immp.hook.alerts.SubscriptionsHook",
                               "config": {"groups": ["migrated"]}}
-        with self.database.atomic():
-            for (network, user), subs in self.subs.items():
-                for text in subs:
-                    SubTrigger.create(network=network, user=user, text=text)
+        for (network, user), subs in self.subs.items():
+            for text in subs:
+                await SubTrigger.create(network=network, user=user, text=text)
 
     def compile_commands(self):
         commands = {"groups": ["migrated"],
@@ -485,13 +482,13 @@ class Data:
                                   "config": {"prefix": ["/bot "],
                                              "mapping": {"migrated": commands}}}
 
-    def make_config(self):
+    async def make_config(self):
         if self.identities:
-            self.compile_identities()
+            await self.compile_identities()
         if self.syncs or self.forwards:
             self.compile_syncs()
         if self.subs:
-            self.compile_subs()
+            await self.compile_subs()
         self.compile_commands()
         return {"plugs": self.plugs,
                 "channels": {name: {"plug": plug, "source": source}
@@ -500,12 +497,19 @@ class Data:
                 "hooks": self.hooks}
 
 
-def main(args):
+async def main(args):
     config = _Schema.config(json.load(args.config))
     memory = _Schema.memory(json.load(args.memory))
-    data = Data(config, memory, args.database, os.path.dirname(args.config.name))
-    data.migrate_all()
-    anyconfig.dump(data.make_config(), args.output)
+    modules = list({model.__module__ for model in (SubTrigger, IdentityGroup, IdentityLink, Note)})
+    await Tortoise.init(db_url=args.database, modules={"db": modules})
+    try:
+        await Tortoise.generate_schemas(safe=True)
+        data = Data(config, memory, args.database, os.path.dirname(args.config.name))
+        await data.migrate_all()
+        config = await data.make_config()
+        anyconfig.dump(config, args.output)
+    finally:
+        await Tortoise.close_connections()
 
 
 def entrypoint():
@@ -516,7 +520,8 @@ def entrypoint():
     parser.add_argument("output")
     parser.add_argument("database")
     args = parser.parse_args()
-    main(args)
+    loop = get_event_loop()
+    loop.run_until_complete(main(args))
 
 
 if __name__ == "__main__":
