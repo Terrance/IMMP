@@ -26,7 +26,7 @@ from playhouse.db_url import connect
 from requests import Session
 
 from immp import Any, Nullable, Optional, Schema
-from immp.hook.alerts import SubTrigger
+from immp.hook.alerts.subscriptions import SubTrigger
 from immp.hook.database import BaseModel
 from immp.hook.identitylocal import IdentityGroup, IdentityLink
 from immp.hook.notes import Note
