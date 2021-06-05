@@ -45,6 +45,11 @@ from immp.hook.web import WebHook
 log = logging.getLogger(__name__)
 
 
+def _module_doc(obj):
+    doc = import_module(obj.__module__).__doc__
+    return cleandoc(doc) if doc else None
+
+
 class WebUIHook(immp.ResourceHook):
     """
     Hook providing web-based configuration management for a running host instance.
@@ -143,7 +148,7 @@ class WebUIHook(immp.ResourceHook):
             return {"path": path,
                     "config": config,
                     "class": cls,
-                    "doc": cleandoc(import_module(cls.__module__).__doc__),
+                    "doc": _module_doc(cls),
                     "hook": issubclass(cls, immp.Hook)}
         try:
             name = post["name"]
@@ -194,7 +199,7 @@ class WebUIHook(immp.ResourceHook):
             title = await immp.Channel(plug, source).title()
             name = re.sub(r"[^a-z0-9]+", "-", title, flags=re.I).strip("-") if title else ""
         return {"plug": plug,
-                "doc": cleandoc(import_module(plug.__module__).__doc__),
+                "doc": _module_doc(plug.__class__),
                 "add_name": name,
                 "add_source": source,
                 "channels": {name: channel for name, channel in self.host.channels.items()
@@ -446,7 +451,7 @@ class WebUIHook(immp.ResourceHook):
         hook = self._resolve_hook(request)
         can_stop = not isinstance(hook, (WebHook, WebUIHook))
         return {"hook": hook,
-                "doc": cleandoc(import_module(hook.__module__).__doc__),
+                "doc": _module_doc(hook),
                 "resource": isinstance(hook, immp.ResourceHook),
                 "priority": self.host.priority.get(hook.name),
                 "can_stop": can_stop}
