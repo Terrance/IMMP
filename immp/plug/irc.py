@@ -771,6 +771,17 @@ class IRCClient:
         await self._wait(Line("JOIN", channel), success=("JOIN",))
         await self.who(channel)
 
+    async def part(self, channel):
+        """
+        Leave a channel you're participating in.
+
+        Args:
+            channel str):
+                Target channel name.
+        """
+        if self._nick in self.members.get(channel, ()):
+            await self._wait(Line("PART", channel), success=("PART",))
+
     def invite(self, channel, nick):
         """
         Invite another user to a channel you're partipating in.
@@ -1051,13 +1062,14 @@ class IRCPlug(immp.Plug):
             lines.append(text)
         return lines
 
-    async def _puppet(self, user):
+    async def _puppet(self, user, create=True):
         username = user.username or user.real_name
         nick = self.config["puppet-prefix"] + "-".join(username.split())
         try:
             puppet = self._puppets[user]
         except KeyError:
-            pass
+            if not create:
+                return None
         else:
             log.debug("Reusing puppet %r for user %r", puppet, user)
             if puppet.nick.rstrip("_") != nick:
@@ -1120,4 +1132,13 @@ class IRCPlug(immp.Plug):
             sent = await IRCMessage.from_line(self, line)
             self.queue(sent)
             receipts.append(sent)
+        if self.config["puppet"]:
+            for member in msg.joined:
+                puppet = await self._puppet(member, False)
+                if puppet:
+                    ensure_future(puppet.join(channel.source))
+            for member in msg.left:
+                puppet = await self._puppet(member, False)
+                if puppet:
+                    ensure_future(puppet.part(channel.source))
         return receipts
