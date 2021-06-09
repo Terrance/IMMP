@@ -1190,7 +1190,7 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
                 if "envelope_id" in wrapper:
                     await self._socket.send_json({"envelope_id": wrapper["envelope_id"]})
                 if wrapper["type"] != "events_api" or not wrapper["payload"]:
-                    log.debug("User %r ignpring unknown Socket Mode event %r",
+                    log.debug("User %r ignoring unknown Socket Mode event %r",
                               self._bot_user, wrapper["type"])
                     continue
                 payload = wrapper["payload"]
