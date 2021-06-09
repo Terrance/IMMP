@@ -20,7 +20,7 @@ This is a simple control panel to add or update plugs and hooks in a running sys
     HTTP authentication, or use a service layer like oauth2_proxy.
 """
 
-from asyncio import gather
+from asyncio import ensure_future, gather
 from collections import defaultdict
 from importlib import import_module
 from inspect import cleandoc
@@ -217,12 +217,12 @@ class WebUIHook(immp.ResourceHook):
 
     async def plug_stop(self, request):
         plug = self._resolve_plug(request)
-        await plug.close()
+        ensure_future(plug.close())
         raise web.HTTPFound(self.ctx.url_for("plug", name=plug.name))
 
     async def plug_start(self, request):
         plug = self._resolve_plug(request)
-        await plug.open()
+        ensure_future(plug.open())
         raise web.HTTPFound(self.ctx.url_for("plug", name=plug.name))
 
     async def plug_config(self, request):
@@ -471,12 +471,12 @@ class WebUIHook(immp.ResourceHook):
         if isinstance(hook, (WebHook, WebUIHook)):
             # This will hang due to trying to serve this request at the same time.
             raise web.HTTPBadRequest
-        await hook.close()
+        ensure_future(hook.close())
         raise web.HTTPFound(self.hook_url_for(hook, None))
 
     async def hook_start(self, request):
         hook = self._resolve_hook(request)
-        await hook.open()
+        ensure_future(hook.open())
         raise web.HTTPFound(self.hook_url_for(hook, None))
 
     async def hook_config(self, request):
