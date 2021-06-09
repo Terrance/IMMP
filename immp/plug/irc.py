@@ -28,12 +28,18 @@ Config:
         be made when sending a message with an unseen username, and reused for later messages.
     puppet-prefix (str):
         Leading characters to include in nicks of puppet users.
+    send-delay (float):
+        Time in seconds to wait between sending each message (0.5 by default, i.e. 2 messages per
+        second), in order to avoid being kicked for flooding.
+
+        You can reduce this if the connecting IRC user has been given higher limits on the server,
+        or increase this for servers with stricter flood limits.
 
 Channel sources should include the correct channel prefix or prefixes (typically just ``#``) for
 shared channels, and bare IRC nicks for private channels.
 """
 
-from asyncio import (CancelledError, ensure_future, Event, Future, open_connection, sleep,
+from asyncio import (CancelledError, ensure_future, Event, Future, Lock, open_connection, sleep,
                      TimeoutError, wait_for)
 import codecs
 from hashlib import md5
@@ -832,6 +838,27 @@ class IRCClient:
         return "<{}: {!r}>".format(self.__class__.__name__, self.nickmask or self.nick)
 
 
+class DelayLock:
+    """
+    Timed-release lock, used in an ``async with`` statement to acquire a lock, but delay its
+    release by some number of seconds after the caller has finished with it.
+    """
+
+    def __init__(self, delay):
+        self._delay = delay
+        self._lock = Lock()
+
+    async def _delay_release(self):
+        await sleep(self._delay())
+        self._lock.release()
+
+    async def __aenter__(self):
+        await self._lock.acquire()
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        ensure_future(self._delay_release())
+
+
 class IRCPlug(immp.Plug):
     """
     Plug for an IRC server.
@@ -847,7 +874,8 @@ class IRCPlug(immp.Plug):
                           immp.Optional("accept-invites", False): bool,
                           immp.Optional("colour-nicks", False): bool,
                           immp.Optional("puppet", False): bool,
-                          immp.Optional("puppet-prefix", ""): str})
+                          immp.Optional("puppet-prefix", ""): str,
+                          immp.Optional("send-delay", 0.5): float})
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
@@ -856,6 +884,8 @@ class IRCPlug(immp.Plug):
         self._joins = set()
         # Maintain puppet clients by nick for cleaner sending.
         self._puppets = {}
+        # Queue multiple outgoing messages in quick succession and insert delays between them.
+        self._delay_lock = DelayLock(lambda: self.config["send-delay"])
 
     @property
     def network_name(self):
@@ -1085,7 +1115,8 @@ class IRCPlug(immp.Plug):
         else:
             client = self._client
         for text in lines:
-            line = client.send(channel.source, text)
+            async with self._delay_lock:
+                line = client.send(channel.source, text)
             sent = await IRCMessage.from_line(self, line)
             self.queue(sent)
             receipts.append(sent)
