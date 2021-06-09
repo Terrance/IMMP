@@ -151,9 +151,8 @@ class IRCSegment(immp.Segment):
 
     @classmethod
     def _coloured(cls, colour, text):
-        # Includes a default background colour to avoid accidental combinations with a literal comma
-        # following the text.
-        return "\x03{}{}\x0399,99".format(colour, text)
+        # Beware of digits following coloured text -- see IRCRichText.to_formatted().
+        return "\x03{}{}\x03".format(colour, text)
 
     @classmethod
     def to_formatted(cls, segment):
@@ -176,7 +175,10 @@ class IRCSegment(immp.Segment):
         if segment.underline:
             text = "\x1f{}\x1f".format(text)
         if segment.strike:
-            # Muted text by colouring it grey.
+            # https://modern.ircdocs.horse/formatting.html#strikethrough -- 0x1e is proposed, but
+            # not standard (e.g. irssi ignores it and renders the control characters as inverted
+            # carets).  Instead, emulate with muted text by colouring it grey, which will hopefully
+            # look reasonable on both light and dark display modes of clients.
             text = cls._coloured(14, text)
         if segment.link and segment.text != segment.link:
             text = "{} [{}]".format(text, segment.link)
@@ -201,7 +203,19 @@ class IRCRichText(immp.RichText):
             str:
                 Code-formatted string.
         """
-        return "".join(IRCSegment.to_formatted(segment) for segment in rich).replace("\t", " ")
+        clone = rich.clone()
+        strike = False
+        for segment in clone:
+            if segment.strike:
+                strike = True
+            elif strike:
+                strike = False
+                if segment.text[:1].isdigit():
+                    # Reset-colour control code followed by a digit (e.g. `\x031`), which would be
+                    # inadvertently parsed as a replacement colour -- add an extra space between
+                    # the two segments.
+                    segment.text = " {}".format(segment.text)
+        return "".join(IRCSegment.to_formatted(segment) for segment in clone).replace("\t", " ")
 
 
 class IRCUser(immp.User):
