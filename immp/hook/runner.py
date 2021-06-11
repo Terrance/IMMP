@@ -16,12 +16,16 @@ Commands:
 """
 
 from asyncio import get_event_loop
+import json
 import logging
 import logging.config
 import signal
 import sys
 
-import anyconfig
+try:
+    import anyconfig
+except ImportError:
+    anyconfig = None
 
 import immp
 from immp.hook.command import CommandRole, CommandScope, command
@@ -52,17 +56,35 @@ class _Schema:
                           immp.Optional("logging"): immp.Nullable(_logging)})
 
 
+def _load_file(path):
+    if anyconfig:
+        # anyconfig incorrectly parses ac_template=False as positive (`ac_template is not None`).
+        return anyconfig.load(path, ac_template=None)
+    else:
+        with open(path, "r") as reader:
+            return json.load(reader)
+
+
+def _save_file(data, path):
+    if anyconfig:
+        anyconfig.dump(data, path)
+    else:
+        with open(path, "w") as writer:
+            json.dump(data, writer)
+
+
 def config_to_host(config, path, write):
     host = immp.Host()
-    for name, spec in config["plugs"].items():
+    base = dict(config)
+    for name, spec in base.pop("plugs").items():
         cls = immp.resolve_import(spec["path"])
         host.add_plug(cls(name, spec["config"], host), spec["enabled"])
-    for name, spec in config["channels"].items():
+    for name, spec in base.pop("channels").items():
         plug = host.plugs[spec["plug"]]
         host.add_channel(name, immp.Channel(plug, spec["source"]))
-    for name, group in config["groups"].items():
+    for name, group in base.pop("groups").items():
         host.add_group(immp.Group(name, group, host))
-    for name, spec in config["hooks"].items():
+    for name, spec in base.pop("hooks").items():
         cls = immp.resolve_import(spec["path"])
         host.add_hook(cls(name, spec["config"], host), spec["enabled"], spec["priority"])
     try:
@@ -70,7 +92,7 @@ def config_to_host(config, path, write):
     except immp.ConfigError:
         # Prefer existing hook defined within the config itself.
         pass
-    host.resources[RunnerHook].load(config, path, write)
+    host.resources[RunnerHook].load(base, path, write)
     host.loaded()
     return host
 
@@ -86,7 +108,7 @@ def _handle_signal(signum, loop, task):
 
 
 def main(path, write=False):
-    config = _Schema.config(anyconfig.load(path))
+    config = _Schema.config(_load_file(path))
     for search in config["path"]:
         sys.path.append(search)
     if config["logging"]:
@@ -127,21 +149,19 @@ class RunnerHook(immp.ResourceHook):
         self._path = None
         self.writeable = None
 
-    def load(self, config, path, writeable):
+    def load(self, base, path, writeable):
         """
         Initialise the runner with a full config and the file path.
 
         Args:
-            config (dict):
-                Complete parsed config file content.
+            base (dict):
+                Parsed config file content, excluding object components.
             path (str):
                 Target config file location.
             writeable (bool):
                 ``True`` if changes to the live config may be written back to the file.
         """
-        self._base_config = dict(config)
-        for key in ("plugs", "channels", "groups", "hooks"):
-            self._base_config.pop(key, None)
+        self._base_config = base
         self._path = path
         self.writeable = writeable
 
@@ -194,8 +214,8 @@ class RunnerHook(immp.ResourceHook):
         """
         if not self.writeable:
             raise immp.PlugError("Writing not enabled")
-        log.info("Writing config file")
-        anyconfig.dump(self.config_full, self._path)
+        log.info("Writing config file: %r", self._path)
+        _save_file(self.config_full, self._path)
 
     def on_config_change(self, source):
         if self.writeable:
