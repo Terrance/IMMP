@@ -1047,7 +1047,10 @@ class IRCPlug(immp.Plug):
         elif not isinstance(rich, immp.RichText):
             rich = immp.RichText([immp.Segment(rich)])
         lines = []
-        for text in IRCRichText.to_formatted(rich).split("\n"):
+        # Line length isn't well defined (generally 512 bytes for the entire wire line), so set a
+        # conservative length limit to allow for long channel names and formatting characters.
+        for chunk in rich.chunked(360):
+            text = IRCRichText.to_formatted(chunk)
             if user:
                 template = "* {} {}" if action else "<{}> {}"
                 name = user.username or user.real_name

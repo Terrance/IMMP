@@ -2,6 +2,7 @@ from copy import copy
 from datetime import datetime, timezone
 from enum import Enum
 import re
+from textwrap import wrap
 from urllib.parse import urlparse, urlunparse
 
 from .error import PlugError
@@ -392,6 +393,88 @@ class RichText:
         clone[-1].text = clone[-1].text[:-2]
         clone.append(Segment("..."))
         return clone
+
+    def lines(self):
+        """
+        Split the message text into lines.
+
+        Returns:
+            .RichText list:
+                Message text parts.
+        """
+        lines = []
+        current = RichText()
+        clone = self.clone()
+        for segment in clone:
+            while "\n" in segment.text:
+                left, right = segment.text.split("\n", 1)
+                end = copy(segment)
+                end.text = left
+                current.append(end)
+                if current:
+                    lines.append(current)
+                current = RichText()
+                segment.text = right
+            current.append(segment)
+        if current:
+            lines.append(current)
+        return lines
+
+    def chunked(self, limit):
+        """
+        Split long text into parts, each not exceeding the length limit.  Prefers splitting on line
+        breaks where possible -- any individual lines exceeding the limit will be wrapped.
+
+        Args:
+            limit (int):
+                Character length limit for each chunk.
+
+        Returns:
+            .RichText list:
+                Chunked message text parts.
+        """
+        parts = []
+        current = []
+        for line in self.lines():
+            size = sum(len(part) + 1 for part in current)
+            extra = len(line)
+            if size + extra >= limit:
+                if current:
+                    # The message is full, split here.
+                    parts.append(RichText(current))
+                    current.clear()
+                if extra >= limit:
+                    # The line itself is too long, split on whitespace instead.
+                    text = "".join(segment.text for segment in line)
+                    *lines, _ = wrap(text, limit, expand_tabs=False, replace_whitespace=False)
+                    for wrapped in lines:
+                        parts.append(line[:len(wrapped):True])
+                        line = line[len(wrapped)::True]
+                        line[0].text = line[0].text.lstrip()
+            elif current:
+                current.append(Segment("\n"))
+            current.extend(line)
+        if current:
+            parts.append(RichText(current))
+        return parts
+
+    @classmethod
+    def chunked_plain(cls, text, limit):
+        """
+        Split long text into parts, each not exceeding the length limit.  See :meth:`chunked`.
+
+        Args:
+            text (str):
+                Raw message text.
+            limit (int):
+                Character length limit for each chunk.
+
+        Returns:
+            str list:
+                Chunked message text parts.
+        """
+        chunks = cls([Segment(text)]).chunked(limit)
+        return [str(chunk) for chunk in chunks]
 
     @classmethod
     def unraw(cls, text, host=None):

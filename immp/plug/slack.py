@@ -1134,12 +1134,25 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
                                     "text": attach.address,
                                     "footer": "{}, {}".format(attach.latitude, attach.longitude)})
         if rich or attachments:
+            chunks = []
             if rich:
-                data["text"] = SlackRichText.to_mrkdwn(self, rich)
+                text = SlackRichText.to_mrkdwn(self, rich)
+                chunks = immp.RichText.chunked_plain(text, 4000)
+            items = []
             if attachments:
-                data["attachments"] = json_dumps(attachments)
-            post = await self._api("chat.postMessage", _Schema.chat_post, data=data)
-            receipts.append(await SlackMessage.from_post(self, post))
+                item = dict(data)
+                if len(chunks) == 1:
+                    # Attach the only embed to the message text.
+                    item["text"] = chunks.pop()
+                item["attachments"] = json_dumps(attachments)
+                items.append(item)
+            for chunk in chunks:
+                item = dict(data)
+                item["text"] = chunk
+                items.append(item)
+            for item in items:
+                post = await self._api("chat.postMessage", _Schema.chat_post, data=item)
+                receipts.append(await SlackMessage.from_post(self, post))
         return receipts
 
     async def put(self, channel, msg):

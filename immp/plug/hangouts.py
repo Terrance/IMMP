@@ -27,6 +27,7 @@ from copy import copy
 from io import BytesIO
 import logging
 import re
+from textwrap import wrap
 from urllib.parse import unquote
 
 import hangups
@@ -692,11 +693,14 @@ class HangoutsPlug(immp.Plug, immp.HTTPOpenable):
         return hangouts_pb2.ExistingMedia(photo=hangouts_pb2.Photo(photo_id=photo))
 
     @classmethod
-    def _serialise(cls, segments):
+    def _serialise(cls, rich):
         output = []
-        for segment in segments:
-            output += HangoutsSegment.to_segments(segment)
-        return [segment.serialize() for segment in output]
+        for chunk in rich.chunked(4096):
+            line = []
+            for segment in chunk:
+                line += HangoutsSegment.to_segments(segment)
+            output.append([segment.serialize() for segment in line])
+        return output
 
     def _request(self, conv, segments=None, media=None, place=None):
         return hangouts_pb2.SendChatMessageRequest(
@@ -721,17 +725,18 @@ class HangoutsPlug(immp.Plug, immp.HTTPOpenable):
         requests = []
         if msg.text or msg.reply_to:
             render = msg.render(link_name=False, edit=msg.edited, quote_reply=True)
-            segments = self._serialise(render)
+            parts = self._serialise(render)
             media = None
-            if len(images) == 1:
+            if len(images) == 1 and len(parts) == 1:
                 # Attach the only image to the message text.
                 media = images.pop()
-            requests.append(self._request(conv, segments, media))
+            for segments in parts:
+                requests.append(self._request(conv, segments, media))
         if images:
             segments = []
             if msg.user:
                 label = immp.Message(user=msg.user, text="sent an image", action=True)
-                segments = self._serialise(label.render(link_name=False))
+                segments = self._serialise(label.render(link_name=False))[0]
             # Send any additional media items in their own separate messages.
             for media in images:
                 requests.append(self._request(conv, segments, media))
@@ -742,7 +747,7 @@ class HangoutsPlug(immp.Plug, immp.HTTPOpenable):
             # Include a label only if we haven't sent a text message earlier.
             if msg.user and not msg.text:
                 label = immp.Message(user=msg.user, text="sent a location", action=True)
-                segments = self._serialise(label.render(link_name=False))
+                segments = self._serialise(label.render(link_name=False))[0]
                 requests.append(self._request(conv, segments))
         return requests
 

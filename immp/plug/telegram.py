@@ -1447,6 +1447,7 @@ class TelegramPlug(immp.Plug, immp.HTTPOpenable):
             quote = True
         if msg.text or quote:
             rich = msg.render(edit=msg.edited, quote_reply=quote)
+        fits_caption = rich and len(rich) < 1024
         # If there's exactly one file attachment that we can attach a caption to, use that for the
         # message text, otherwise send the text first in its own message.
         parts = []
@@ -1460,20 +1461,21 @@ class TelegramPlug(immp.Plug, immp.HTTPOpenable):
         requests = []
         # Send the primary attachment, or the leading text-only message, with any reply metadata.
         primary = None
-        if len(captionable) == 1:
+        if len(captionable) == 1 and fits_caption:
             primary = captionable[0]
             requests.append(self._upload_attachment(chat, msg, primary, reply_to, rich))
         elif rich:
-            text = "".join(TelegramSegment.to_html(self, segment) for segment in rich)
-            # Prevent linked user names generating link previews.
-            no_link_preview = "true" if msg.user and msg.user.link else "false"
-            requests.append(self._api("sendMessage", _Schema.message,
-                                      params={"chat_id": chat,
-                                              "text": text,
-                                              "parse_mode": "HTML",
-                                              "disable_web_page_preview": no_link_preview,
-                                              "reply_to_message_id": reply_to,
-                                              "allow_sending_without_reply": "true"}))
+            for chunk in rich.chunked(4096):
+                text = "".join(TelegramSegment.to_html(self, segment) for segment in chunk)
+                # Prevent linked user names generating link previews.
+                no_link_preview = "true" if msg.user and msg.user.link else "false"
+                requests.append(self._api("sendMessage", _Schema.message,
+                                          params={"chat_id": chat,
+                                                  "text": text,
+                                                  "parse_mode": "HTML",
+                                                  "disable_web_page_preview": no_link_preview,
+                                                  "reply_to_message_id": reply_to,
+                                                  "allow_sending_without_reply": "true"}))
         # Send any remaining attachments as auxilary messages.
         for attach in msg.attachments:
             if attach is primary:
