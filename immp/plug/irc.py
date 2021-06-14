@@ -16,6 +16,9 @@ Config:
             Primary nick for the bot user.
         real-name (str):
             Real name, as displayed in WHO queries.
+    perform (str list):
+        List of raw IRC lines to send during the initial connection (after ``NICK`` and ``USER``).
+        Only applies to the main plug user, not puppets.
     quit (str):
         Quit message, sent as part of disconnection from the server.
     accept-invites (bool):
@@ -890,6 +893,7 @@ class IRCPlug(immp.Plug):
                                      immp.Optional("password"): immp.Nullable(str)},
                           "user": {"nick": str,
                                    "real-name": str},
+                          immp.Optional("perform", list): [str],
                           immp.Optional("quit", "Disconnecting"): str,
                           immp.Optional("accept-invites", False): bool,
                           immp.Optional("colour-nicks", False): bool,
@@ -1022,6 +1026,8 @@ class IRCPlug(immp.Plug):
         self._client.kick(channel.source, user.username)
 
     async def _connected(self):
+        for perform in self.config["perform"]:
+            self._client._write(Line.parse(perform))
         for channel in self.host.channels.values():
             if channel.plug == self and channel.source.startswith("#"):
                 self._joins.add(channel.source)
