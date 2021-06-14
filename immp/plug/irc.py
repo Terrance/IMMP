@@ -725,9 +725,18 @@ class IRCClient:
 
     async def _reconnect(self, msg):
         await self.disconnect(msg)
-        log.debug("Reconnecting in 3 seconds")
-        await sleep(3)
-        await self.connect()
+        delay = 3
+        while True:
+            log.debug("Reconnecting in %d seconds", delay)
+            await sleep(delay)
+            try:
+                await self.connect()
+            except Exception:
+                log.warning("Reconnect to %r failed", self._host, exc_info=True)
+                delay = min(delay * 2, 30)
+            else:
+                log.debug("Reconnect to %r successful", self._host)
+                return
 
     async def who(self, name):
         """
