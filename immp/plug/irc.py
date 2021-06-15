@@ -45,6 +45,7 @@ shared channels, and bare IRC nicks for private channels.
 from asyncio import (CancelledError, ensure_future, Event, Future, Lock, open_connection, sleep,
                      TimeoutError, wait_for)
 import codecs
+from datetime import datetime, timedelta
 from hashlib import md5
 import logging
 import re
@@ -453,7 +454,8 @@ class IRCClient:
         self._host = host
         self._port = port
         self._ssl = ssl
-        self._nick = self._nick_bad_chars.sub("", nick)
+        self._nick_target = self._nick = self._nick_bad_chars.sub("", nick)
+        self._nick_tried = datetime.now()
         self._password = password
         self._user = user
         self._name = name
@@ -490,11 +492,12 @@ class IRCClient:
         value = self._nick_bad_chars.sub("", value)
         if self._nicklen:
             value = value[:self._nicklen]
+        self._nick_target = value
         if self._nick == value:
             return
         if self._writer:
             await self._wait(Line("NICK", value),
-                             success=("001", "NICK"),
+                             success=("NICK",),
                              fail=("431", "432", "433", "436"))
         else:
             self._nick = value
@@ -521,6 +524,25 @@ class IRCClient:
     @property
     def closing(self):
         return self._closing
+
+    async def _regain_nick(self):
+        if self._nick_target == self._nick:
+            return
+        # Don't bother if we can actually see someone using our nick.  Event handling should update
+        # the member cache to match before calling this function.  Don't check the user cache as
+        # it might include dropped users that weren't in a mutual channel at the time.
+        if any(self._nick_target in members for members in self.members.values()):
+            return
+        # Wait at least 30 seconds before trying again.
+        now = datetime.now()
+        if self._nick_tried + timedelta(seconds=30) > now:
+            return
+        self._nick_tried = now
+        log.debug("Client %r attempting to regain nick %r", self._nick, self._nick_target)
+        try:
+            await self.set_nick(self._nick_target)
+        except IRCError as e:
+            log.debug("Client %r failed to regain nick (%s)", self._nick, e.args[0].command)
 
     async def _read_loop(self):
         while True:
@@ -560,6 +582,7 @@ class IRCClient:
                     break
             finally:
                 self._live.clear()
+            await self._regain_nick()
         if not self._closing:
             ensure_future(self._reconnect("Disconnected"))
 
@@ -617,7 +640,7 @@ class IRCClient:
                     self.network = value
         elif line.command in ("431", "432"):
             # Nick change rejected, revert internal nick to who the server says we are.
-            if self._nick != line.args[0]:
+            if line.args[0] not in (self._nick, "*"):
                 log.debug("Reverting failed nick change: %s -> %s", self._nick, line.args[0])
                 self._nick = line.args[0]
         elif line.command in ("433", "436"):
@@ -625,17 +648,6 @@ class IRCClient:
             # Remove characters from the nick if needed to make it fit.
             parsed = line.args[1]
             log.debug("Nick collision: %s", parsed)
-            if len(parsed) < len(self._nick):
-                # We got silently truncated, set the max nick length.
-                self._nicklen = len(parsed)
-                self._nick = parsed
-            if len(self._nick.rstrip("_")) < 2:
-                raise ValueError("Nick exhausted")
-            if self._nicklen and len(self._nick) >= self._nicklen:
-                base = self._nick[:self._nicklen].rstrip("_")
-                self.nick = base[:-1].ljust(self._nicklen, "_")
-            else:
-                self.nick += "_"
         elif line.command == "PING":
             self._write(Line("PONG", *line.args))
         elif line.command in ("JOIN", "PART", "KICK", "PRIVMSG"):
@@ -657,12 +669,20 @@ class IRCClient:
                 elif nick in members:
                     log.debug("Converting QUIT to PART for %s in %s", nick, name)
                     await self._handle(Line("PART", name, source=line.source))
+            if self._nick_target == nick:
+                # Someone holding the nick we want just disconnected.
+                ensure_future(self._regain_nick())
         elif line.command == "NICK":
             old = line.source.split("!", 1)[0]
             new = line.args[0]
-            if self._nick == old:
-                log.debug("Updating own nick: %s -> %s", self._nick, new)
-                self._nick = new
+            # Sync user and member caches.
+            try:
+                user = self.users.pop(old)
+            except KeyError:
+                pass
+            else:
+                user.username = new
+                self.users[new] = user
             for name, members in list(self.members.items()):
                 if name == old:
                     log.debug("Replacing %s with %s in self entry", old, new)
@@ -672,6 +692,18 @@ class IRCClient:
                     log.debug("Replacing %s with %s in %s members", old, new, name)
                     members.remove(old)
                     members.add(new)
+            # Update our own nick if needed.
+            if self._nick == old:
+                if len(new) < len(old) and old.startswith(new):
+                    # We got silently truncated, set the max nick length.
+                    self._nicklen = len(new)
+                log.debug("Updating own nick: %s -> %s", self._nick, new)
+                self._nick = new
+                # We might have been renamed away from the nick we want.
+                ensure_future(self._regain_nick())
+            elif self._nick_target == old:
+                # Someone just released the nick we want.
+                ensure_future(self._regain_nick())
         if self._on_receive:
             await self._on_receive(line)
 
@@ -684,9 +716,23 @@ class IRCClient:
         self._read_task = ensure_future(self._read_loop())
         if self._password:
             self._write(Line("PASS", self._password))
-        await self._wait(Line("USER", self._user, "0", "*", self._name),
-                         Line("NICK", self._nick),
-                         success=("001",))
+        self._write(Line("USER", self._user, "0", "*", self._name))
+        while True:
+            try:
+                await self._wait(Line("NICK", self._nick),
+                                 success=("001",), fail=("431", "432", "433", "436"))
+            except IRCError as e:
+                if len(self._nick.rstrip("_")) < 2:
+                    raise ValueError("Nick options exhausted")
+                elif e.args[0].command in ("431", "432"):
+                    raise
+                if self._nicklen and len(self._nick) >= self._nicklen:
+                    base = self._nick[:self._nicklen].rstrip("_")
+                    self._nick = base[:-1].ljust(self._nicklen, "_")
+                else:
+                    self._nick += "_"
+            else:
+                break
         for user in await self.who(self._nick):
             if user.username == self._nick:
                 self._mask = user.id.split("!", 1)[-1]
@@ -730,15 +776,16 @@ class IRCClient:
         await self.disconnect(msg)
         delay = 3
         while True:
-            log.debug("Reconnecting in %d seconds", delay)
+            log.debug("Client %r reconnecting in %d seconds", self._nick, delay)
             await sleep(delay)
             try:
                 await self.connect()
             except Exception:
-                log.warning("Reconnect to %r failed", self._host, exc_info=True)
+                log.warning("Client %r reconnect to %r failed",
+                            self._nick, self._host, exc_info=True)
                 delay = min(delay * 2, 30)
             else:
-                log.debug("Reconnect to %r successful", self._host)
+                log.debug("Client %r reconnect to %r successful", self._nick, self._host)
                 return
 
     async def who(self, name):
@@ -780,6 +827,7 @@ class IRCClient:
         """
         if channel in self.members and self._nick in self.members[channel]:
             return
+        await self._regain_nick()
         await self._wait(Line("JOIN", channel), success=("JOIN",))
         await self.who(channel)
 
@@ -791,10 +839,12 @@ class IRCClient:
             channel str):
                 Target channel name.
         """
-        if self._nick in self.members.get(channel, ()):
-            await self._wait(Line("PART", channel), success=("PART",))
+        if self._nick not in self.members.get(channel, ()):
+            return
+        await self._regain_nick()
+        await self._wait(Line("PART", channel), success=("PART",))
 
-    def invite(self, channel, nick):
+    async def invite(self, channel, nick):
         """
         Invite another user to a channel you're partipating in.
 
@@ -804,9 +854,10 @@ class IRCClient:
             nick (str):
                 User to be invited.
         """
+        await self._regain_nick()
         self._write(Line("INVITE", nick, channel))
 
-    def kick(self, channel, nick):
+    async def kick(self, channel, nick):
         """
         Remove a user from a channel you're an operator of.
 
@@ -816,6 +867,7 @@ class IRCClient:
             nick (str):
                 User to be kicked.
         """
+        await self._regain_nick()
         self._write(Line("KICK", channel, nick))
 
     async def list(self):
@@ -838,7 +890,7 @@ class IRCClient:
         """
         return await self._wait(Line("NAMES"), success=("366",), fail=("401",), collect=("353",))
 
-    def send(self, channel, text):
+    async def send(self, channel, text):
         """
         Send a message to a user or channel.
 
@@ -852,6 +904,7 @@ class IRCClient:
             .Line:
                 Resulting line sent to the server.
         """
+        await self._regain_nick()
         line = Line("PRIVMSG", channel, text)
         self._write(line)
         line.source = self.nickmask
@@ -1020,10 +1073,10 @@ class IRCPlug(immp.Plug):
         return members
 
     async def channel_invite(self, channel, user):
-        self._client.invite(channel.source, user.username)
+        await self._client.invite(channel.source, user.username)
 
     async def channel_remove(self, channel, user):
-        self._client.kick(channel.source, user.username)
+        await self._client.kick(channel.source, user.username)
 
     async def _connected(self):
         for perform in self.config["perform"]:
@@ -1146,7 +1199,7 @@ class IRCPlug(immp.Plug):
             client = self._client
         for text in lines:
             async with self._delay_lock:
-                line = client.send(channel.source, text)
+                line = await client.send(channel.source, text)
             sent = await IRCMessage.from_line(self, line)
             self.queue(sent)
             receipts.append(sent)
