@@ -35,24 +35,42 @@ class _Schema:
                           immp.Optional("secret"): immp.Nullable(str),
                           immp.Optional("ignore", list): [str]})
 
-    _sender = {"id": int,
-               "login": str,
-               "avatar_url": str}
+    _linked = {"html_url": str}
+
+    _sender = {"id": int, "login": str, "avatar_url": str}
 
     _repo = {"full_name": str}
 
-    _issue = {"number": int,
-              "title": str,
-              "html_url": str}
+    _project = {"name": str, "number": int, **_linked}
+    _card = {"note": str, **_linked}
 
-    _pull = {immp.Optional("merged", False): bool}
-    _pull.update(_issue)
+    _release = {"tag": str, immp.Optional("name"): immp.Nullable(str), **_linked}
+
+    _issue = {"number": int, "title": str, **_linked}
+    _pull = {immp.Optional("merged", False): bool, **_issue}
+
+    _fork = {"full_name": str, **_linked}
+
+    _page = {"action": str, "title": str, **_linked}
+
+    push = immp.Schema({"ref": str,
+                        "after": str,
+                        "compare": str,
+                        immp.Optional("created", False): bool,
+                        immp.Optional("deleted", False): bool,
+                        immp.Optional("commits", list): [{"id": str, "message": str}]})
 
     event = immp.Schema({"sender": _sender,
                          immp.Optional("organization"): immp.Nullable(_sender),
                          immp.Optional("repository"): immp.Nullable(_repo),
+                         immp.Optional("project"): immp.Nullable(_project),
+                         immp.Optional("project_card"): immp.Nullable(_card),
+                         immp.Optional("release"): immp.Nullable(_release),
                          immp.Optional("issue"): immp.Nullable(_issue),
-                         immp.Optional("pull_request"): immp.Nullable(_pull)})
+                         immp.Optional("pull_request"): immp.Nullable(_pull),
+                         immp.Optional("review"): immp.Nullable(_linked),
+                         immp.Optional("forkee"): immp.Nullable(_fork),
+                         immp.Optional("pages"): immp.Nullable([_page])})
 
 
 class GitHubUser(immp.User):
@@ -110,20 +128,27 @@ class GitHubMessage(immp.Message):
         if type_ == "repository":
             text = immp.RichText([immp.Segment("{} repository ".format(action)), name_seg])
         elif type_ == "push":
-            count = len(event["commits"])
-            desc = "{} commits".format(count) if count > 1 else event["after"][:7]
-            ref = event["ref"].split("/")[1:]
-            target = "/".join(ref[1:])
-            if ref[0] == "tags":
+            push = _Schema.push(event)
+            count = len(push["commits"])
+            desc = "{} commits".format(count) if count > 1 else push["after"][:7]
+            root, target = push["ref"].split("/", 2)[1:]
+            join = None
+            if push["deleted"]:
+                action = "deleted branch"
+            elif push["created"]:
+                action = "created branch"
+            elif root == "tags":
                 action, join = "tagged", "as"
-            elif ref[0] == "heads":
+            elif root == "heads":
                 action, join = "pushed", "to"
             else:
                 raise NotImplementedError
-            text = immp.RichText([immp.Segment("{} ".format(action)),
-                                  immp.Segment(desc, link=event["compare"]),
-                                  immp.Segment(" {} {} {}".format(join, name, target))])
-            for commit in event["commits"]:
+            text = immp.RichText([immp.Segment("{} ".format(action))])
+            if join:
+                text.append(immp.Segment(desc, link=push["compare"]),
+                            immp.Segment(" {} ".format(join)))
+            text.append(immp.Segment("{} of {}".format(target, name)))
+            for commit in push["commits"]:
                 text.append(immp.Segment("\n\N{BULLET} {}: {}"
                                          .format(commit["id"][:7],
                                                  commit["message"].split("\n")[0])))
