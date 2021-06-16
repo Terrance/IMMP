@@ -22,6 +22,7 @@ This is a simple control panel to add or update plugs and hooks in a running sys
 
 from asyncio import ensure_future, gather
 from collections import defaultdict
+from datetime import datetime, timedelta
 from importlib import import_module
 from inspect import cleandoc
 import json
@@ -128,7 +129,13 @@ class WebUIHook(immp.ResourceHook):
                    [(module, logging.getLevelName(logger.level))
                     for module, logger in sorted(logging.root.manager.loggerDict.items())
                     if isinstance(logger, logging.Logger) and logger.level != logging.NOTSET])
-        return {"loggers": loggers,
+        uptime = None
+        if self.host.started:
+            uptime = datetime.now() - self.host.started
+            # Drop microseconds from the delta (no datetime.replace equivalent for timedelta).
+            uptime = timedelta(days=uptime.days, seconds=uptime.seconds)
+        return {"uptime": uptime,
+                "loggers": loggers,
                 "versions": [("Python", self._python_version), ("IMMP", self._host_version)]}
 
     async def add(self, request):

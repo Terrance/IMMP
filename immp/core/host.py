@@ -1,5 +1,6 @@
 from asyncio import CancelledError, Task, ensure_future, gather, wait
 from collections import defaultdict
+from datetime import datetime
 from itertools import chain
 import logging
 from operator import attrgetter
@@ -60,9 +61,11 @@ class Host:
             hooks are not present.
         running (bool):
             Whether messages from plugs are being processed by the host.
+        started (datetime.datetime):
+            Timestamp when the host instance began listening for messages.
     """
 
-    __slots__ = ("_objects", "_resources", "_priority", "_loaded", "_stream", "_process")
+    __slots__ = ("_objects", "_resources", "_priority", "_loaded", "_stream", "_process", "started")
 
     def __init__(self):
         self._objects = {}
@@ -70,6 +73,7 @@ class Host:
         self._priority = {}
         self._loaded = False
         self._stream = self._process = None
+        self.started = None
 
     plugs = HostGetter(Plug)
     channels = HostGetter(Channel)
@@ -463,13 +467,14 @@ class Host:
             raise RuntimeError("Host is already processing")
         self._stream = PlugStream()
         self._stream.add(*self.plugs.values())
+        self.started = datetime.now()
         try:
             async for sent, source, primary in self._stream:
                 await self._callback(sent, source, primary)
         except StopAsyncIteration:
             log.debug("Plug stream finished")
         finally:
-            self._stream = None
+            self._stream = self.started = None
 
     async def run(self):
         """

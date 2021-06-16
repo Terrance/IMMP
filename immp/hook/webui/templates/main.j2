@@ -111,6 +111,19 @@
       {%- else %}
       <p class="content">None loaded.</p>
       {%- endif %}
+      <h3 class="title"><i class="fas fa-chart-line"></i> Uptime</h3>
+      <nav class="panel">
+        <div class="panel-block">
+          <span>
+            {%- if uptime %}
+            <strong>{{ uptime }}</strong> listening for messages<br>
+            Started {{ host.started.replace(microsecond=0) }}
+            {%- else %}
+            Still starting up...
+            {%- endif %}
+          </span>
+        </div>
+      </nav>
       <h3 class="title"><i class="fas fa-history"></i> Logging</h3>
       <nav class="panel">
         {%- for module, level in loggers %}
