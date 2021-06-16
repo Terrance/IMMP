@@ -47,6 +47,7 @@ from asyncio import (CancelledError, ensure_future, Event, Future, Lock, open_co
 import codecs
 from datetime import datetime, timedelta
 from hashlib import md5
+from itertools import chain
 import logging
 import re
 
@@ -1117,8 +1118,8 @@ class IRCPlug(immp.Plug):
         lines = []
         # Line length isn't well defined (generally 512 bytes for the entire wire line), so set a
         # conservative length limit to allow for long channel names and formatting characters.
-        for chunk in rich.chunked(360):
-            text = IRCRichText.to_formatted(chunk)
+        for line in chain(*(chunk.lines() for chunk in rich.chunked(360))):
+            text = IRCRichText.to_formatted(line)
             if user:
                 template = "* {} {}" if action else "<{}> {}"
                 name = user.username or user.real_name
