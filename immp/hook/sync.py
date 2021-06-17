@@ -588,14 +588,6 @@ class _SyncHookBase(immp.Hook):
                     log.debug("Replacing mention: %r -> %r", user, user)
                     segment.mention = user
                     break
-            else:
-                # Fallback case: replace mention with a link to the user's profile.
-                if user.link:
-                    log.debug("Adding fallback mention link: %r -> %r", user, user.link)
-                    segment.link = user.link
-                else:
-                    log.debug("Removing foreign mention: %r", user)
-                segment.mention = None
             # Perform name substitution on the mention text.
             if self.config["name-format"]:
                 at = "@" if segment.text.startswith("@") else ""
