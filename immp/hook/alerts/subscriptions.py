@@ -61,6 +61,10 @@ if Model:
         network = TextField()
         channel = TextField()
 
+        @classmethod
+        def select_related(cls):
+            return cls.all().prefetch_related("trigger")
+
         def __repr__(self):
             if isinstance(self.trigger, SubTrigger):
                 trigger = repr(self.trigger)
@@ -171,9 +175,10 @@ class SubscriptionsHook(AlertHookBase):
             if key in present and sub.text in text:
                 subs.add(sub)
         triggered = defaultdict(set)
-        excludes = await SubExclude.filter(trigger__id__in=tuple(sub.id for sub in subs),
-                                           network=channel.plug.network_id,
-                                           channel=channel.source)
+        excludes = (await SubExclude.select_related()
+                                    .filter(trigger__id__in=tuple(sub.id for sub in subs),
+                                            network=channel.plug.network_id,
+                                            channel=channel.source))
         excluded = set(exclude.trigger.text for exclude in excludes)
         for trigger in subs:
             if trigger.text not in excluded:
