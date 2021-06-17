@@ -391,16 +391,22 @@ class TelegramSegment(immp.Segment):
                 HTML-formatted string.
         """
         text = segment.text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        if segment.mention and segment.mention.plug.network_id == telegram.network_id:
-            if segment.mention.username:
-                # Telegram will parse this automatically.
-                text = "@{}".format(segment.mention.username)
+        link = None
+        if segment.mention:
+            if segment.mention.plug.network_name == telegram.network_name:
+                if segment.mention.username:
+                    # Telegram will parse this automatically.
+                    text = "@{}".format(segment.mention.username)
+                else:
+                    # Make a link that looks like a mention.
+                    text = ("<a href=\"tg://user?id={}\">{}</a>"
+                            .format(segment.mention.id, segment.mention.real_name))
             else:
-                # Make a link that looks like a mention.
-                text = ("<a href=\"tg://user?id={}\">{}</a>"
-                        .format(segment.mention.id, segment.mention.real_name))
-        elif segment.link:
-            text = "<a href=\"{}\">{}</a>".format(segment.link, text)
+                link = segment.mention.link
+        else:
+            link = segment.link
+        if link:
+            text = "<a href=\"{}\">{}</a>".format(link, text)
         if segment.code:
             text = "<code>{}</code>".format(text)
         if segment.pre:

@@ -191,7 +191,7 @@ class IRCSegment(immp.Segment):
             # carets).  Instead, emulate with muted text by colouring it grey, which will hopefully
             # look reasonable on both light and dark display modes of clients.
             text = cls._coloured(14, text)
-        if segment.link and segment.text != segment.link:
+        if segment.link and not segment.text_is_link:
             text = "{} [{}]".format(text, segment.link)
         return text
 

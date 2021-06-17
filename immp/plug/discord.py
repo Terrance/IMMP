@@ -267,17 +267,26 @@ class DiscordRichText(immp.RichText):
                         # First line of pre block would set the code language and be hidden.
                         text += "\n"
                     active.append(tag)
-            if segment.mention and isinstance(segment.mention.plug, DiscordPlug):
-                text += "<@{}>".format(segment.mention.id)
-            elif segment.link:
-                if webhook:
-                    text += "[{}]({})".format(segment.text, segment.link)
-                elif segment.text == segment.link:
-                    text += segment.text
+            parsed = segment.text
+            if not segment.code and not segment.pre:
+                link = None
+                if not segment.mention:
+                    link = segment.link
+                elif segment.mention.plug.network_name == discord.network_name:
+                    parsed = "<@{}>".format(segment.mention.id)
                 else:
-                    text += "{} [{}]".format(segment.text, segment.link)
-            else:
-                text += segment.text
+                    link = segment.mention.link
+                if link:
+                    if webhook:
+                        parsed = "[{}]({})".format(segment.text, link)
+                    elif segment.text == segment.link:
+                        pass
+                    elif segment.text_is_link:
+                        # Implicitly add the protocol to gain automatic linking.
+                        parsed = segment.link
+                    else:
+                        parsed = "{} [{}]".format(segment.text, link)
+            text += parsed
         for tag in reversed(active):
             # Close all remaining tags.
             text += tag

@@ -25,9 +25,9 @@ This will generate a cookie file called *refresh_token.txt* in the current direc
 from asyncio import CancelledError, Condition, ensure_future, gather, sleep
 from copy import copy
 from io import BytesIO
+from itertools import chain
 import logging
 import re
-from textwrap import wrap
 from urllib.parse import unquote
 
 import hangups
@@ -135,23 +135,25 @@ class HangoutsSegment(immp.Segment):
                    link=link)
 
     @classmethod
-    def _make_segment(cls, text, segment):
-        text = re.sub("^ ", "\N{NBSP}", text).replace("  ", " \N{NBSP}")
-        return hangups.ChatMessageSegment(text,
-                                          (hangouts_pb2.SEGMENT_TYPE_LINK
-                                           if segment.link else
-                                           hangouts_pb2.SEGMENT_TYPE_TEXT),
-                                          is_bold=segment.bold,
-                                          is_italic=segment.italic,
-                                          is_underline=segment.underline,
-                                          is_strikethrough=segment.strike,
-                                          link_target=segment.link)
+    def _make_segments(cls, segment):
+        text = re.sub("^ ", "\N{NBSP}", segment.text).replace("  ", " \N{NBSP}")
+        for i, line in enumerate(text.split("\n")):
+            if i:
+                yield hangups.ChatMessageSegment("\n", hangouts_pb2.SEGMENT_TYPE_LINE_BREAK)
+            yield hangups.ChatMessageSegment(text,
+                                             (hangouts_pb2.SEGMENT_TYPE_LINK
+                                              if segment.link else
+                                              hangouts_pb2.SEGMENT_TYPE_TEXT),
+                                             is_bold=segment.bold,
+                                             is_italic=segment.italic,
+                                             is_underline=segment.underline,
+                                             is_strikethrough=segment.strike,
+                                             link_target=segment.link)
 
     @classmethod
     def to_segments(cls, segment):
         """
         Convert a :class:`.Segment` into one or more :class:`hangups.ChatMessageSegment` instances.
-        This will also attempt to create missing link segments for plain URLs within the text.
 
         Args:
             segment (.Segment)
@@ -161,32 +163,16 @@ class HangoutsSegment(immp.Segment):
             hangups.ChatMessageSegment list:
                 Unparsed segment objects.
         """
-        unlinked = copy(segment)
-        unlinked.link = None
-        if segment.link:
-            if segment.text == segment.link:
-                return [cls._make_segment(segment.text, segment)]
-            else:
-                return [cls._make_segment("{} [".format(segment.text), unlinked),
-                        cls._make_segment(segment.link, segment),
-                        cls._make_segment("]", unlinked)]
-        segments = []
-        for i, line in enumerate(segment.text.split("\n")):
-            if i:
-                segments.append(hangups.ChatMessageSegment(
-                    "\n", hangouts_pb2.SEGMENT_TYPE_LINE_BREAK))
-            while True:
-                match = re.search(r"\b([a-z-]+://\S+)\b", line)
-                if not match:
-                    break
-                left, right = match.span()
-                linked = copy(segment)
-                linked.link = line[left:right]
-                segments += [cls._make_segment(line[:left], segment),
-                             cls._make_segment(linked.link, linked)]
-                line = line[right:]
-            segments.append(cls._make_segment(line, unlinked))
-        return [segment for segment in segments if segment.text]
+        if segment.link and not segment.text_is_link:
+            # The server rejects segments whose link targets don't look like their text, including
+            # any free text as well as masquerading of links (e.g. text "a.com" and link "b.org").
+            parts = [copy(segment) for _ in range(3)]
+            for part, text in zip(parts, ("{} [".format(segment.text), segment.link, "]")):
+                part.text = text
+            parts[0].link = parts[2].link = None
+        else:
+            parts = [segment]
+        return list(chain(*(cls._make_segments(part) for part in parts)))
 
 
 class HangoutsLocation(immp.Location):

@@ -124,6 +124,8 @@ class Segment:
             Anchor URL if this segment represents a clickable link.
         mention (.User):
             Target user mentioned in this segment.
+        text_is_link (bool):
+            ``True`` if the segment text just matches the link, potentially without a protocol.
         plain (bool):
             ``True`` if the segment is not formatted.
     """
@@ -166,6 +168,15 @@ class Segment:
                     parsed = parsed._replace(netloc=netloc, path="/".join(path))
             parsed = parsed._replace(scheme=scheme)
         self._link = urlunparse(parsed)
+
+    @property
+    def text_is_link(self):
+        if not self._link:
+            return False
+        matches = [self._link]
+        if self._link.startswith(("http://", "https://")):
+            matches.append(self._link.split("://", 1)[1])
+        return self.text in matches
 
     def __len__(self):
         return len(self.text)
@@ -930,7 +941,7 @@ class Message(_SentMessageSlots):
         return clone
 
     def __eq__(self, other):
-        return (isinstance(other, Message) and 
+        return (isinstance(other, Message) and
                 ((self.text, self.user, self.action, self.reply_to) ==
                  (other.text, other.user, other.action, other.reply_to)))
 
@@ -1003,7 +1014,7 @@ class Receipt(_SentMessageSlots):
         return await self.channel.plug.delete(self)
 
     def __eq__(self, other):
-        return (isinstance(other, Receipt) and 
+        return (isinstance(other, Receipt) and
                 ((self.id, self.revision, self.channel) ==
                  (other.id, other.revision, other.channel)))
 

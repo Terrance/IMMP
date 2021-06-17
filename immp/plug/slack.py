@@ -476,12 +476,18 @@ class SlackRichText(immp.RichText):
                 if getattr(segment, attr) and tag not in active:
                     text += tag
                     active.append(tag)
-            if segment.mention and slack.same_team(segment.mention.plug):
-                text += "<@{}>".format(segment.mention.id)
-            elif segment.link:
-                text += "<{}|{}>".format(segment.link, cls._escape(segment.text))
-            else:
-                text += cls._escape(segment.text)
+            parsed = cls._escape(segment.text)
+            if not segment.code and not segment.pre:
+                link = None
+                if not segment.mention:
+                    link = segment.link
+                elif slack.same_team(segment.mention.plug):
+                    parsed = "<@{}>".format(segment.mention.id)
+                else:
+                    link = segment.mention.link
+                if link:
+                    parsed = "<{}|{}>".format(link, cls._escape(segment.text))
+            text += parsed
         for tag in reversed(active):
             # Close all remaining tags.
             text += tag
