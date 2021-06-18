@@ -1110,6 +1110,15 @@ class IRCPlug(immp.Plug):
         elif line.command == "INVITE" and self.config["accept-invites"]:
             await self._client.join(line.args[1])
 
+    def _inline(self, rich):
+        # Take an excerpt of some message text, merging multiple lines into one.
+        if not rich:
+            return rich
+        inlined = rich.clone()
+        for segment in inlined:
+            segment.text = segment.text.replace("\n", "  ")
+        return inlined.trim(160)
+
     def _lines(self, rich, user, action, edited, plain=False):
         if not rich:
             return []
@@ -1172,12 +1181,11 @@ class IRCPlug(immp.Plug):
     async def put(self, channel, msg):
         user = None if self.config["puppet"] else msg.user
         lines = []
-        if isinstance(msg.reply_to, immp.Message):
-            quote = self._lines(msg.reply_to.text, msg.reply_to.user,
+        if isinstance(msg.reply_to, immp.Message) and msg.reply_to.text:
+            quote = self._lines(self._inline(msg.reply_to.text), msg.reply_to.user,
                                 msg.reply_to.action, msg.edited, True)
             if quote:
-                snippet = "{}{}".format(quote[0], " [...]" if len(quote) > 1 else "")
-                lines += self._lines(snippet, user, False, msg.edited)
+                lines += self._lines("[{}]".format(quote[0]), user, False, msg.edited)
         if msg.text:
             lines += self._lines(msg.text, user, msg.action, msg.edited)
         for attach in msg.attachments:
