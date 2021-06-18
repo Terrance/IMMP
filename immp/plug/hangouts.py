@@ -472,7 +472,7 @@ class HangoutsPlug(immp.Plug, immp.HTTPOpenable):
     async def start(self):
         await super().start()
         self._closing = False
-        self._client = hangups.Client(hangups.get_auth_stdin(self.config["cookie"]))
+        self._client = hangups.Client(hangups.get_auth_stdin(self.config["cookie"], True))
         self._client.on_connect.add_observer(self._connect)
         log.debug("Connecting client")
         self._looped = ensure_future(self._loop())
