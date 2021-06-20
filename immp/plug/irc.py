@@ -713,6 +713,7 @@ class IRCClient:
         Join the target IRC server.
         """
         self._closing = False
+        self._nick = self._nick_target
         self._reader, self._writer = await open_connection(self._host, self._port, ssl=self._ssl)
         self._read_task = ensure_future(self._read_loop())
         if self._password:
