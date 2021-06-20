@@ -294,6 +294,26 @@ class IRCUser(immp.User):
         real_name = line.args[-1].split(" ", 1)[-1]
         return immp.User(id_=id_, plug=irc, username=username, real_name=real_name, raw=line)
 
+    @classmethod
+    def from_whois(cls, irc, line):
+        """
+        Convert the response of a ``WHOIS`` query into a :class:`.User`.
+
+        Args:
+            irc (.IRCPlug):
+                Related plug instance that provides the user.
+            line (.Line):
+                311-numeric line containing a user's nick, host and real name.
+
+        Returns:
+            .User:
+                Parsed user object.
+        """
+        id_ = "{}!{}@{}".format(line.args[1], line.args[2], line.args[3])
+        username = line.args[5]
+        real_name = line.args[-1].split(" ", 1)[-1]
+        return immp.User(id_=id_, plug=irc, username=username, real_name=real_name, raw=line)
+
 
 class IRCMessage(immp.Message):
     """
@@ -735,9 +755,9 @@ class IRCClient:
                     self._nick += "_"
             else:
                 break
-        for user in await self.who(self._nick):
-            if user.username == self._nick:
-                self._mask = user.id.split("!", 1)[-1]
+        user = await self.whois(self._nick)
+        if user:
+            self._mask = user.id.split("!", 1)[-1]
         self._live_task = ensure_future(self._keepalive_loop())
         if self._on_connect:
             await self._on_connect()
@@ -792,17 +812,19 @@ class IRCClient:
 
     async def who(self, name):
         """
-        Perform a user lookup on the server.
+        Perform a member lookup on the server.
 
         Args:
             name (str):
                 User nick or channel name.
 
         Returns:
-            .Line list:
-                Response lines from the server.
+            .User set:
+                Matching users, either a single user or all participants of a channel.
         """
-        if name in self.users:
+        if name in self.members:
+            return self.members[name]
+        elif name in self.users:
             self.members[name] = {name}
             return {self.users[name]}
         members = set()
@@ -818,6 +840,28 @@ class IRCClient:
         elif name in self.members:
             del self.members[name]
         return users
+
+    async def whois(self, name):
+        """
+        Perform a user lookup on the server.
+
+        Args:
+            name (str):
+                User nick.
+
+        Returns:
+            .User:
+                Matching user, or ``None`` if not found.
+        """
+        if name in self.users:
+            return self.users[name]
+        for line in await self._wait(Line("WHOIS", name), success=("318",), collect=("311",)):
+            user = IRCUser.from_whois(self._plug, line)
+            self.users[name] = user
+            self.members[name] = {name}
+            return user
+        else:
+            return None
 
     async def join(self, channel):
         """
