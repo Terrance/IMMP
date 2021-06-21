@@ -1,5 +1,5 @@
 """
-Connect to `Discord <https://discordapp.com>`_ as a bot.
+Connect to `Discord <https://discord.com>`_ as a bot.
 
 Requirements:
     Extra name: ``discord``
@@ -26,16 +26,16 @@ Config:
 
 Note that the token is neither a client ID nor client secret -- you need to enable bot features for
 your app, and collect the token from there.  New apps can be created from the `My Apps
-<https://discordapp.com/developers/applications/me>`_ page in the developer docs.
+<https://discord.com/developers/applications/me>`_ page in the developer docs.
 
 Channel sources should be Discord's numerical IDs but quoted as strings, e.g. ``"123456789012"``.
 You can enable Advanced > Developer Mode in your Discord app settings in order to enable Copy ID
 menu options in various places across the UI.
 
 Because gateway connections can't customise the sender when pushing new messages, you may also want
-an `incoming webhook <https://discordapp.com/developers/docs/resources/webhook>`_  configured for
-each channel you intend to send messages to.  A new webhook can be created over the API, or in the
-UI via Edit Channel > Webhooks.  A fallback style incorporating the user's name in the message text
+an `incoming webhook <https://discord.com/developers/docs/resources/webhook>`_  configured for each
+channel you intend to send messages to.  A new webhook can be created over the API, or in the UI
+via Edit Channel > Webhooks.  A fallback style incorporating the user's name in the message text
 will be used in lieu of a webhook, e.g. with direct messages.
 """
 
@@ -372,7 +372,7 @@ class DiscordMessage(immp.Message):
 
         Returns.
             discord.Embed:
-                Discord API `embed <https://discordapp.com/developers/docs/resources/channel>`_
+                Discord API `embed <https://discord.com/developers/docs/resources/channel>`_
                 object.
         """
         icon = "\N{RIGHTWARDS ARROW WITH HOOK}" if reply else "\N{SPEECH BALLOON}"
@@ -441,7 +441,7 @@ class DiscordClient(discord.Client):
 
 class DiscordPlug(immp.Plug, immp.HTTPOpenable):
     """
-    Plug for a `Discord <https://discordapp.com>`_ server.
+    Plug for a `Discord <https://discord.com>`_ server.
     """
 
     schema = _Schema.config
@@ -521,7 +521,7 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
             guild = "@me"
         else:
             return None
-        return "https://discordapp.com/channels/{}/{}".format(guild, dc_channel.id)
+        return "https://discord.com/channels/{}/{}".format(guild, dc_channel.id)
 
     async def channel_rename(self, channel, title):
         dc_channel = self._get_channel(channel)
