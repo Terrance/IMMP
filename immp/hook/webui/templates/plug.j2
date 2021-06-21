@@ -1,4 +1,5 @@
 {% extends ctx.module + "/base.j2" %}
+{% from ctx.module + "/macros.j2" import render_doc %}
 {% set title = "Plug: " + plug.name %}
 {% set subtitle = plug.network_name %}
 {% if plug.network_id %}
@@ -134,9 +135,6 @@
     </div>
   </form>
   {% endif %}
-  {%- if doc %}
-  <h3 class="title">Documentation</h3>
-  <pre>{{ doc }}</pre>
-  {%- endif %}
+  {{ render_doc(doc, doc_html) }}
 </div>
 {%- endblock %}

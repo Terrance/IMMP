@@ -4,6 +4,11 @@ Web-based management UI for a host instance.
 Dependencies:
     :class:`.WebHook` with templating
 
+    Extra name: ``webui``
+
+    `Docutils <https://docutils.sourceforge.io>`_:
+        Used to render module documentation if available.
+
 Config:
     route (str):
         Path to expose the UI pages under.
@@ -38,6 +43,11 @@ except ImportError:
 
 from aiohttp import web
 
+try:
+    from docutils.core import publish_parts
+except ImportError:
+    publish_parts = None
+
 import immp
 from immp.hook.runner import RunnerHook
 from immp.hook.web import WebHook
@@ -46,9 +56,16 @@ from immp.hook.web import WebHook
 log = logging.getLogger(__name__)
 
 
-def _module_doc(obj):
+def _render_module_doc(obj):
     doc = import_module(obj.__module__).__doc__
-    return cleandoc(doc) if doc else None
+    if not doc:
+        return (None, None)
+    doc = re.sub(r":[a-z]+:`\.?(.+?)`", r"``\1``", cleandoc(doc))
+    html = None
+    if publish_parts:
+        parts = publish_parts(doc, writer_name="html", settings_overrides={"report_level": 4})
+        html = parts["body"]
+    return (doc, html)
 
 
 class WebUIHook(immp.ResourceHook):
@@ -152,10 +169,12 @@ class WebUIHook(immp.ResourceHook):
             raise web.HTTPNotFound
         if "schema" in post:
             config = post.get("config") or ""
+            doc, doc_html = _render_module_doc(cls)
             return {"path": path,
                     "config": config,
                     "class": cls,
-                    "doc": _module_doc(cls),
+                    "doc": doc,
+                    "doc_html": doc_html,
                     "hook": issubclass(cls, immp.Hook)}
         try:
             name = post["name"]
@@ -205,8 +224,10 @@ class WebUIHook(immp.ResourceHook):
         if source:
             title = await immp.Channel(plug, source).title()
             name = re.sub(r"[^a-z0-9]+", "-", title, flags=re.I).strip("-") if title else ""
+        doc, doc_html = _render_module_doc(plug.__class__)
         return {"plug": plug,
-                "doc": _module_doc(plug.__class__),
+                "doc": doc,
+                "doc_html": doc_html,
                 "add_name": name,
                 "add_source": source,
                 "channels": {name: channel for name, channel in self.host.channels.items()
@@ -457,8 +478,10 @@ class WebUIHook(immp.ResourceHook):
     async def hook(self, request):
         hook = self._resolve_hook(request)
         can_stop = not isinstance(hook, (WebHook, WebUIHook))
+        doc, doc_html = _render_module_doc(hook)
         return {"hook": hook,
-                "doc": _module_doc(hook),
+                "doc": doc,
+                "doc_html": doc_html,
                 "resource": isinstance(hook, immp.ResourceHook),
                 "priority": self.host.priority.get(hook.name),
                 "can_stop": can_stop}

@@ -3,6 +3,7 @@ aiohttp_jinja2>=1.0.0
 aioconsole>=0.1.14
 anyconfig>=0.9.5
 discord.py>=1.6.0
+docutils>=0.16
 emoji>=0.5.0
 hangups>=0.4.11
 jinja2>=2.6

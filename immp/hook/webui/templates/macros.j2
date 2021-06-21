@@ -21,3 +21,16 @@
   warning
   {%- endif -%}
 {%- endmacro -%}
+
+{%- macro render_doc(doc, doc_html) -%}
+  {%- if doc -%}
+    <h3 class="title">Documentation</h3>
+    {%- if doc_html -%}
+      <div class="box content">
+        {{ doc_html | safe }}
+      </div>
+    {%- else -%}
+      <pre>{{ doc }}</pre>
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}

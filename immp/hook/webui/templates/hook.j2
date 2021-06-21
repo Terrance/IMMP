@@ -1,4 +1,5 @@
 {% extends ctx.module + "/base.j2" %}
+{% from ctx.module + "/macros.j2" import render_doc %}
 {% set title = ("Resource" if resource else "Hook") + ": " + hook.name %}
 {% set subtitle = hook.__class__.__module__ + "." + hook.__class__.__name__ %}
 
@@ -85,9 +86,6 @@
       </div>
     </div>
   </form>
-  {%- if doc %}
-  <h3 class="title">Documentation</h3>
-  <pre>{{ doc }}</pre>
-  {%- endif %}
+  {{ render_doc(doc, doc_html) }}
 </div>
 {%- endblock %}
