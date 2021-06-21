@@ -1060,11 +1060,8 @@ class IRCPlug(immp.Plug):
         for client in self._puppets.values():
             if username == client.nick:
                 return IRCUser.from_id(self, client.nickmask, client.name)
-        for user in await self._client.who(username):
-            if user.username == username:
-                return user
         else:
-            return None
+            return await self._client.whois(username)
 
     async def user_is_system(self, user):
         if user.id == self._client.nickmask:
