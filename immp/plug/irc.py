@@ -422,6 +422,8 @@ class Wait:
             line (.Line):
                 Incoming line to be handled.
         """
+        if self.done:
+            raise ValueError("Wait already resolved")
         if line.command == IRCTryAgain.COMMAND:
             self._result.set_exception(IRCTryAgain(line))
             return
@@ -633,7 +635,7 @@ class IRCClient:
         for wait in self._waits:
             try:
                 wait.add(line)
-            except TypeError:
+            except (TypeError, ValueError):
                 continue
             else:
                 break
