@@ -174,8 +174,10 @@ class Segment:
         if not self._link:
             return False
         matches = [self._link]
-        if self._link.startswith(("http://", "https://")):
-            matches.append(self._link.split("://", 1)[1])
+        for proto in ("http://", "https://", "mailto:"):
+            if self._link.startswith(proto):
+                matches.append(self._link[len(proto):])
+                break
         return self.text in matches
 
     def __len__(self):
