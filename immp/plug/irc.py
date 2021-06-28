@@ -310,8 +310,8 @@ class IRCUser(immp.User):
                 Parsed user object.
         """
         id_ = "{}!{}@{}".format(line.args[1], line.args[2], line.args[3])
-        username = line.args[5]
-        real_name = line.args[-1].split(" ", 1)[-1]
+        username = line.args[1]
+        real_name = line.args[-1]
         return immp.User(id_=id_, plug=irc, username=username, real_name=real_name, raw=line)
 
 
