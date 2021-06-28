@@ -1087,13 +1087,13 @@ class IRCPlug(immp.Plug):
             raw = await self._client.names()
         except IRCTryAgain:
             return None
-        names = set()
+        names = set(self._client.users)
         for line in raw:
             names.update(name.lstrip(self._client.prefixes) for name in line.args[3].split())
+        names.discard(self._client.nick)
         for client in self._puppets.values():
-            names.remove(client.nick)
-        return [immp.Channel(self, name) for name in names
-                if name != self.config["user"]["nick"]]
+            names.discard(client.nick)
+        return [immp.Channel(self, name) for name in names]
 
     async def channel_for_user(self, user):
         return immp.Channel(self, user.username)
