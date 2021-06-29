@@ -640,8 +640,8 @@ class TelegramMessage(immp.Message):
         if message["from"] and not _HiddenSender.has(message["from"]["id"]):
             user = TelegramUser.from_bot_user(telegram, message["from"])
         elif message["sender_chat"] and not _HiddenSender.has(message["sender_chat"]["id"]):
-            user = TelegramUser.from_bot_chat(telegram, message["sender_chat"],
-                                              message["author_signature"])
+            user = TelegramUser.from_bot_channel(telegram, message["sender_chat"],
+                                                 message["author_signature"])
         if message["reply_to_message"]:
             reply_to = await cls.from_bot_message(telegram, message["reply_to_message"])
         # At most one of these fields will be set.
