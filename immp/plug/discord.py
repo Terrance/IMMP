@@ -613,7 +613,7 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
         if webhook and msg.user:
             # Sending via webhook: multiple embeds and files supported.
             requests = []
-            text = None
+            rich = None
             if reply_embed:
                 # Webhooks can't reply to other messages, quote the target in an embed instead.
                 # https://github.com/discord/discord-api-docs/issues/2251
@@ -623,8 +623,14 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
                 if msg.action:
                     for segment in rich:
                         segment.italic = True
-                if msg.edited:
-                    rich.append(immp.Segment(" (edited)", italic=True))
+            if msg.edited:
+                if rich:
+                    rich.append(immp.Segment(" "))
+                else:
+                    rich = immp.RichText()
+                rich.append(immp.Segment("(edited)", italic=True))
+            text = None
+            if rich:
                 mark = DiscordRichText.to_markdown(self, rich, True)
                 chunks = immp.RichText.chunked_plain(mark, 2000)
                 if len(chunks) > 1:

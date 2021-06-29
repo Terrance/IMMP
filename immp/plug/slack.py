@@ -1122,7 +1122,11 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
                 for segment in rich:
                     segment.italic = True
         if msg.edited:
-            rich.append(immp.Segment(" (edited)", italic=True))
+            if rich:
+                rich.append(immp.Segment(" "))
+            else:
+                rich = immp.RichText()
+            rich.append(immp.Segment("(edited)", italic=True))
         attachments = []
         if isinstance(parent.reply_to, immp.Receipt):
             data["thread_ts"] = msg.reply_to.id
