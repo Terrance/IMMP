@@ -169,6 +169,10 @@ class Plug(Configurable, Openable):
         Return a URL that acts as a direct link to the given channel.  This is not a join link,
         rather one that opens a conversation in the client (it may e.g. use a custom protocol).
 
+        Args:
+            channel (.Channel):
+                Requested channel instance.
+
         Returns:
             str:
                 Internal deep link to this channel.
@@ -180,6 +184,8 @@ class Plug(Configurable, Openable):
         Update the friendly name of this conversation.
 
         Args:
+            channel (.Channel):
+                Requested channel instance.
             title (str):
                 New display name for the channel.
         """
@@ -219,6 +225,41 @@ class Plug(Configurable, Openable):
                 Requested channel instance.
             user (.User):
                 Existing user to kick.
+        """
+
+    async def channel_link_create(self, channel, shared=True):
+        """
+        Create a URL that can be used by non-members to join the given channel.  To link existing
+        participants to the channel without invite authorisation, see :meth:`channel_link`.
+
+        Args:
+            channel (.Channel):
+                Requested channel instance.
+            shared (bool):
+                ``True`` (default) for a common, unlimited-use, non-expiring link (subject to any
+                limitations from the underlying network); ``False`` for a private, single-use link.
+
+                Networks may only support one of these two modes of link creation; if ``None`` is
+                returned, but the caller can make do with the other type, they may retry the call
+                and flip this option.
+
+        Returns:
+            str:
+                Shareable invite link, or ``None`` if one couldn't be created.
+        """
+        return None
+
+    async def channel_link_revoke(self, channel, link=None):
+        """
+        Revoke an invite link, or otherwise prevent its use in the future.
+
+        Args:
+            channel (.Channel):
+                Requested channel instance.
+            link (str):
+                Existing invite link to revoke.  This should be provided when known; if ``None``,
+                the plug will revoke the default invite link, if such a link exists for the channel
+                in the underlying network.
         """
 
     async def channel_history(self, channel, before=None):

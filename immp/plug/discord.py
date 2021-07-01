@@ -544,6 +544,23 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
         else:
             return []
 
+    async def channel_link_create(self, channel, shared=True):
+        dc_channel = self._get_channel(channel)
+        invite = await dc_channel.create_invite(max_uses=(0 if shared else 1),
+                                                unique=(not shared))
+        log.debug("Created invite link for %r: %r", channel.source, invite.url)
+        return invite.url
+
+    async def channel_link_revoke(self, channel, link=None):
+        if not link:
+            return
+        dc_channel = self._get_channel(channel)
+        for invite in await dc_channel.invites():
+            if invite.url == link:
+                await invite.delete()
+                log.debug("Revoked invite link for %r: %r", channel.source, link)
+                break
+
     async def channel_history(self, channel, before=None):
         dc_channel = self._get_channel(channel)
         dc_before = await dc_channel.fetch_message(before.id) if before else None

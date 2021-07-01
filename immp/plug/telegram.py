@@ -86,7 +86,10 @@ class _Schema:
     chat = immp.Schema({"id": int,
                         "type": str,
                         immp.Optional("title"): immp.Nullable(str),
+                        immp.Optional("invite_link"): immp.Nullable(str),
                         immp.Optional("username"): immp.Nullable(str)})
+
+    link = immp.Schema({"invite_link": str})
 
     entity = immp.Schema({"type": str,
                           "offset": int,
@@ -1333,6 +1336,33 @@ class TelegramPlug(immp.Plug, immp.HTTPOpenable):
         else:
             await self._api("kickChatMember", params={"chat_id": channel.source,
                                                       "user_id": user.id})
+
+    async def channel_link_create(self, channel, shared=True):
+        params = {"chat_id": channel.source}
+        if not shared:
+            # Create a new single-use invite link.
+            params["member_limit"] = 1
+            meta = await self._api("createChatInviteLink", _Schema.link, params=params)
+            link = meta["invite_link"]
+            log.debug("Created invite link for %r: %r", channel.source, link)
+            return link
+        chat = await self._api("getChat", _Schema.chat, params=params)
+        # Reuse a primary invite link if available, otherwise create a new one.
+        if chat["invite_link"]:
+            return chat["invite_link"]
+        link = await self._api("exportChatInviteLink", _Schema.link, params=params)
+        log.debug("Regenerated invite link for %r: %r", channel.source, link)
+        return link
+
+    async def channel_link_revoke(self, channel, link=None):
+        if link:
+            await self._api("revokeChatInviteLink", params={"chat_id": channel.source,
+                                                            "invite_link": link})
+            log.debug("Revoked invite link for %r: %r", channel.source, link)
+        else:
+            # Revoke the primary link by requesting a new one.
+            await self._api("exportChatInviteLink", params={"chat_id": channel.source})
+            log.debug("Regenerated invite link for %r", channel.source)
 
     async def channel_history(self, channel, before=None):
         if not self._client:

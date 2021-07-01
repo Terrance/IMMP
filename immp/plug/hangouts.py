@@ -587,6 +587,38 @@ class HangoutsPlug(immp.Plug, immp.HTTPOpenable):
             participant_id=hangouts_pb2.ParticipantId(gaia_id=user.id))
         await self._client.remove_user(request)
 
+    async def channel_link_create(self, channel, shared=True):
+        try:
+            conv = self._convs.get(channel.source)
+        except KeyError:
+            return None
+        # Hangouts has no concept of private invite links.
+        if not shared:
+            return None
+        # Enable joining via link for the conversation.
+        if not conv.is_group_link_sharing_enabled:
+            await conv.set_group_link_sharing_enabled(True)
+            log.debug("Enabled join-by-link for %r", channel.source)
+        # Request a new invite link (this won't revoke any existing ones).
+        request = hangouts_pb2.GetGroupConversationUrlRequest(
+            request_header=self._client.get_request_header(),
+            conversation_id=hangouts_pb2.ConversationId(id=channel.source))
+        response = await self._client.get_group_conversation_url(request)
+        return response.group_conversation_url
+
+    async def channel_link_revoke(self, channel, link=None):
+        # Hangouts has no concept of revoking links -- any previously issued links will continue
+        # to work forever.  Instead, just disable joining via link for the default revocation.
+        if link:
+            return
+        try:
+            conv = self._convs.get(channel.source)
+        except KeyError:
+            return
+        if conv.is_group_link_sharing_enabled:
+            await conv.set_group_link_sharing_enabled(False)
+            log.debug("Disabled join-by-link for %r", channel.source)
+
     async def _next_batch(self, conv, before_id):
         # Conversation.get_events() should, if the target is the oldest message in the current
         # batch, fetch the next whole batch and return that, or else return everything before the

@@ -95,6 +95,27 @@ class Channel:
         """
         return await self.plug.channel_remove(self, user)
 
+    async def link_create(self, shared=True):
+        """
+        Equivalent to :meth:`.Plug.channel_link_create`.
+
+        Args:
+            shared (bool):
+                ``True`` (default) for a common, unlimited-use, non-expiring link (subject to any
+                limitations from the underlying network); ``False`` for a private, single-use link.
+        """
+        return await self.plug.channel_link_create(self, shared)
+
+    async def link_revoke(self, link=None):
+        """
+        Equivalent to :meth:`.Plug.channel_link_revoke`.
+
+        Args:
+            link (str):
+                Existing invite link to revoke.
+        """
+        return await self.plug.channel_link_revoke(self, link)
+
     async def history(self, before=None):
         """
         Equivalent to :meth:`.Plug.channel_history`.
