@@ -140,7 +140,7 @@ class HangoutsSegment(immp.Segment):
         for i, line in enumerate(text.split("\n")):
             if i:
                 yield hangups.ChatMessageSegment("\n", hangouts_pb2.SEGMENT_TYPE_LINE_BREAK)
-            yield hangups.ChatMessageSegment(text,
+            yield hangups.ChatMessageSegment(line,
                                              (hangouts_pb2.SEGMENT_TYPE_LINK
                                               if segment.link else
                                               hangouts_pb2.SEGMENT_TYPE_TEXT),
