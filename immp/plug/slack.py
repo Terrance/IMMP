@@ -142,7 +142,8 @@ class _Schema:
                  immp.Optional("hidden", False): bool,
                  immp.Optional("channel"): immp.Nullable(str),
                  immp.Optional("edited", dict):
-                     {immp.Optional("user"): immp.Nullable(str)},
+                     {immp.Optional("ts"): immp.Nullable(str),
+                      immp.Optional("user"): immp.Nullable(str)},
                  immp.Optional("thread_ts"): immp.Nullable(str),
                  immp.Optional("files", list): [file],
                  immp.Optional("attachments", list): [attachment],
@@ -603,8 +604,9 @@ class SlackMessage(immp.Message):
         return user
 
     @classmethod
-    async def _parse_main(cls, slack, json, event, channel, parent=True, revision=None):
+    async def _parse_main(cls, slack, json, event, channel, parent=True):
         id_, at = cls._parse_meta(slack, event)
+        revision = event["edited"]["ts"]
         edited = bool(revision)
         deleted = False
         text = event["text"]
@@ -723,8 +725,9 @@ class SlackMessage(immp.Message):
                 Parsed message object.
         """
         event = _Schema.message(json)
-        if event["hidden"]:
-            # Ignore UI-hidden events (e.g. tombstones of deleted files).
+        log.debug(event)
+        if event["hidden"] and event["subtype"] != "message_changed":
+            # Ignore most UI-hidden events (e.g. tombstones of deleted files).
             raise NotImplementedError("hidden")
         if event["is_ephemeral"]:
             # Ignore user-private messages from Slack (e.g. over quota warnings, link unfurling
@@ -744,15 +747,14 @@ class SlackMessage(immp.Message):
                                     raw=json)
         elif event["subtype"] == "message_changed":
             if event["message"]["hidden"]:
-                # In theory this should match event["hidden"], but redefined here just in case.
+                # We might get updates to messages that are themselves hidden.
                 raise NotImplementedError("hidden")
             if event["message"]["text"] == event["previous_message"]["text"]:
                 # Message remains unchanged.  Can be caused by link unfurling (adds an attachment)
                 # or deleting replies (reply is removed from event.replies in new *and old*).
                 raise NotImplementedError("unchanged")
-            revision = event["ts"]
             # Original message details are under a nested "message" key.
-            return await cls._parse_main(slack, json, event["message"], channel, parent, revision)
+            return await cls._parse_main(slack, json, event["message"], channel, parent)
         else:
             return await cls._parse_main(slack, json, event, channel, parent)
 
