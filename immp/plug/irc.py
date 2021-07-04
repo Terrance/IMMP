@@ -1163,28 +1163,39 @@ class IRCPlug(immp.Plug):
             segment.text = segment.text.replace("\n", "  ")
         return inlined.trim(160)
 
-    def _lines(self, rich, user, action, edited, plain=False):
+    def _author_name(self, user):
+        name = user.username or user.real_name
+        if self.config["colour-nicks"]:
+            name = IRCSegment._coloured(IRCUser.nick_colour(name), name)
+        return name
+
+    def _author_template(self, user=None, action=False, edited=False, quoter=None):
+        prefix = []
+        suffix = []
+        if user:
+            prefix.append(("* {} " if action else "<{}> ").format(self._author_name(user)))
+        if quoter:
+            prefix.append("<{}> [".format(self._author_name(quoter)))
+            suffix.append("]")
+        if edited:
+            prefix.append("[edit] ")
+        if action and not user and not quoter:
+            prefix.append("\x01ACTION ")
+            suffix.append("\x01")
+        return "{}{{}}{}".format("".join(reversed(prefix)), "".join(suffix)).strip()
+
+    def _lines(self, rich, user=None, action=False, edited=False, quoter=None):
         if not rich:
             return []
         elif not isinstance(rich, immp.RichText):
             rich = immp.RichText([immp.Segment(rich)])
+        template = self._author_template(user, action, edited, quoter)
         lines = []
         # Line length isn't well defined (generally 512 bytes for the entire wire line), so set a
         # conservative length limit to allow for long channel names and formatting characters.
         for line in chain(*(chunk.lines() for chunk in rich.chunked(360))):
             text = IRCRichText.to_formatted(line)
-            if user:
-                template = "* {} {}" if action else "<{}> {}"
-                name = user.username or user.real_name
-                if self.config["colour-nicks"]:
-                    name = IRCSegment._coloured(IRCUser.nick_colour(name), name)
-                text = template.format(name, text)
-            if edited:
-                text = "[edit] {}".format(text)
-            if not user and action:
-                template = "* {}" if plain else "\x01ACTION {}\x01"
-                text = template.format(text)
-            lines.append(text)
+            lines.append(template.format(text))
         return lines
 
     async def _puppet(self, user, create=True):
@@ -1226,10 +1237,8 @@ class IRCPlug(immp.Plug):
         user = None if self.config["puppet"] else msg.user
         lines = []
         if isinstance(msg.reply_to, immp.Message) and msg.reply_to.text:
-            quote = self._lines(self._inline(msg.reply_to.text), msg.reply_to.user,
-                                msg.reply_to.action, msg.edited, True)
-            if quote:
-                lines += self._lines("[{}]".format(quote[0]), user, False, msg.edited)
+            lines.append(self._lines(self._inline(msg.reply_to.text), msg.reply_to.user,
+                                     msg.reply_to.action, msg.edited, user)[0])
         if msg.text:
             lines += self._lines(msg.text, user, msg.action, msg.edited)
         for attach in msg.attachments:
@@ -1240,9 +1249,7 @@ class IRCPlug(immp.Plug):
                 text = "shared a location: {}".format(attach)
                 lines += self._lines(text, user, True, msg.edited)
             elif isinstance(attach, immp.Message) and attach.text:
-                forward = self._lines(attach.text, attach.user, attach.action, attach.edited, True)
-                if forward:
-                    lines += self._lines("\n".join(forward), user, False, msg.edited)
+                lines += self._lines(attach.text, attach.user, attach.action, attach.edited, user)
         receipts = []
         if self.config["puppet"] and msg.user:
             client = await self._puppet(msg.user)
