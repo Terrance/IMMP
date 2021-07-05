@@ -725,7 +725,6 @@ class SlackMessage(immp.Message):
                 Parsed message object.
         """
         event = _Schema.message(json)
-        log.debug(event)
         if event["hidden"] and event["subtype"] != "message_changed":
             # Ignore most UI-hidden events (e.g. tombstones of deleted files).
             raise NotImplementedError("hidden")
