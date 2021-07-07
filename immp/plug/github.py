@@ -133,16 +133,18 @@ class GitHubMessage(immp.Message):
             desc = "{} commits".format(count) if count > 1 else push["after"][:7]
             root, target = push["ref"].split("/", 2)[1:]
             join = None
-            if push["deleted"]:
-                action = "deleted branch"
-            elif push["created"]:
-                action = "created branch"
-            elif root == "tags":
-                action, join = "tagged", "as"
+            if root == "tags":
+                tag = True
             elif root == "heads":
-                action, join = "pushed", "to"
+                tag = False
             else:
                 raise NotImplementedError
+            if push["deleted"]:
+                action = "deleted {}".format("tag" if tag else "branch")
+            elif tag:
+                action, join = "tagged", "as"
+            else:
+                action, join = "pushed", ("to new branch" if push["created"] else "to")
             text = immp.RichText([immp.Segment("{} ".format(action))])
             if join:
                 text.append(immp.Segment(desc, link=push["compare"]),
