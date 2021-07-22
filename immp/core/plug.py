@@ -205,6 +205,22 @@ class Plug(Configurable, Openable):
         """
         return None
 
+    async def channel_invite_multi(self, channel, users):
+        """
+        Add multiple users to the channel's list of members.
+
+        By default, calls :meth:`channel_invite` for each channel-user pair, but can be overridden
+        in order to optimise any necessary work.
+
+        Args:
+            channel (.Channel):
+                Requested channel instance.
+            users (.User list):
+                New users to invite.
+        """
+        for user in users:
+            await self.channel_invite(channel, user)
+
     async def channel_invite(self, channel, user):
         """
         Add the given user to the channel's list of members.
@@ -215,6 +231,22 @@ class Plug(Configurable, Openable):
             user (.User):
                 New user to invite.
         """
+
+    async def channel_remove_multi(self, channel, users):
+        """
+        Remove multiple users from the channel's list of members.
+
+        By default, calls :meth:`channel_remove` for each channel-user pair, but can be overridden
+        in order to optimise any necessary work.
+
+        Args:
+            channel (.Channel):
+                Requested channel instance.
+            user (.User):
+                Existing users to kick.
+        """
+        for user in users:
+            await self.channel_remove(channel, user)
 
     async def channel_remove(self, channel, user):
         """

@@ -565,7 +565,7 @@ class HangoutsPlug(immp.Plug, immp.HTTPOpenable):
         else:
             return [HangoutsUser.from_user(self, user) for user in conv.users]
 
-    async def channel_invite(self, channel, user):
+    async def channel_invite_multi(self, channel, users):
         try:
             conv = self._convs.get(channel.source)
         except KeyError:
@@ -573,8 +573,11 @@ class HangoutsPlug(immp.Plug, immp.HTTPOpenable):
         request = hangouts_pb2.AddUserRequest(
             request_header=self._client.get_request_header(),
             event_request_header=conv._get_event_request_header(),
-            invitee_id=[hangouts_pb2.InviteeID(gaia_id=user.id)])
+            invitee_id=[hangouts_pb2.InviteeID(gaia_id=user.id) for user in users])
         await self._client.add_user(request)
+
+    async def channel_invite(self, channel, user):
+        await self.channel_invite_multi(channel, [user])
 
     async def channel_remove(self, channel, user):
         try:

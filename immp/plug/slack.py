@@ -1000,12 +1000,17 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
         return await gather(*(self.user_from_id(member)
                               for member in self._members[channel.source]))
 
-    async def channel_invite(self, channel, user):
-        if user.id == self._bot_user:
+    async def channel_invite_multi(self, channel, users):
+        ids = {user.id for user in users}
+        if self._bot_user in ids:
+            ids.remove(self._bot_user)
             await self._api("conversations.join", params={"channel": channel.source})
-        else:
+        if ids:
             await self._api("conversations.invite", params={"channel": channel.source,
-                                                            "user": user.id})
+                                                            "users": ",".join(ids)})
+
+    async def channel_invite(self, channel, user):
+        await self.channel_invite_multi(channel, [user])
 
     async def channel_remove(self, channel, user):
         if user.id == self._bot_user:

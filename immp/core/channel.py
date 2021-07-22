@@ -75,6 +75,16 @@ class Channel:
         """
         return await self.plug.channel_members(self)
 
+    async def invite_multi(self, users):
+        """
+        Equivalent to :meth:`.Plug.channel_invite_multi`.
+
+        Args:
+            users (.User list):
+                New users to invite.
+        """
+        return await self.plug.channel_invite_multi(self, users)
+
     async def invite(self, user):
         """
         Equivalent to :meth:`.Plug.channel_invite`.
@@ -84,6 +94,16 @@ class Channel:
                 New user to invite.
         """
         return await self.plug.channel_invite(self, user)
+
+    async def remove_multi(self, users):
+        """
+        Equivalent to :meth:`.Plug.channel_remove_multi`.
+
+        Args:
+            users (.User list):
+                Existing users to kick.
+        """
+        return await self.plug.channel_remove_multi(self, users)
 
     async def remove(self, user):
         """
