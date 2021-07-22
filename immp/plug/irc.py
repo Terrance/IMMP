@@ -57,6 +57,9 @@ import immp
 log = logging.getLogger(__name__)
 
 
+ARROW = "\N{Box Drawings Light Up and Right}\N{Box Drawings Light Horizontal}>"
+
+
 def _codec_error_latin1(exc):
     return (exc.object[exc.start:exc.end].decode("latin-1", "ignore"), exc.end)
 
@@ -1011,6 +1014,8 @@ class IRCPlug(immp.Plug):
         self._puppets = {}
         # Queue multiple outgoing messages in quick succession and insert delays between them.
         self._delay_lock = DelayLock(lambda: self.config["send-delay"])
+        # Cache the last message in each channel, to suppress reply quoting when directly below.
+        self._last_msgs = {}
 
     @property
     def network_name(self):
@@ -1151,6 +1156,7 @@ class IRCPlug(immp.Plug):
                 pass
             else:
                 self.queue(sent)
+                self._last_msgs[sent.channel] = [sent]
         elif line.command == "INVITE" and self.config["accept-invites"]:
             await self._client.join(line.args[1])
 
@@ -1169,27 +1175,31 @@ class IRCPlug(immp.Plug):
             name = IRCSegment._coloured(IRCUser.nick_colour(name), name)
         return name
 
-    def _author_template(self, user=None, action=False, edited=False, quoter=None):
+    def _author_template(self, user=None, action=False, edited=False, reply=None, quoter=None):
         prefix = []
         suffix = []
         if user:
             prefix.append(("* {} " if action else "<{}> ").format(self._author_name(user)))
         if quoter:
-            prefix.append("<{}> [".format(self._author_name(quoter)))
+            if isinstance(quoter, immp.User):
+                prefix.append("<{}> ".format(self._author_name(quoter)))
+            prefix.append("[")
             suffix.append("]")
         if edited:
             prefix.append("[edit] ")
+        if reply:
+            prefix.append("{} ".format(ARROW))
         if action and not user and not quoter:
             prefix.append("\x01ACTION ")
             suffix.append("\x01")
         return "{}{{}}{}".format("".join(reversed(prefix)), "".join(suffix)).strip()
 
-    def _lines(self, rich, user=None, action=False, edited=False, quoter=None):
+    def _lines(self, rich, user=None, action=False, edited=False, reply=None, quoter=None):
         if not rich:
             return []
         elif not isinstance(rich, immp.RichText):
             rich = immp.RichText([immp.Segment(rich)])
-        template = self._author_template(user, action, edited, quoter)
+        template = self._author_template(user, action, edited, reply, quoter)
         lines = []
         # Line length isn't well defined (generally 512 bytes for the entire wire line), so set a
         # conservative length limit to allow for long channel names and formatting characters.
@@ -1237,19 +1247,27 @@ class IRCPlug(immp.Plug):
         user = None if self.config["puppet"] else msg.user
         lines = []
         if isinstance(msg.reply_to, immp.Message) and msg.reply_to.text:
-            lines.append(self._lines(self._inline(msg.reply_to.text), msg.reply_to.user,
-                                     msg.reply_to.action, msg.edited, user)[0])
+            if msg.reply_to not in self._last_msgs.get(channel, []):
+                lines.append(self._lines(self._inline(msg.reply_to.text), msg.reply_to.user,
+                                         msg.reply_to.action, msg.edited, None, True)[0])
         if msg.text:
-            lines += self._lines(msg.text, user, msg.action, msg.edited)
+            lines += self._lines(msg.text, user, msg.action, msg.edited, msg.reply_to)
         for attach in msg.attachments:
             if isinstance(attach, immp.File):
                 text = "uploaded a file{}".format(": {}".format(attach) if str(attach) else "")
-                lines += self._lines(text, user, True, msg.edited)
+                lines += self._lines(text, user, True, msg.edited, msg.reply_to)
             elif isinstance(attach, immp.Location):
                 text = "shared a location: {}".format(attach)
-                lines += self._lines(text, user, True, msg.edited)
+                lines += self._lines(text, user, True, msg.edited, msg.reply_to)
             elif isinstance(attach, immp.Message) and attach.text:
-                lines += self._lines(attach.text, attach.user, attach.action, attach.edited, user)
+                lines += self._lines(attach.text, attach.user, attach.action, attach.edited,
+                                     msg.reply_to, user)
+        arrowed = False
+        for i, line in enumerate(lines):
+            if arrowed:
+                lines[i] = line.replace(ARROW, "   ")
+            elif ARROW in line:
+                arrowed = True
         receipts = []
         if self.config["puppet"] and msg.user:
             client = await self._puppet(msg.user)
@@ -1263,6 +1281,7 @@ class IRCPlug(immp.Plug):
             sent = await IRCMessage.from_line(self, line)
             self.queue(sent)
             receipts.append(sent)
+        self._last_msgs[channel] = receipts
         if self.config["puppet"]:
             for member in msg.joined:
                 puppet = await self._puppet(member, False)
