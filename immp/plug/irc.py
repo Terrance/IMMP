@@ -26,6 +26,8 @@ Config:
     colour-nicks (bool):
         ``True`` to apply IRC colour formatting to nicks when including author names in messages
         (i.e. when not using puppets).
+    quote-reply-to (bool):
+        ``True`` to include a snippet of the parent message, when the incoming one is a reply.
     puppet (bool):
         Whether to use multiple IRC clients for sending.  If enabled, new client connections will
         be made when sending a message with an unseen username, and reused for later messages.
@@ -1001,6 +1003,7 @@ class IRCPlug(immp.Plug):
                           immp.Optional("quit", "Disconnecting"): str,
                           immp.Optional("accept-invites", False): bool,
                           immp.Optional("colour-nicks", False): bool,
+                          immp.Optional("quote-reply-to", True): bool,
                           immp.Optional("puppet", False): bool,
                           immp.Optional("puppet-prefix", ""): str,
                           immp.Optional("send-delay", 0.5): float})
@@ -1188,7 +1191,7 @@ class IRCPlug(immp.Plug):
         if edited:
             prefix.append("[edit] ")
         if reply:
-            prefix.append("{} ".format(ARROW))
+            prefix.append("{} ".format(ARROW if self.config["quote-reply-to"] else ARROW[1:]))
         if action and not user and not quoter:
             prefix.append("\x01ACTION ")
             suffix.append("\x01")
@@ -1247,7 +1250,9 @@ class IRCPlug(immp.Plug):
         user = None if self.config["puppet"] else msg.user
         lines = []
         if isinstance(msg.reply_to, immp.Message) and msg.reply_to.text:
-            if msg.reply_to not in self._last_msgs.get(channel, []):
+            if not self.config["quote-reply-to"]:
+                pass
+            elif msg.reply_to not in self._last_msgs.get(channel, []):
                 lines.append(self._lines(self._inline(msg.reply_to.text), msg.reply_to.user,
                                          msg.reply_to.action, msg.edited, None, True)[0])
         if msg.text:
