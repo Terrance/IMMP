@@ -23,6 +23,8 @@ Config:
         Mapping from virtual channel names to lists of channel names to bridge.
     plug (str):
         Name of a virtual plug to register for this sync.
+    edits (bool):
+        Whether to sync updates to, and deletions of, messages across the bridge.
     joins (bool):
         Whether to sync join and part messages across the bridge.
     renames (bool):
@@ -613,7 +615,8 @@ class SyncHook(_SyncHookBase):
             Virtual plug for this sync, if configured.
     """
 
-    schema = immp.Schema({immp.Optional("joins", True): bool,
+    schema = immp.Schema({immp.Optional("edits", True): bool,
+                          immp.Optional("joins", True): bool,
                           immp.Optional("renames", True): bool,
                           immp.Optional("plug"): immp.Nullable(str),
                           immp.Optional("titles", dict): {str: str}}, _SyncHookBase.schema)
@@ -823,12 +826,19 @@ class SyncHook(_SyncHookBase):
                 log.debug("Incoming message not in sync cache: %r", sent)
         else:
             if sent.deleted:
-                log.debug("Incoming message is a delete, needs sync: %r", sent)
-                await self.delete(ref)
+                if self.config["edits"]:
+                    log.debug("Incoming message is a delete, needs sync: %r", sent)
+                    await self.delete(ref)
+                else:
+                    log.debug("Ignoring deleted message: %r", sent)
                 return
             elif (sent.edited and not ref.revisions) or ref.revision(sent):
-                log.debug("Incoming message is an update, needs sync: %r", sent)
-                update = True
+                if self.config["edits"]:
+                    log.debug("Incoming message is an update, needs sync: %r", sent)
+                    update = True
+                else:
+                    log.debug("Ignoring updated message: %r", sent)
+                    return
             elif all(ref.ids[channel] for channel in self.channels[label]):
                 log.debug("Incoming message already synced: %r", sent)
                 return
