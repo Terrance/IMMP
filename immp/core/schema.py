@@ -589,9 +589,18 @@ class JSONSchema(Walker):
             required = [key for key in fixed if key not in optional]
             if required:
                 root["required"] = required
-        typed = tuple(key for key in obj if isinstance(key, type))
+        typed = {key: obj[key] for key in obj if isinstance(key, type)}
         if typed:
-            root["additionalItems"] = cls.any(Any(*(obj[key] for key in typed)), path, seen)
+            nullable = False
+            extra = []
+            for key, value in typed.items():
+                value, null = Nullable.unwrap(value)
+                extra.append(value)
+                nullable = nullable or null
+            node = Any(*extra)
+            if nullable:
+                node = Nullable(node)
+            root["additionalItems"] = cls.dispatch(node, path, seen)
         return root
 
     @classmethod
