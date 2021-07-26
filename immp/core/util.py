@@ -344,7 +344,7 @@ class LocalFilter(logging.Filter):
     """
 
     def __init__(self, name=""):
-        super().__init__(self, name)
+        super().__init__(name)
         warn("LocalFilter is deprecated, use `loggers` in logging config", DeprecationWarning)
 
     def filter(self, record):

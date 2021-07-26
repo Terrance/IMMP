@@ -115,8 +115,8 @@ def main(path, write=False):
         logging.config.dictConfig(config["logging"])
     else:
         logging.basicConfig(level=logging.INFO)
-        for handler in logging.root.handlers:
-            handler.addFilter(immp.LocalFilter())
+        logging.getLogger().setLevel(logging.WARNING)
+        logging.getLogger(immp.__name__).setLevel(logging.INFO)
     log.info("Creating plugs and hooks")
     host = config_to_host(config, path, write)
     loop = get_event_loop()
