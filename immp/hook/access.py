@@ -3,7 +3,8 @@ Channel join control, extended by other hooks.
 
 Config:
     hooks ((str, str list) dict):
-        Mapping of controlling hooks to a list of channels they manage.
+        Mapping of access-aware hooks to a list of channels they manage.  If a list is ``None``,
+        the included hook will just manage channels it declares ownership of.
     exclude ((str, str list) dict):
         Mapping of plugs to user IDs who should be ignored during checks.
     joins (bool):
@@ -36,6 +37,18 @@ class AccessPredicate:
     """
     Interface for hooks to provide channel access control from a backing source.
     """
+
+    async def access_channels(self):
+        """
+        Request a specific set of channels to be assessed.  If a separate set of channels is given
+        by the controlling :cls:`ChannelAccessHook`, the intersection will be taken.
+
+        Returns:
+            .Channel set:
+                Channels this hook is interested in providing access control for, or ``None`` to
+                just take all channels configured upstream.
+        """
+        return None
 
     async def channel_access_multi(self, members):
         """
@@ -90,7 +103,7 @@ class ChannelAccessHook(immp.Hook, AccessPredicate):
     Hook for controlling membership of, and joins to, secure channels.
     """
 
-    schema = immp.Schema({immp.Optional("hooks", dict): {str: [str]},
+    schema = immp.Schema({immp.Optional("hooks", dict): {str: immp.Nullable([str])},
                           immp.Optional("exclude", dict): {str: [str]},
                           immp.Optional("joins", True): bool,
                           immp.Optional("startup", False): bool,
@@ -103,6 +116,8 @@ class ChannelAccessHook(immp.Hook, AccessPredicate):
     def channels(self):
         inverse = defaultdict(list)
         for hook, channels in self.hooks.items():
+            if not channels:
+                continue
             for channel in channels:
                 inverse[channel].append(hook)
         return inverse
@@ -115,37 +130,64 @@ class ChannelAccessHook(immp.Hook, AccessPredicate):
     async def channel_access(self, channel, user):
         return False
 
-    async def verify(self, members):
+    async def verify(self, members=None):
         """
         Perform verification of each user in each channel, for all configured access predicates.
         Users who are denied access by any predicate will be removed, unless passive mode is set.
 
         Args:
             members ((.Channel, .User set) dict):
-                Mapping from target channels to members awaiting verification.  If ``None`` is given
-                for a channel's set of users, all members of the channel will be verified.
+                Mapping from target channels to a subset of users pending verification.
+
+                If ``None`` is given for a channel's set of users, all members present in the
+                channel will be verified.  If ``members`` itself is ``None``, access checks will be
+                run against all configured channels.
         """
-        targets = {}
-        for channel, users in members.items():
-            present = set()
-            current = await channel.members()
+        everywhere = set()
+        grouped = {}
+        for hook, scope in self.hooks.items():
+            interested = await hook.access_channels()
+            if scope and interested:
+                log.debug("Hook %r using scope and own list", hook)
+                wanted = set(interested).intersection(scope)
+            elif scope or interested:
+                log.debug("Hook %r using %s", hook, "scope" if scope else "own list")
+                wanted = set(scope or interested)
+            else:
+                log.warning("Hook %r has no declared channels for access control", hook)
+                continue
+            if members is not None:
+                wanted.intersection_update(members)
+            if wanted:
+                everywhere.update(wanted)
+                grouped[hook] = wanted
+            else:
+                log.debug("Skipping hook %r as member filter doesn't overlap", hook)
+        targets = defaultdict(set)
+        members = members or {}
+        for channel in everywhere:
+            users = members.get(channel)
+            try:
+                current = await channel.members()
+            except Exception:
+                log.warning("Failed to retrieve members for channel %r", channel, exc_info=True)
+                continue
             for user in users or current or ():
                 if current and user not in current:
                     log.debug("Skipping non-member user %r", user)
-                if user.id in self.config["exclude"].get(user.plug.name, []):
+                elif user.id in self.config["exclude"].get(user.plug.name, []):
                     log.debug("Skipping excluded user %r", user)
                 elif await user.is_system():
                     log.debug("Skipping system user %r", user)
                 else:
-                    present.add(user)
-            targets[channel] = present
+                    targets[channel].add(user)
         hooks = []
         tasks = []
-        for hook, scope in self.hooks.items():
-            interested = {channel: users for channel, users in targets.items() if channel in scope}
-            log.debug("Requesting decisions from %r: %r", hook, set(interested))
+        for hook, channels in grouped.items():
+            known = {channel: users for channel, users in targets.items() if users}
+            log.debug("Requesting decisions from %r: %r", hook, set(known))
             hooks.append(hook)
-            tasks.append(ensure_future(hook.channel_access_multi(interested)))
+            tasks.append(ensure_future(hook.channel_access_multi(known)))
         allowed = set()
         denied = set()
         for hook, result in zip(hooks, await gather(*tasks, return_exceptions=True)):
@@ -182,7 +224,7 @@ class ChannelAccessHook(immp.Hook, AccessPredicate):
 
     async def _startup_check(self):
         log.debug("Running startup access checks")
-        await self.verify({channel: None for channel in self.channels})
+        await self.verify()
         log.debug("Finished startup access checks")
 
     def on_ready(self):
