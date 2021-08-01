@@ -42,7 +42,7 @@ class _Schema:
     _repo = {"full_name": str}
 
     _project = {"name": str, "number": int, **_linked}
-    _card = {"note": str, **_linked}
+    _card = {"note": str, "url": str}
 
     _release = {"tag": str, immp.Optional("name"): immp.Nullable(str), **_linked}
 
@@ -199,7 +199,7 @@ class GitHubMessage(immp.Message):
         elif type_ == "project_card":
             card = event["project_card"]
             text = immp.RichText([immp.Segment("{} ".format(action)),
-                                  immp.Segment("card", link=card["html_url"]),
+                                  immp.Segment("card", link=card["url"]),
                                   immp.Segment(" in project:\n"),
                                   immp.Segment(card["note"])])
         elif type_ == "gollum":
