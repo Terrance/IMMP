@@ -556,12 +556,12 @@ class _SyncHookBase(immp.Hook):
             return user
         elif self.config["reset-author"] or not user:
             log.debug("Creating unlinked user with real name: %r", name)
-            return immp.User(real_name=name)
+            return immp.User(real_name=name, suggested=(user.suggested if user else False))
         else:
             log.debug("Copying user with new real name: %r -> %r", user, name)
             return immp.User(id_=user.id, plug=user.plug, real_name=name,
                              username=(None if force else user.username),
-                             avatar=user.avatar, link=user.link)
+                             avatar=user.avatar, link=user.link, suggested=user.suggested)
 
     async def _alter_name(self, msg):
         channel = msg.channel if isinstance(msg, immp.Receipt) else None
@@ -620,6 +620,8 @@ class SyncHook(_SyncHookBase):
                           immp.Optional("renames", True): bool,
                           immp.Optional("plug"): immp.Nullable(str),
                           immp.Optional("titles", dict): {str: str}}, _SyncHookBase.schema)
+
+    user = immp.User(real_name="Sync", suggested=True)
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
@@ -694,7 +696,7 @@ class SyncHook(_SyncHookBase):
         if missing:
             text.append(immp.Segment("\n"),
                         immp.Segment("(list may be incomplete)"))
-        await msg.channel.send(immp.Message(user=immp.User(real_name="Sync"), text=text))
+        await msg.channel.send(immp.Message(user=self.user, text=text))
 
     @command("sync-list", test=_test)
     async def list(self, msg):
@@ -707,7 +709,7 @@ class SyncHook(_SyncHookBase):
             title = await synced.title()
             if title:
                 text.append(immp.Segment(": {}".format(title)))
-        await msg.channel.send(immp.Message(user=immp.User(real_name="Sync"), text=text))
+        await msg.channel.send(immp.Message(user=self.user, text=text))
 
     async def send(self, label, msg, origin=None, ref=None, update=False):
         """
