@@ -41,7 +41,7 @@ class Identity:
             Common name used across any linked platforms.
         provider (.IdentityProvider):
             Service hook where the identity information was acquired from.
-        links (User list):
+        links (.User list):
             Physical platform users assigned to this identity.
         roles (str list):
             Optional set of role names, if applicable to the backend.
