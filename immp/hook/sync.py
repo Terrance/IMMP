@@ -511,7 +511,7 @@ class _SyncHookBase(immp.Hook):
         return config
 
     def _accept(self, msg, id_):
-        config = self._plug_config(msg.channel)
+        config = self._plug_config(msg.channel if isinstance(msg, immp.Receipt) else None)
         if not config["joins"] and (msg.joined or msg.left):
             log.debug("Not syncing join/part message: %r", id_)
             return False
