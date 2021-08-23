@@ -91,12 +91,12 @@ class Optional:
         schema (.Schema):
             Inner schema for processing.
         default:
-            Alternative value for when the key is missing.  This can be :data:`None` (the default),
-            an instance of a static class (:class:`int`, :class:`float`, :class:`bool`), the
-            :class:`list` or :class:`dict` constructor, or a lambda or function that produces the
-            desired value (e.g. ``lambda: {"a": 1}``).
-
-            When using ``None``, you should also mark the corresponding value as :class:`.Nullable`.
+            Alternative value for when the key is missing.  This can be one of:
+              * :data:`None` (the default; requires the value to be marked :class:`.Nullable`)
+              * an instance of a static class (:class:`int`, :class:`float`, :class:`bool`)
+              * the :class:`list` or :class:`dict` constructor
+              * a lambda or function that produces the desired value (e.g. ``lambda: {"a": 1}``)
+              * :attr:`.Optional.MISSING`, which prevents the insertion of a default value
     """
 
     MISSING = object()
@@ -114,7 +114,7 @@ class Optional:
 
         Returns:
             Tuple of ``(schema, default)``, where ``default`` is :attr:`.Optional.MISSING` if
-            :data:`key` is not an :class:`.Optional` instance.
+            :data:`key` is not an :class:`.Optional` instance, or no default is provided.
         """
         return (key.schema, key.default) if isinstance(key, cls) else (key, cls.MISSING)
 
@@ -462,6 +462,8 @@ class Validator(Walker):
                 continue
             # Missing but optional keys are filled in and validated.
             default = optional[key]
+            if default is Optional.MISSING:
+                continue
             if callable(default):
                 default = default()
             parsed[key] = cls.dispatch(obj[key], here, seen, default)
@@ -585,7 +587,8 @@ class JSONSchema(Walker):
                 root["properties"][item] = prop
                 if key in optional:
                     default = optional[key]
-                    prop["default"] = default() if callable(default) else default
+                    if default is not Optional.MISSING:
+                        prop["default"] = default() if callable(default) else default
             required = [key for key in fixed if key not in optional]
             if required:
                 root["required"] = required
