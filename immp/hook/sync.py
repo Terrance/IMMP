@@ -21,6 +21,9 @@ Dependencies:
 Config:
     channels ((str, str list) dict):
         Mapping from virtual channel names to lists of channel names to bridge.
+    plugs ((str, dict) dict):
+        Mapping from plug names to plug-specific config.  This allows overriding the following
+        top-level config values: joins, renames, reset-author, name-format, strip-name-emoji
     plug (str):
         Name of a virtual plug to register for this sync.
     edits (bool):
@@ -81,6 +84,9 @@ Requirements:
 Config:
     channels ((str, str list) dict):
         Mapping from source channel names to lists of channel names to forward to.
+    plugs ((str, dict) dict):
+        Mapping from plug names to plug-specific config.  This allows overriding the following
+        top-level config values: joins, renames, reset-author, name-format, strip-name-emoji
     users (str list):
         Whitelist of user IDs to accept source messages from.  If set, messages from anyone else in
         the source channel will be ignored.
@@ -479,7 +485,14 @@ class SyncPlug(immp.Plug):
 
 class _SyncHookBase(immp.Hook):
 
+    _override_config = {immp.Optional("joins", immp.Optional.MISSING): bool,
+                        immp.Optional("renames", immp.Optional.MISSING): bool,
+                        immp.Optional("reset-author", immp.Optional.MISSING): bool,
+                        immp.Optional("name-format", immp.Optional.MISSING): immp.Nullable(str),
+                        immp.Optional("strip-name-emoji", immp.Optional.MISSING): bool}
+
     schema = immp.Schema({"channels": {str: [str]},
+                          immp.Optional("plugs", dict): {str: _override_config},
                           immp.Optional("joins", False): bool,
                           immp.Optional("renames", False): bool,
                           immp.Optional("identities"): immp.Nullable(str),
@@ -489,11 +502,20 @@ class _SyncHookBase(immp.Hook):
 
     _identities = immp.ConfigProperty(IdentityProvider)
 
+    def _plug_config(self, channel):
+        keys = ("joins", "renames", "reset-author", "name-format", "strip-name-emoji")
+        config = {key: self.config[key] for key in keys}
+        if channel and channel.plug:
+            override = self.config["plugs"].get(channel.plug.name) or {}
+            config.update({key: override[key] for key in keys if key in override})
+        return config
+
     def _accept(self, msg, id_):
-        if not self.config["joins"] and (msg.joined or msg.left):
+        config = self._plug_config(msg.channel)
+        if not config["joins"] and (msg.joined or msg.left):
             log.debug("Not syncing join/part message: %r", id_)
             return False
-        if not self.config["renames"] and msg.title:
+        if not config["renames"] and msg.title:
             log.debug("Not syncing rename message: %r", id_)
             return False
         return True
@@ -521,6 +543,7 @@ class _SyncHookBase(immp.Hook):
                 await func(attach, *args)
 
     async def _rename_user(self, user, channel):
+        config = self._plug_config(channel)
         # Use name-format or identities to render a suitable author real name.
         base = (user.real_name or user.username) if user else None
         name = None
@@ -532,13 +555,13 @@ class _SyncHookBase(immp.Hook):
             except Exception:
                 log.warning("Failed to retrieve identity information for %r", user,
                             exc_info=True)
-        if self.config["name-format"]:
+        if config["name-format"]:
             if not Template:
                 raise immp.PlugError("'jinja2' module not installed")
             title = await channel.title() if channel else None
             context = {"user": user, "identity": identity, "channel": title}
             try:
-                name = Template(self.config["name-format"]).render(**context)
+                name = Template(config["name-format"]).render(**context)
             except TemplateError:
                 log.warning("Bad name format template", exc_info=True)
             else:
@@ -546,7 +569,7 @@ class _SyncHookBase(immp.Hook):
                 force = True
         elif identity:
             name = "{} ({})".format(base, identity.name)
-        if self.config["strip-name-emoji"]:
+        if config["strip-name-emoji"]:
             if not EMOJI_REGEX:
                 raise immp.PlugError("'emoji' module not installed")
             current = name or base
@@ -554,7 +577,7 @@ class _SyncHookBase(immp.Hook):
                 name = EMOJI_REGEX.sub(_emoji_replace, current).strip()
         if not name:
             return user
-        elif self.config["reset-author"] or not user:
+        elif config["reset-author"] or not user:
             log.debug("Creating unlinked user with real name: %r", name)
             return immp.User(real_name=name, suggested=(user.suggested if user else False))
         else:
@@ -591,7 +614,8 @@ class _SyncHookBase(immp.Hook):
                     segment.mention = user
                     break
             # Perform name substitution on the mention text.
-            if self.config["name-format"]:
+            config = self._plug_config(channel)
+            if config["name-format"]:
                 at = "@" if segment.text.startswith("@") else ""
                 renamed = await self._rename_user(user, channel)
                 segment.text = "{}{}".format(at, renamed.real_name)
