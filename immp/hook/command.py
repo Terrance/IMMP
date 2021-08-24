@@ -23,9 +23,6 @@ Config:
             to at least one of the given providers.
         sets (str list):
             List of command sets to enable.
-        admins ((str, str list) dict):
-            Users authorised to execute administrative commands, a mapping of network identifiers
-            to lists of user identifiers.
 
 The binding works by making commands exposed by all listed hooks available to all listed channels,
 and to the private channels of all listed plugs.  Note that the channels need not belong to any
@@ -92,20 +89,6 @@ class CommandScope(Enum):
     shared = 2
 
 
-class CommandRole(Enum):
-    """
-    Constants representing the types of users a command is available in.
-
-    Attributes:
-        anyone:
-            All configured channels.
-        admin:
-            Only authorised users in the command group.
-    """
-    anyone = 0
-    admin = 1
-
-
 @immp.pretty_str
 class BoundCommand:
     """
@@ -119,9 +102,9 @@ class BoundCommand:
         self.hook = hook
         self.cmd = cmd
 
-    def applicable(self, channel, user, private, admin):
+    def applicable(self, channel, user, private):
         """
-        Test the availability of the current command based on the scope and role.
+        Test the availability of the current command based on the scope.
 
         Args:
             channel (.Channel):
@@ -130,8 +113,6 @@ class BoundCommand:
                 Author of the message to trigger the command.
             private (bool):
                 Result of :meth:`.Channel.is_private`.
-            admin (bool):
-                ``True`` if the author is defined as an admin of this :class:`.CommandHook`.
 
         Returns:
             bool:
@@ -140,8 +121,6 @@ class BoundCommand:
         if self.scope == CommandScope.private and not private:
             return False
         elif self.scope == CommandScope.shared and private:
-            return False
-        elif self.role == CommandRole.admin and not admin:
             return False
         elif self.cmd.test:
             return self.cmd.test(self.hook, channel, user)
@@ -202,8 +181,6 @@ class BaseCommand:
             Parse mode for the command arguments.
         scope (.CommandScope):
             Accessibility of this command for the different channel types.
-        role (.CommandRole):
-            Accessibility of this command for different users.
         test (method):
             Additional predicate that can enable or disable a command based on hook state.
         sync_aware (bool):
@@ -216,12 +193,11 @@ class BaseCommand:
             Human-readable summary of the arguments required by the method.
     """
 
-    def __init__(self, fn, parser=CommandParser.spaces, scope=CommandScope.anywhere,
-                 role=CommandRole.anyone, test=None, sync_aware=False):
+    def __init__(self, fn, parser=CommandParser.spaces, scope=CommandScope.anywhere, test=None,
+                 sync_aware=False):
         self.fn = fn
         self.parser = parser
         self.scope = scope
-        self.role = role
         self.test = test
         self.sync_aware = sync_aware
         # Only positional arguments are produced by splitting the input, there are no keywords.
@@ -331,8 +307,7 @@ class BaseCommand:
             .FullCommand:
                 Fully-qualified instance of this base command.
         """
-        return FullCommand(name, self.fn, self.parser, self.scope, self.role, self.test,
-                           self.sync_aware, args)
+        return FullCommand(name, self.fn, self.parser, self.scope, self.test, self.sync_aware, args)
 
     def __get__(self, instance, owner):
         return BoundCommand(instance, self) if instance else self
@@ -344,8 +319,7 @@ class BaseCommand:
         return hash(self.fn)
 
     def __repr__(self):
-        return "<{}: {}, {} {}>".format(self.__class__.__name__, self.scope.name,
-                                        self.role.name, self.fn)
+        return "<{}: {} {}>".format(self.__class__.__name__, self.scope.name, self.fn)
 
 
 class FullCommand(BaseCommand):
@@ -360,8 +334,8 @@ class FullCommand(BaseCommand):
     """
 
     def __init__(self, name, fn, parser=CommandParser.spaces, scope=CommandScope.anywhere,
-                 role=CommandRole.anyone, test=None, sync_aware=False, fixed_args=()):
-        super().__init__(fn, parser, scope, role, test, sync_aware)
+                 test=None, sync_aware=False, fixed_args=()):
+        super().__init__(fn, parser, scope, test, sync_aware)
         self.name = name.lower()
         self.fixed_args = fixed_args
         if len(self.fixed_args) != self.fixed:
@@ -378,12 +352,12 @@ class FullCommand(BaseCommand):
         return hash((super().__hash__(), self.name))
 
     def __repr__(self):
-        return "<{}: {} @ {}, {} {}>".format(self.__class__.__name__, self.name, self.scope.name,
-                                             self.role.name, self.fn)
+        return "<{}: {} @ {} {}>".format(self.__class__.__name__, self.name,
+                                         self.scope.name, self.fn)
 
 
-def command(name=None, parser=CommandParser.spaces, scope=CommandScope.anywhere,
-            role=CommandRole.anyone, test=None, sync_aware=False):
+def command(name=None, parser=CommandParser.spaces, scope=CommandScope.anywhere, test=None,
+            sync_aware=False):
     """
     Decorator: mark up a hook method as a command.
 
@@ -403,8 +377,6 @@ def command(name=None, parser=CommandParser.spaces, scope=CommandScope.anywhere,
             Parse mode for the command arguments.
         scope (.CommandScope):
             Accessibility of this command for the different channel types.
-        role (.CommandRole):
-            Accessibility of this command for different users.
         test (method):
             Additional predicate that can enable or disable a command based on hook state.
         sync_aware (bool):
@@ -413,7 +385,7 @@ def command(name=None, parser=CommandParser.spaces, scope=CommandScope.anywhere,
             sync channel.  See :meth:`.SyncPlug.sync_for` for resolving this to a virtual channel.
     """
     def wrap(fn):
-        args = (fn, parser, scope, role, test, sync_aware)
+        args = (fn, parser, scope, test, sync_aware)
         return FullCommand(name, *args) if name else BaseCommand(*args)
     return wrap
 
@@ -450,8 +422,7 @@ class CommandHook(immp.Hook):
                           "mapping": {str: {immp.Optional("groups", list): [str],
                                             immp.Optional("hooks", list): [str],
                                             immp.Optional("identify", list): [str],
-                                            immp.Optional("sets", list): [str],
-                                            immp.Optional("admins", dict): {str: [str]}}}})
+                                            immp.Optional("sets", list): [str]}}})
 
     def __init__(self, name, config, host):
         super().__init__(name, config, host)
@@ -478,14 +449,13 @@ class CommandHook(immp.Hook):
 
     def _mapping_cmds(self, mapping, channel, user, private):
         cmdgroup = set()
-        admin = user.plug and user.id in (mapping["admins"].get(user.plug.name) or [])
         for name in mapping["hooks"]:
             cmdgroup.update(set(self.discover(self.host.hooks[name]).values()))
         for label in mapping["sets"]:
             for name, cmdset in self.config["sets"][label].items():
                 discovered = self.discover(self.host.hooks[name])
                 cmdgroup.update(set(discovered[cmd] for cmd in cmdset))
-        return {cmd for cmd in cmdgroup if cmd.applicable(channel, user, private, admin)}
+        return {cmd for cmd in cmdgroup if cmd.applicable(channel, user, private)}
 
     async def commands(self, channel, user):
         """
