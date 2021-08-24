@@ -11,6 +11,8 @@ Config:
         List of plug names to accept identities for.
     multiple (bool):
         ``True`` (default) to allow linking multiple accounts from the same network.
+    admins ((str, str list) dict):
+        Mapping from plug names to user identifiers that can use the ``id-role`` command.
 
 Commands:
     id-add <name> <pwd>:
@@ -42,7 +44,7 @@ from tortoise.fields import ForeignKeyField, IntField, TextField
 
 import immp
 from immp.hook.access import AccessPredicate
-from immp.hook.command import CommandRole, CommandScope, command
+from immp.hook.command import CommandScope, command
 from immp.hook.database import AsyncDatabaseHook
 from immp.hook.identity import Identity, IdentityProvider
 
@@ -158,7 +160,8 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
 
     schema = immp.Schema({immp.Optional("instance"): immp.Nullable(int),
                           "plugs": [str],
-                          immp.Optional("multiple", True): bool})
+                          immp.Optional("multiple", True): bool,
+                          immp.Optional("admins", dict): {str: [str]}})
 
     _plugs = immp.ConfigProperty([immp.Plug])
 
@@ -231,6 +234,14 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
 
     def _test(self, channel, user):
         return channel.plug in self._plugs
+
+    def _test_admin(self, channel, user):
+        if not self._test(channel, user):
+            return False
+        elif not user.plug:
+            return False
+        else:
+            return user.id in self.config["admins"].get(user.plug.name, ())
 
     @command("id-add", scope=CommandScope.private, test=_test)
     async def add(self, msg, name, pwd):
@@ -312,7 +323,7 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
             text = "{} Reset".format(TICK)
         await msg.channel.send(immp.Message(text=text))
 
-    @command("id-role", scope=CommandScope.private, role=CommandRole.admin, test=_test)
+    @command("id-role", scope=CommandScope.private, test=_test_admin)
     async def role(self, msg, name, role=None):
         """
         List roles assigned to an identity, or add/remove a given role.
