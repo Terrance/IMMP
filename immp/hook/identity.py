@@ -85,7 +85,7 @@ class Identity:
                 (self.name, self.provider) == (other.name, other.provider))
 
     def __hash__(self):
-        return hash(self.name, self.provider)
+        return hash((self.name, self.provider))
 
     def __repr__(self):
         return "<{}: {} x{}{}>".format(self.__class__.__name__, repr(self.name), len(self.links),
