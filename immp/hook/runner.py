@@ -28,7 +28,6 @@ except ImportError:
     anyconfig = None
 
 import immp
-from immp.hook.command import CommandRole, CommandScope, command
 
 
 log = logging.getLogger(__name__)
@@ -164,17 +163,6 @@ class RunnerHook(immp.ResourceHook):
         self._base_config = base
         self._path = path
         self.writeable = writeable
-
-    def _test(self, channel, user):
-        return self.writeable
-
-    @command("run-write", scope=CommandScope.private, role=CommandRole.admin, test=_test)
-    async def write(self, msg):
-        """
-        Force a write of the live config out to the configured file.
-        """
-        self.write_config()
-        await msg.channel.send(immp.Message(text="\N{WHITE HEAVY CHECK MARK} Written"))
 
     @staticmethod
     def _config_feature(section, name, obj, priority=None):
