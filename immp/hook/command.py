@@ -18,6 +18,9 @@ Config:
             List of groups (plugs and channels) to process public commands in.
         hooks (str list):
             List of hooks to enable commands for.
+        identify (str list):
+            List of identity providers to restrict command access; if set, users must be identified
+            to at least one of the given providers.
         sets (str list):
             List of command sets to enable.
         admins ((str, str list) dict):
@@ -446,6 +449,7 @@ class CommandHook(immp.Hook):
                           immp.Optional("sets", dict): {str: {str: [str]}},
                           "mapping": {str: {immp.Optional("groups", list): [str],
                                             immp.Optional("hooks", list): [str],
+                                            immp.Optional("identify", list): [str],
                                             immp.Optional("sets", list): [str],
                                             immp.Optional("admins", dict): {str: [str]}}}})
 
@@ -507,9 +511,28 @@ class CommandHook(immp.Hook):
             plug = None
             private = await channel.is_private()
         mappings = []
-        for mapping in self.config["mapping"].values():
-            for label in mapping["groups"]:
-                group = self.host.groups[label]
+        identities = {}
+        for label, mapping in self.config["mapping"].items():
+            providers = mapping["identify"]
+            if providers:
+                for name in providers:
+                    if name not in identities:
+                        try:
+                            provider = self.host.hooks[name]
+                            identities[name] = await provider.identity_from_user(user)
+                        except Exception:
+                            log.exception("Exception retrieving identity from %r for map %r",
+                                          name, label)
+                            identities[name] = None
+                            continue
+                    if identities[name]:
+                        log.debug("Identified %r as %r for map %r", user, identities[name], label)
+                        break
+                else:
+                    log.debug("Could not identify %r for map %r, skipping", user, label)
+                    continue
+            for name in mapping["groups"]:
+                group = self.host.groups[name]
                 if plug and group.has_plug(plug, "anywhere", "named"):
                     mappings.append(mapping)
                 elif not plug and await group.has_channel(channel):
