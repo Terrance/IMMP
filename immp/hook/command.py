@@ -18,9 +18,12 @@ Config:
             List of groups (plugs and channels) to process public commands in.
         hooks (str list):
             List of hooks to enable commands for.
-        identify (str list):
-            List of identity providers to restrict command access; if set, users must be identified
-            to at least one of the given providers.
+        identify ((str, str list) dict):
+            Mapping of identity providers and roles, used to restrict command access.
+            
+            If non-empty, users must be identified to at least one of the given providers.  The
+            value in the mapping can be a list of roles, of which the user must hold at least one.
+            With no roles given, any user identified by the provider will be accepted.
         sets (str list):
             List of command sets to enable.
 
@@ -421,7 +424,7 @@ class CommandHook(immp.Hook):
                           immp.Optional("sets", dict): {str: {str: [str]}},
                           "mapping": {str: {immp.Optional("groups", list): [str],
                                             immp.Optional("hooks", list): [str],
-                                            immp.Optional("identify", list): [str],
+                                            immp.Optional("identify", dict): {str: [str]},
                                             immp.Optional("sets", list): [str]}}})
 
     def __init__(self, name, config, host):
@@ -485,7 +488,7 @@ class CommandHook(immp.Hook):
         for label, mapping in self.config["mapping"].items():
             providers = mapping["identify"]
             if providers:
-                for name in providers:
+                for name, roles in providers.items():
                     if name not in identities:
                         try:
                             provider = self.host.hooks[name]
@@ -495,7 +498,9 @@ class CommandHook(immp.Hook):
                                           name, label)
                             identities[name] = None
                             continue
-                    if identities[name]:
+                    if not identities[name]:
+                        continue
+                    elif not roles or set(roles).intersection(identities[name].roles):
                         log.debug("Identified %r as %r for map %r", user, identities[name], label)
                         break
                 else:
