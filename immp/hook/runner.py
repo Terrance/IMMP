@@ -57,8 +57,9 @@ class _Schema:
 
 def _load_file(path):
     if anyconfig:
-        # anyconfig incorrectly parses ac_template=False as positive (`ac_template is not None`).
-        return anyconfig.load(path, ac_template=None)
+        # Note: anyconfig v0.11.0 parses ac_template=False as positive (fixed in v0.11.1).
+        # https://github.com/ssato/python-anyconfig/pull/126
+        return anyconfig.load(path, ac_template=False)
     else:
         with open(path, "r") as reader:
             return json.load(reader)
