@@ -503,7 +503,7 @@ class _SyncHookBase(immp.Hook):
     _identities = immp.ConfigProperty(IdentityProvider)
 
     def _plug_config(self, channel):
-        keys = ("joins", "renames", "reset-author", "name-format", "strip-name-emoji")
+        keys = tuple(immp.Optional.unwrap(key)[0] for key in self._override_config)
         config = {key: self.config[key] for key in keys}
         if channel and channel.plug:
             override = self.config["plugs"].get(channel.plug.name) or {}
