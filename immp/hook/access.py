@@ -41,7 +41,7 @@ class AccessPredicate:
     async def access_channels(self):
         """
         Request a specific set of channels to be assessed.  If a separate set of channels is given
-        by the controlling :cls:`ChannelAccessHook`, the intersection will be taken.
+        by the controlling :class:`ChannelAccessHook`, the intersection will be taken.
 
         Returns:
             .Channel set:
