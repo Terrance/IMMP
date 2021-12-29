@@ -250,7 +250,7 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
         """
         if not msg.user or msg.user.plug not in self._plugs:
             return
-        if self.find(msg.user):
+        if await self.find(msg.user):
             text = "{} Already identified".format(CROSS)
         else:
             pwd = IdentityGroup.hash(pwd)
