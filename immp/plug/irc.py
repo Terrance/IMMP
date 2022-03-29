@@ -500,6 +500,7 @@ class IRCClient:
         # Store channel and nick prefixes for matching and cleanup.
         self.types = ""
         self.prefixes = ""
+        self.prefix_map = {}
         self._nicklen = None
         self.network = None
         # Track public channels, and joined channels' members.
@@ -552,6 +553,10 @@ class IRCClient:
     @property
     def closing(self):
         return self._closing
+
+    @property
+    def oper_prefixes(self):
+        return tuple(prefix for priv, prefix in self.prefix_map.items() if priv in ("o", "h"))
 
     async def _regain_nick(self):
         if self._nick_target == self._nick:
@@ -661,7 +666,8 @@ class IRCClient:
                 if key == "CHANTYPES":
                     self.types = value
                 elif key == "PREFIX":
-                    self.prefixes = value.split(")", 1)[-1]
+                    privs, self.prefixes = value[1:].split(")", 1)
+                    self.prefix_map = dict(zip(privs, self.prefixes))
                 elif key == "NICKLEN":
                     self._nicklen = int(value)
                 elif key == "NETWORK":
@@ -933,9 +939,24 @@ class IRCClient:
         """
         return await self._wait(Line("LIST"), success=("323",), collect=("322",))
 
-    async def names(self):
+    async def names(self, channel):
         """
-        Request a list of users in channels you're participating in.
+        Request a list of users in a given channel.
+
+        Args:
+            channel (str):
+                Target channel name.
+
+        Returns:
+            .Line list:
+                Response lines from the server.
+        """
+        return await self._wait(Line("NAMES", channel),
+                                success=("366",), fail=("401",), collect=("353",))
+
+    async def all_names(self):
+        """
+        Request a list of users across all channels you're participating in.
 
         Returns:
             .Line list:
@@ -1092,7 +1113,7 @@ class IRCPlug(immp.Plug):
 
     async def private_channels(self):
         try:
-            raw = await self._client.names()
+            raw = await self._client.all_names()
         except IRCTryAgain:
             return None
         names = set(self._client.users)
@@ -1124,6 +1145,22 @@ class IRCPlug(immp.Plug):
         if await channel.is_private() and members[0].id != self._client.nickmask:
             members.append(await self.user_from_id(self._client.nickmask))
         return members
+
+    async def channel_admins(self, channel):
+        if self._client.closing:
+            return None
+        if await channel.is_private():
+            return None
+        try:
+            raw = await self._client.names(channel.source)
+        except IRCTryAgain:
+            return None
+        ops = []
+        for line in raw:
+            nicks = line.args[-1].split()
+            ops.extend(nick.lstrip(self._client.prefixes) for nick in nicks
+                       if nick.startswith(self._client.oper_prefixes))
+        return [await self.user_from_username(nick) for nick in ops]
 
     async def channel_invite(self, channel, user):
         await self._client.invite(channel.source, user.username)

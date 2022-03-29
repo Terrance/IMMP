@@ -13,7 +13,7 @@ Config:
         Whether the token represents a bot user (true by default).
     members (bool):
         Whether to use the privileged members intent to retrieve per-server member information.
-        Without this, per-server nicknames will be unavailable.
+        Without this, per-server nicknames and channel member lists will be unavailable.
 
         Before enabling here, you must enable the intent in Discord's developer site, otherwise the
         underlying client will fail to connect.  For bots in large numbers of servers, this may
@@ -537,12 +537,25 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
         if isinstance(dc_channel, discord.TextChannel):
             return [DiscordUser.from_user(self, member) for member in dc_channel.members]
         elif isinstance(dc_channel, discord.GroupChannel):
-            return [DiscordUser.from_user(self, member) for member in dc_channel.recipients]
+            return ([DiscordUser.from_user(self, dc_channel.me)] +
+                    [DiscordUser.from_user(self, member) for member in dc_channel.recipients])
         elif isinstance(dc_channel, discord.DMChannel):
             return [DiscordUser.from_user(self, dc_channel.me),
                     DiscordUser.from_user(self, dc_channel.recipient)]
         else:
-            return []
+            return None
+
+    async def channel_admins(self, channel):
+        dc_channel = self._get_channel(channel)
+        if isinstance(dc_channel, discord.TextChannel):
+            members = dc_channel.members
+        elif isinstance(dc_channel, discord.GroupChannel):
+            members = [dc_channel.me] + dc_channel.recipients
+        else:
+            return None
+        perms = {user: dc_channel.permissions_for(user) for user in members}
+        return [DiscordUser.from_user(self, user) for user, perm in perms.items()
+                if perm.administrator or perm.manage_messages]
 
     async def channel_link_create(self, channel, shared=True):
         dc_channel = self._get_channel(channel)

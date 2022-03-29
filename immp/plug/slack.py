@@ -1000,6 +1000,12 @@ class SlackPlug(immp.Plug, immp.HTTPOpenable):
         return await gather(*(self.user_from_id(member)
                               for member in self._members[channel.source]))
 
+    async def channel_admins(self, channel):
+        if await channel.is_private():
+            return None
+        members = await self.channel_members(channel)
+        return [user for user in members if user.raw["is_admin"]]
+
     async def channel_invite_multi(self, channel, users):
         ids = {user.id for user in users}
         if self._bot_user in ids:

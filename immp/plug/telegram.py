@@ -89,6 +89,8 @@ class _Schema:
                         immp.Optional("invite_link"): immp.Nullable(str),
                         immp.Optional("username"): immp.Nullable(str)})
 
+    admins = immp.Schema([{"user": user}])
+
     link = immp.Schema({"invite_link": str})
 
     entity = immp.Schema({"type": str,
@@ -1329,6 +1331,16 @@ class TelegramPlug(immp.Plug, immp.HTTPOpenable):
                 return None
             else:
                 return [TelegramUser.from_proto_user(self, user) for user in data.users]
+
+    async def channel_admins(self, channel):
+        if await channel.is_private():
+            return None
+        if not self._client:
+            log.debug("Client auth required to list channel admins")
+            return None
+        admins = await self._api("getChatAdministrators", _Schema.admins,
+                                 params={"chat_id": channel.source})
+        return [TelegramUser.from_bot_user(self, admin["user"]) for admin in admins]
 
     async def channel_remove(self, channel, user):
         if user.id == self._bot_user["id"]:

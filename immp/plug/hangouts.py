@@ -565,6 +565,12 @@ class HangoutsPlug(immp.Plug, immp.HTTPOpenable):
         else:
             return [HangoutsUser.from_user(self, user) for user in conv.users]
 
+    async def channel_admins(self, channel):
+        if await channel.is_private():
+            return None
+        # Everyone is effectively an admin in group conversations.
+        return await channel.members()
+
     async def channel_invite_multi(self, channel, users):
         try:
             conv = self._convs.get(channel.source)
