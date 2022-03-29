@@ -205,6 +205,22 @@ class Plug(Configurable, Openable):
         """
         return None
 
+    async def channel_admins(self, channel):
+        """
+        Retrieve a :class:`.User` list representing members of the given channel with the ability
+        to manage the channel or its members.  May return ``None`` if the plug doesn't recognise
+        the channel, is unable to query members, or has no concept of admins.
+
+        Args:
+            channel (.Channel):
+                Requested channel instance.
+
+        Returns:
+            .User list:
+                Members with admin privileges present in the channel.
+        """
+        return None
+
     async def channel_invite_multi(self, channel, users):
         """
         Add multiple users to the channel's list of members.

@@ -75,6 +75,16 @@ class Channel:
         """
         return await self.plug.channel_members(self)
 
+    async def admins(self):
+        """
+        Equivalent to :meth:`.Plug.channel_admins`.
+
+        Returns:
+            .User list:
+                Members with admin privileges present in the channel.
+        """
+        return await self.plug.channel_admins(self)
+
     async def invite_multi(self, users):
         """
         Equivalent to :meth:`.Plug.channel_invite_multi`.
