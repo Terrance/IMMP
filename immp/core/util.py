@@ -9,6 +9,12 @@ import time
 from warnings import warn
 
 try:
+    from pkg_resources import get_distribution
+except ImportError:
+    # Setuptools might not be available.
+    get_distribution = None
+
+try:
     from aiohttp import ClientSession
 except ImportError:
     ClientSession = None
@@ -536,7 +542,12 @@ class HTTPOpenable(Openable):
     async def start(self):
         if not ClientSession:
             raise ConfigError("'aiohttp' module not installed")
-        self.session = ClientSession()
+        if get_distribution:
+            dist = get_distribution(Openable.__module__.split(".", 1)[0])
+            agent = "{}/{}".format(dist.project_name, dist.version)
+        else:
+            agent = "IMMP"
+        self.session = ClientSession(headers={"User-Agent": agent})
         await super().start()
 
     async def stop(self):
