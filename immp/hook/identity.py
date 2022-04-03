@@ -143,6 +143,19 @@ class WhoIsHook(immp.Hook):
 
     _identities = immp.ConfigProperty([IdentityProvider])
 
+    async def _query_all(self, query, providers=None):
+        getter = "identity_from_{}".format("user" if isinstance(query, immp.User) else "name")
+        providers = providers or self._identities
+        tasks = (getattr(provider, getter)(query) for provider in providers)
+        identities = []
+        for provider, result in zip(providers, await gather(*tasks, return_exceptions=True)):
+            if isinstance(result, Identity):
+                identities.append(result)
+            elif isinstance(result, Exception):
+                log.warning("Failed to retrieve identity from %r (%r)",
+                            provider.name, provider.provider_name, exc_info=result)
+        return identities
+
     @command("who", parser=CommandParser.none)
     async def who(self, msg, name):
         """
@@ -151,21 +164,9 @@ class WhoIsHook(immp.Hook):
         if self.config["public"]:
             providers = self._identities
         else:
-            tasks = (provider.identity_from_user(msg.user) for provider in self._identities)
-            providers = [ident.provider for ident in await gather(*tasks) if ident]
+            providers = [ident.provider for ident in await self._query_all(msg.user)]
         if providers:
-            if name[0].mention:
-                user = name[0].mention
-                tasks = (provider.identity_from_user(user) for provider in providers)
-            else:
-                tasks = (provider.identity_from_name(str(name)) for provider in providers)
-            identities = []
-            for provider, result in zip(providers, await gather(*tasks, return_exceptions=True)):
-                if isinstance(result, Identity):
-                    identities.append(result)
-                elif isinstance(result, Exception):
-                    log.warning("Failed to retrieve identity from %r (%r)",
-                                provider.name, provider.provider_name, exc_info=result)
+            identities = await self._query_all(name[0].mention or str(name), providers)
             if identities:
                 identities.sort(key=lambda ident: ident.provider.provider_name)
                 links = defaultdict(list)
