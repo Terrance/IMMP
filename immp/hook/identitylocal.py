@@ -163,6 +163,8 @@ class LocalIdentityHook(immp.Hook, AccessPredicate, IdentityProvider):
                           immp.Optional("multiple", True): bool,
                           immp.Optional("admins", dict): {str: [str]}})
 
+    provider_name = "Local"
+
     _plugs = immp.ConfigProperty([immp.Plug])
 
     def on_load(self):

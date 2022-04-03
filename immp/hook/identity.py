@@ -18,6 +18,7 @@ query basic identity information.
 """
 
 from asyncio import gather
+from collections import defaultdict
 import logging
 
 import immp
@@ -95,7 +96,13 @@ class Identity:
 class IdentityProvider:
     """
     Interface for hooks to provide identity information from a backing source.
+
+    Attributes:
+        provider_name (str):
+            Readable name of the underlying service, used when displaying info about this provider.
     """
+
+    provider_name = None
 
     async def identity_from_name(self, name):
         """
@@ -145,29 +152,58 @@ class WhoIsHook(immp.Hook):
             providers = self._identities
         else:
             tasks = (provider.identity_from_user(msg.user) for provider in self._identities)
-            providers = [identity.provider for identity in await gather(*tasks) if identity]
+            providers = [ident.provider for ident in await gather(*tasks) if ident]
         if providers:
             if name[0].mention:
                 user = name[0].mention
                 tasks = (provider.identity_from_user(user) for provider in providers)
             else:
                 tasks = (provider.identity_from_name(str(name)) for provider in providers)
-            identities = list(filter(None, await gather(*tasks)))
-            links = {link for identity in identities for link in identity.links}
-            if links:
+            identities = []
+            for provider, result in zip(providers, await gather(*tasks, return_exceptions=True)):
+                if isinstance(result, Identity):
+                    identities.append(result)
+                elif isinstance(result, Exception):
+                    log.warning("Failed to retrieve identity from %r (%r)",
+                                provider.name, provider.provider_name, exc_info=result)
+            if identities:
+                identities.sort(key=lambda ident: ident.provider.provider_name)
+                links = defaultdict(list)
+                roles = []
+                for ident in identities:
+                    for link in ident.links:
+                        links[link].append(ident)
+                    if ident.roles:
+                        roles.append(ident)
                 text = name.clone()
+                text.prepend(immp.Segment("Info for "))
                 for segment in text:
                     segment.bold = True
-                text.append(immp.Segment(" may appear as:"))
-                for user in sorted(links, key=lambda user: user.plug.network_name):
-                    text.append(immp.Segment("\n"))
-                    text.append(immp.Segment("({}) ".format(user.plug.network_name)))
-                    if user.link:
-                        text.append(immp.Segment(user.real_name or user.username, link=user.link))
-                    elif user.real_name and user.username:
-                        text.append(immp.Segment("{} [{}]".format(user.real_name, user.username)))
-                    else:
-                        text.append(immp.Segment(user.real_name or user.username))
+                text.append(immp.Segment("\nMatching providers:"))
+                for i, ident in enumerate(identities):
+                    text.append(immp.Segment("\n{}.\t{}".format(i + 1,
+                                                                ident.provider.provider_name)))
+                if links:
+                    text.append(immp.Segment("\nIdentity links:"))
+                    for user in sorted(links, key=lambda user: user.plug.network_name):
+                        text.append(immp.Segment("\n({}) ".format(user.plug.network_name)))
+                        if user.link:
+                            text.append(immp.Segment(user.real_name or user.username,
+                                                     link=user.link))
+                        elif user.real_name and user.username:
+                            text.append(immp.Segment("{} [{}]".format(user.real_name,
+                                                                      user.username)))
+                        else:
+                            text.append(immp.Segment(user.real_name or user.username))
+                        known = links[user]
+                        if known != identities:
+                            indexes = [identities.index(ident) + 1 for ident in known]
+                            text.append(immp.Segment(" {}".format(indexes)))
+                if roles:
+                    text.append(immp.Segment("\nRoles:"))
+                    for ident in roles:
+                        text.append(immp.Segment("\n({}) {}".format(ident.provider.provider_name,
+                                                                    ", ".join(ident.roles))))
             else:
                 text = "{} Name not in use".format(CROSS)
         else:
