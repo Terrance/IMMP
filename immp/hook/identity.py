@@ -46,6 +46,8 @@ class Identity:
             Physical platform users assigned to this identity.
         roles (str list):
             Optional set of role names, if applicable to the backend.
+        profile (str):
+            URL to the identity profile page.
     """
 
     @classmethod
@@ -75,11 +77,12 @@ class Identity:
                 users.append(result)
         return users
 
-    def __init__(self, name, provider=None, links=(), roles=()):
+    def __init__(self, name, provider=None, links=(), roles=(), profile=None):
         self.name = name
         self.provider = provider
         self.links = links
         self.roles = roles
+        self.profile = profile
 
     def __eq__(self, other):
         return (isinstance(other, Identity) and
@@ -182,8 +185,8 @@ class WhoIsHook(immp.Hook):
                     segment.bold = True
                 text.append(immp.Segment("\nMatching providers:"))
                 for i, ident in enumerate(identities):
-                    text.append(immp.Segment("\n{}.\t{}".format(i + 1,
-                                                                ident.provider.provider_name)))
+                    text.append(immp.Segment("\n{}.\t".format(i + 1)),
+                                immp.Segment(ident.provider.provider_name, link=ident.profile))
                 if links:
                     text.append(immp.Segment("\nIdentity links:"))
                     for user in sorted(links, key=lambda user: user.plug.network_name):
