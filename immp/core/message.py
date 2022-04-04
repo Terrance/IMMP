@@ -245,8 +245,22 @@ class RichText:
 
     __slots__ = ("_segments",)
 
+    @classmethod
+    def _wrap_segments(cls, segments):
+        if not segments:
+            return
+        for segment in segments:
+            if isinstance(segment, str):
+                yield Segment(segment)
+            elif isinstance(segment, Segment):
+                yield segment
+            else:
+                raise TypeError(segment)
+
     def __init__(self, segments=None):
-        self._segments = (list(segments) if segments else None) or []
+        if isinstance(segments, str):
+            segments = [segments]
+        self._segments = list(self._wrap_segments(segments))
 
     @property
     def size(self):
@@ -328,7 +342,7 @@ class RichText:
             segments (.Segment list):
                 New segments to lead the message text.
         """
-        self._segments = list(segments) + self._segments
+        self._segments = list(self._wrap_segments(segments)) + self._segments
 
     def append(self, *segments):
         """
@@ -338,7 +352,7 @@ class RichText:
             segments (.Segment list):
                 New segments to tail the message text.
         """
-        self._segments += segments
+        self._segments += self._wrap_segments(segments)
 
     def indent(self, chars="  "):
         """
