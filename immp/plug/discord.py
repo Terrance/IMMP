@@ -584,6 +584,9 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
 
     async def get_message(self, receipt):
         dc_channel = self._get_channel(receipt.channel)
+        if dc_channel is None:
+            log.debug("Channel %r of message not available", receipt.channel)
+            return None
         message = await dc_channel.fetch_message(receipt.id)
         return await DiscordMessage.from_message(self, message)
 
