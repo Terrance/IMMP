@@ -323,7 +323,7 @@ class DiscordMessage(immp.Message):
         attachments = []
         if message.content:
             text = DiscordRichText.from_message(discord_, message)
-        if message.reference:
+        if message.reference and not message.flags.is_crossposted:
             receipt = immp.Receipt(message.reference.message_id,
                                    immp.Channel(discord_, message.reference.channel_id))
             reply_to = await discord_.get_message(receipt)
