@@ -1,7 +1,7 @@
 aiohttp>=3.0.0
 aiohttp_jinja2>=1.0.0
 aioconsole>=0.1.14
-anyconfig>=0.9.5,!=0.11.0
+anyconfig>=0.11.1
 discord.py>=1.6.0
 docutils>=0.16
 emoji>=0.5.0
@@ -11,7 +11,5 @@ peewee>=3.0.0
 ptpython>=2.0.1
 ruamel.yaml>=0.15.75
 telethon>=1.9.0
-tortoise-orm>=0.15.0; python_version >= '3.7'
-tortoise-orm>=0.15.0,<0.16.0; python_version == '3.6'
-PyPika<0.37.2; python_version == '3.6'
-uvloop>=0.12.0; python_version >= '3.7'
+tortoise-orm>=0.15.0
+uvloop>=0.12.0

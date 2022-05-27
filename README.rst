@@ -7,7 +7,7 @@ Requirements
 ------------
 
 This project uses the latest and greatest Python features (that is, native asyncio syntax and
-asynchronous generators), and therefore requires at least **Python 3.6**.
+asynchronous generators), and therefore requires at least **Python 3.7**.
 
 Additional modules are required for most plugs and hooks -- consult the docs for each module you
 want to use to check its own requirements, or use the included requirements list to install all
