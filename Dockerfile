@@ -15,6 +15,7 @@ RUN	groupadd -g $gid immp
 RUN	useradd -u $uid -g immp immp
 
 COPY	. /usr/src/app/
+RUN	pip3 install --no-cache-dir .
 
 VOLUME	/data
 WORKDIR	/data
