@@ -9,8 +9,12 @@ Requirements:
 Config:
     token (str):
         Discord token for the bot user.
-    bot (bool):
-        Whether the token represents a bot user (true by default).
+    message-content (bool):
+        Whether to use the privileged message content intent to receive the content of incoming
+        messages.  Without this, incoming messages will have no message text or attachments.
+
+        Before enabling here, you must enable the intent in Discord's developer site, otherwise the
+        underlying client will fail to connect.
     members (bool):
         Whether to use the privileged members intent to retrieve per-server member information.
         Without this, per-server nicknames and channel member lists will be unavailable.
@@ -60,7 +64,7 @@ log = logging.getLogger(__name__)
 class _Schema:
 
     config = immp.Schema({"token": str,
-                          immp.Optional("bot", True): bool,
+                          immp.Optional("message-content", True): bool,
                           immp.Optional("members", False): bool,
                           immp.Optional("webhooks", dict): {str: str},
                           immp.Optional("playing"): immp.Nullable(str)})
@@ -96,8 +100,7 @@ class DiscordUser(immp.User):
         """
         username = "{}#{}".format(user.name, user.discriminator)
         real_name = user.display_name
-        # Avatar URL is an Asset object, URL only available via __str__.
-        avatar = str(user.avatar_url) if user.avatar_url else None
+        avatar = user.avatar.url if user.avatar else None
         link = "https://discord.com/users/{}".format(user.id)
         return cls(id_=user.id,
                    plug=discord_,
@@ -343,8 +346,7 @@ class DiscordMessage(immp.Message):
                                              source=embed.image.url))
         return immp.SentMessage(id_=message.id,
                                 channel=channel,
-                                # Timestamps are naive but in UTC.
-                                at=message.created_at.replace(tzinfo=timezone.utc),
+                                at=message.created_at,
                                 # Edited timestamp is blank for new messages, but updated in
                                 # existing objects when the message is later edited.
                                 revision=(message.edited_at or message.created_at).timestamp(),
@@ -381,12 +383,14 @@ class DiscordMessage(immp.Message):
         if isinstance(msg, immp.Receipt):
             embed.timestamp = msg.at
         if msg.user:
-            link = discord.Embed.Empty
+            name = msg.user.real_name or msg.user.username
+            link = icon = None
             # Exclude platform-specific join protocol URLs.
             if (msg.user.link or "").startswith("http"):
                 link = msg.user.link
-            embed.set_author(name=(msg.user.real_name or msg.user.username),
-                             url=link, icon_url=msg.user.avatar or discord.Embed.Empty)
+            if msg.user.avatar:
+                icon = msg.user.avatar.url
+            embed.set_author(name=name, url=link, icon_url=icon)
         quote = None
         action = False
         if msg.text:
@@ -467,9 +471,10 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
         await super().start()
         log.debug("Starting client")
         intents = discord.Intents.default()
+        intents.message_content = self.config["message-content"]
         intents.members = self.config["members"]
         self._client = DiscordClient(self, intents=intents)
-        self._task = ensure_future(self._client.start(self.config["token"], bot=self.config["bot"]))
+        self._task = ensure_future(self._client.start(self.config["token"]))
         async with self._starting:
             # Block until the client is ready.
             await self._starting.wait()
@@ -602,8 +607,9 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
         webhook = None
         for label, host_channel in self.host.channels.items():
             if channel == host_channel and label in self.config["webhooks"]:
-                adapter = discord.AsyncWebhookAdapter(self.session)
-                webhook = discord.Webhook.from_url(self.config["webhooks"][label], adapter=adapter)
+                webhook = discord.Webhook.from_url(self.config["webhooks"][label],
+                                                   session=self.session,
+                                                   bot_token=self.config["token"])
                 break
         return dc_channel, webhook
 
