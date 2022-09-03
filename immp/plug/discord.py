@@ -50,9 +50,8 @@ from functools import partial
 from io import BytesIO
 import logging
 import re
-from textwrap import wrap
 
-import discord
+import discord as discordpy
 from emoji import emojize
 
 import immp
@@ -84,7 +83,7 @@ class DiscordUser(immp.User):
     """
 
     @classmethod
-    def from_user(cls, discord_, user):
+    def from_user(cls, discord, user):
         """
         Convert a :class:`discord.User` into a :class:`.User`.
 
@@ -103,7 +102,7 @@ class DiscordUser(immp.User):
         avatar = user.avatar.url if user.avatar else None
         link = "https://discord.com/users/{}".format(user.id)
         return cls(id_=user.id,
-                   plug=discord_,
+                   plug=discord,
                    username=username,
                    real_name=real_name,
                    avatar=avatar,
@@ -138,11 +137,11 @@ class DiscordRichText(immp.RichText):
         return "@{}".format(roles.get(int(match.group(1)), "&{}".format(match.group(1))))
 
     @classmethod
-    def _sub_channel(cls, discord_, match):
-        return "#{}".format(discord_._client.get_channel(int(match.group(1))).name)
+    def _sub_channel(cls, discord, match):
+        return "#{}".format(discord._client.get_channel(int(match.group(1))).name)
 
     @classmethod
-    def from_message(cls, discord_, message):
+    def from_message(cls, discord, message):
         """
         Convert a string of Markdown from a Discord message into a :class:`.RichText`.
 
@@ -200,9 +199,9 @@ class DiscordRichText(immp.RichText):
             if id_ in mentioned:
                 user = mentioned[id_]
             else:
-                user = mentioned[id_] = discord_._client.get_user(id_)
+                user = mentioned[id_] = discord._client.get_user(id_)
             if user:
-                changes[match.start()]["mention"] = DiscordUser.from_user(discord_, user)
+                changes[match.start()]["mention"] = DiscordUser.from_user(discord, user)
                 changes[match.end()]["mention"] = None
         segments = []
         points = list(sorted(changes.keys()))
@@ -221,14 +220,14 @@ class DiscordRichText(immp.RichText):
                 part = emojize(plain[start:end], use_aliases=True)
                 # Strip Discord channel/emoji tags, replace with a plain text representation.
                 part = cls._role_mention_regex.sub(partial(cls._sub_role_mention, roles), part)
-                part = cls._channel_regex.sub(partial(cls._sub_channel, discord_), part)
+                part = cls._channel_regex.sub(partial(cls._sub_channel, discord), part)
                 part = cls._emoji_regex.sub(r"\1", part)
             segments.append(immp.Segment(part, **formatting))
         return cls(segments)
 
     @classmethod
-    def _sub_emoji(cls, discord_, match):
-        for emoji in discord_._client.emojis:
+    def _sub_emoji(cls, discord, match):
+        for emoji in discord._client.emojis:
             if emoji.name == match.group(1):
                 return str(emoji)
         return ":{}:".format(match.group(1))
@@ -302,7 +301,7 @@ class DiscordMessage(immp.Message):
     """
 
     @classmethod
-    async def from_message(cls, discord_, message, edited=False, deleted=False):
+    async def from_message(cls, discord, message, edited=False, deleted=False):
         """
         Convert a :class:`discord.Message` into a :class:`.Message`.
 
@@ -321,15 +320,15 @@ class DiscordMessage(immp.Message):
                 Parsed message object.
         """
         text = reply_to = None
-        channel = immp.Channel(discord_, message.channel.id)
-        user = DiscordUser.from_user(discord_, message.author)
+        channel = immp.Channel(discord, message.channel.id)
+        user = DiscordUser.from_user(discord, message.author)
         attachments = []
         if message.content:
-            text = DiscordRichText.from_message(discord_, message)
+            text = DiscordRichText.from_message(discord, message)
         if message.reference and not message.flags.is_crossposted:
             receipt = immp.Receipt(message.reference.message_id,
-                                   immp.Channel(discord_, message.reference.channel_id))
-            reply_to = await discord_.get_message(receipt)
+                                   immp.Channel(discord, message.reference.channel_id))
+            reply_to = await discord.get_message(receipt)
         for attach in message.attachments:
             if attach.filename.endswith((".jpg", ".png", ".gif")):
                 type_ = immp.File.Type.image
@@ -359,13 +358,13 @@ class DiscordMessage(immp.Message):
                                 raw=message)
 
     @classmethod
-    async def to_embed(cls, discord_, msg, reply=False):
+    async def to_embed(cls, discord, msg, reply=False):
         """
         Convert a :class:`.Message` to a message embed structure, suitable for embedding within an
         outgoing message.
 
         Args:
-            discord_ (.DiscordPlug):
+            discord (.DiscordPlug):
                 Target plug instance for this attachment.
             msg (.Message):
                 Original message from another plug or hook.
@@ -378,7 +377,7 @@ class DiscordMessage(immp.Message):
                 object.
         """
         icon = "\N{RIGHTWARDS ARROW WITH HOOK}" if reply else "\N{SPEECH BALLOON}"
-        embed = discord.Embed()
+        embed = discordpy.Embed()
         embed.set_footer(text=icon)
         if isinstance(msg, immp.Receipt):
             embed.timestamp = msg.at
@@ -405,11 +404,11 @@ class DiscordMessage(immp.Message):
             if action:
                 for segment in quote:
                     segment.italic = True
-            embed.description = DiscordRichText.to_markdown(discord_, quote)
+            embed.description = DiscordRichText.to_markdown(discord, quote)
         return embed
 
 
-class DiscordClient(discord.Client):
+class DiscordClient(discordpy.Client):
     """
     Subclass of the underlying client to bind events.
     """
@@ -429,7 +428,7 @@ class DiscordClient(discord.Client):
 
     async def on_resume(self):
         if self._plug.config["playing"]:
-            await self.change_presence(activity=discord.Game(self._plug.config["playing"]))
+            await self.change_presence(activity=discordpy.Game(self._plug.config["playing"]))
 
     async def on_message(self, message):
         log.debug("Received a new message")
@@ -470,7 +469,7 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
     async def start(self):
         await super().start()
         log.debug("Starting client")
-        intents = discord.Intents.default()
+        intents = discordpy.Intents.default()
         intents.message_content = self.config["message-content"]
         intents.members = self.config["members"]
         self._client = DiscordClient(self, intents=intents)
@@ -505,7 +504,7 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
 
     async def public_channels(self):
         return [immp.Channel(self, channel.id) for channel in self._client.get_all_channels()
-                if isinstance(channel, discord.TextChannel)]
+                if isinstance(channel, discordpy.TextChannel)]
 
     async def private_channels(self):
         return [immp.Channel(self, channel.id) for channel in self._client.private_channels]
@@ -516,20 +515,20 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
     async def channel_for_user(self, user):
         if not isinstance(user, DiscordUser):
             return None
-        if not isinstance(user.raw, (discord.Member, discord.User)):
+        if not isinstance(user.raw, (discordpy.Member, discordpy.User)):
             return None
         dm = user.raw.dm_channel or (await user.raw.create_dm())
         return immp.Channel(self, dm.id)
 
     async def channel_title(self, channel):
         dc_channel = self._get_channel(channel)
-        return dc_channel.name if isinstance(dc_channel, discord.TextChannel) else None
+        return dc_channel.name if isinstance(dc_channel, discordpy.TextChannel) else None
 
     async def channel_link(self, channel):
         dc_channel = self._get_channel(channel)
-        if isinstance(dc_channel, discord.TextChannel):
+        if isinstance(dc_channel, discordpy.TextChannel):
             guild = dc_channel.guild.id
-        elif isinstance(dc_channel, (discord.DMChannel, discord.GroupChannel)):
+        elif isinstance(dc_channel, (discordpy.DMChannel, discordpy.GroupChannel)):
             guild = "@me"
         else:
             return None
@@ -537,21 +536,21 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
 
     async def channel_rename(self, channel, title):
         dc_channel = self._get_channel(channel)
-        if isinstance(dc_channel, discord.TextChannel):
+        if isinstance(dc_channel, discordpy.TextChannel):
             await dc_channel.edit(name=title)
 
     async def channel_is_private(self, channel):
         dc_channel = self._get_channel(channel)
-        return isinstance(dc_channel, discord.DMChannel)
+        return isinstance(dc_channel, discordpy.DMChannel)
 
     async def channel_members(self, channel):
         dc_channel = self._get_channel(channel)
-        if isinstance(dc_channel, discord.TextChannel):
+        if isinstance(dc_channel, discordpy.TextChannel):
             return [DiscordUser.from_user(self, member) for member in dc_channel.members]
-        elif isinstance(dc_channel, discord.GroupChannel):
+        elif isinstance(dc_channel, discordpy.GroupChannel):
             return ([DiscordUser.from_user(self, dc_channel.me)] +
                     [DiscordUser.from_user(self, member) for member in dc_channel.recipients])
-        elif isinstance(dc_channel, discord.DMChannel):
+        elif isinstance(dc_channel, discordpy.DMChannel):
             return [DiscordUser.from_user(self, dc_channel.me),
                     DiscordUser.from_user(self, dc_channel.recipient)]
         else:
@@ -559,9 +558,9 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
 
     async def channel_admins(self, channel):
         dc_channel = self._get_channel(channel)
-        if isinstance(dc_channel, discord.TextChannel):
+        if isinstance(dc_channel, discordpy.TextChannel):
             members = dc_channel.members
-        elif isinstance(dc_channel, discord.GroupChannel):
+        elif isinstance(dc_channel, discordpy.GroupChannel):
             members = [dc_channel.me] + dc_channel.recipients
         else:
             return None
@@ -607,9 +606,9 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
         webhook = None
         for label, host_channel in self.host.channels.items():
             if channel == host_channel and label in self.config["webhooks"]:
-                webhook = discord.Webhook.from_url(self.config["webhooks"][label],
-                                                   session=self.session,
-                                                   bot_token=self.config["token"])
+                webhook = discordpy.Webhook.from_url(self.config["webhooks"][label],
+                                                     session=self.session,
+                                                     bot_token=self.config["token"])
                 break
         return dc_channel, webhook
 
@@ -634,9 +633,9 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
                 async with (await attach.get_content(self.session)) as img_content:
                     # discord.py expects a file-like object with a synchronous read() method.
                     # NB. The whole file is read into memory by discord.py anyway.
-                    files.append(discord.File(BytesIO(await img_content.read()), title))
+                    files.append(discordpy.File(BytesIO(await img_content.read()), title))
             elif isinstance(attach, immp.Location):
-                embed = discord.Embed()
+                embed = discordpy.Embed()
                 embed.title = attach.name or "Location"
                 embed.url = attach.google_map_url
                 embed.description = attach.address
@@ -650,9 +649,9 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
             if isinstance(msg.reply_to, immp.Receipt):
                 if msg.reply_to.channel.plug.network_id == self.network_id:
                     guild_id = dc_channel.guild.id if dc_channel.guild else None
-                    reply_ref = discord.MessageReference(message_id=int(msg.reply_to.id),
-                                                         channel_id=dc_channel.id,
-                                                         guild_id=guild_id)
+                    reply_ref = discordpy.MessageReference(message_id=int(msg.reply_to.id),
+                                                           channel_id=dc_channel.id,
+                                                           guild_id=guild_id)
             if not reply_to:
                 reply_to = msg.reply_to
             reply_embed = await DiscordMessage.to_embed(self, reply_to, True)
