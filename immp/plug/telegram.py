@@ -573,6 +573,17 @@ class TelegramFile(immp.File):
     """
 
     @classmethod
+    async def from_proto_file(cls, telegram, file_, type_=immp.File.Type.unknown, name=None):
+        try:
+            file_id = pack_bot_file_id(file_)
+        except Exception as e:
+            # File metadata doesn't provide a valid ID, in which case just return a placeholder.
+            log.warning("Failed to generate file ID for attachment", exc_info=e)
+            return immp.File(name, type_)
+        else:
+            return await cls.from_id(telegram, file_id, type_)
+
+    @classmethod
     async def from_id(cls, telegram, id_, type_=immp.File.Type.unknown, name=None):
         """
         Generate a file using the bot API URL for a Telegram file.
@@ -867,13 +878,9 @@ class TelegramMessage(immp.Message):
             receipt = immp.Receipt(reply_id, channel)
             reply_to = await telegram.resolve_message(receipt)
         if message.photo:
-            try:
-                attach = await TelegramFile.from_id(telegram, pack_bot_file_id(message.photo),
-                                                    immp.File.Type.image)
-            except TelegramAPIRequestError as e:
-                log.warning("Unable to fetch attachment", exc_info=e)
-            else:
-                attachments.append(attach)
+            attach = await TelegramFile.from_proto_file(telegram, message.photo,
+                                                        immp.File.Type.image)
+            attachments.append(attach)
         elif message.document:
             type_ = immp.File.Type.unknown
             name = None
@@ -898,14 +905,8 @@ class TelegramMessage(immp.Message):
                 elif mime.startswith("video/"):
                     type_ = immp.File.Type.video
             if telegram.config["stickers"] or not sticker:
-                try:
-                    attach = await TelegramFile.from_id(telegram,
-                                                        pack_bot_file_id(message.document),
-                                                        type_, name)
-                except TelegramAPIRequestError as e:
-                    log.warning("Unable to fetch attachment", exc_info=e)
-                else:
-                    attachments.append(attach)
+                attach = await TelegramFile.from_proto_file(telegram, message.document, type_, name)
+                attachments.append(attach)
         elif message.poll:
             action = True
             prefix = "closed the" if message.poll.poll.closed else "opened a"
