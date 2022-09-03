@@ -414,9 +414,13 @@ class DiscordClient(discord.Client):
         super().__init__(**kwargs)
         self._plug = plug
 
-    async def on_ready(self):
+    async def on_connect(self):
         async with self._plug._starting:
             self._plug._starting.notify_all()
+
+    on_disconnect = on_connect
+
+    async def on_ready(self):
         await self.on_resume()
 
     async def on_resume(self):
@@ -469,6 +473,9 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
         async with self._starting:
             # Block until the client is ready.
             await self._starting.wait()
+        if self._task.done():
+            # Raise connection errors (e.g. missing privileged intents).
+            self._task.result()
 
     async def stop(self):
         await super().stop()
