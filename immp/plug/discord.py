@@ -6,6 +6,9 @@ Requirements:
 
     `discord.py <https://discordpy.readthedocs.io>`_
 
+    .. warning::
+        Note that discord.py requires a minimum of Python 3.8.
+
 Config:
     token (str):
         Discord token for the bot user.
