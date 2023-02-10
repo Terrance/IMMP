@@ -341,10 +341,14 @@ class WebUIHook(immp.ResourceHook):
 
     async def channel(self, request):
         name, channel = self._resolve_channel(request)
-        private = await channel.is_private()
-        title = await channel.title()
-        link = await channel.link()
-        members = await channel.members()
+        private = title = link = members = None
+        try:
+            private = await channel.is_private()
+            title = await channel.title()
+            link = await channel.link()
+            members = await channel.members()
+        except Exception:
+            log.warning("Failed to read channel info", exc_info=True)
         return {"name": name,
                 "channel": channel,
                 "private": private,

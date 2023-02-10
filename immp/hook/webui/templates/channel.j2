@@ -9,6 +9,7 @@
 <div class="container">
   <nav class="level">
     <div class="level-left">
+      {%- if private is not none %}
       <div class="level-item">
         <span>
           {%- if private %}
@@ -18,6 +19,7 @@
           {%- endif %}
         </span>
       </div>
+      {%- endif %}
       {%- if link %}
       <div class="level-item">
         <span><i class="fas fa-fw fa-link"></i> <a href="{{ link }}">{{ link }}</a></span>
