@@ -6,6 +6,8 @@ Requirements:
 
     `aiohttp <https://aiohttp.readthedocs.io/en/latest/>`_
 
+    `emoji <https://github.com/carpedm20/emoji/>`_
+
 Config:
     token (str):
         Slack API user or bot token (``xoxb`` prefix).

@@ -6,6 +6,8 @@ Requirements:
 
     `discord.py <https://discordpy.readthedocs.io>`_
 
+    `emoji <https://github.com/carpedm20/emoji/>`_
+
     .. warning::
         Note that discord.py requires a minimum of Python 3.8.
 
