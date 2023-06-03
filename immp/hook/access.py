@@ -57,9 +57,6 @@ class AccessPredicate:
         By default, calls :meth:`channel_access` for each channel-user pair, but can be overridden
         in order to optimise any necessary work.
 
-        Where possible, avoid raising exceptions for problems with individual users or channels, as
-        it means all other decisions will be lost.
-
         Args:
             members ((.Channel, .User set) dict):
                 Mapping from target channels to members awaiting verification.  If ``None`` is given
@@ -75,7 +72,12 @@ class AccessPredicate:
         denied = set()
         for channel, users in members.items():
             for user in users:
-                decision = await self.channel_access(channel, user)
+                try:
+                    decision = await self.channel_access(channel, user)
+                except Exception:
+                    log.warning("Failed to process channel %r access for user %r",
+                                channel, user.id, exc_info=True)
+                    continue
                 if decision is not None:
                     (allowed if decision else denied).add((channel, user))
         return allowed, denied
