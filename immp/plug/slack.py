@@ -446,7 +446,7 @@ class SlackRichText(immp.RichText):
                 # Strip Slack channel tags, replace with a plain-text representation.
                 part = cls._channel_regex.sub(partial(cls._sub_channel, slack), part)
                 part = cls._link_regex.sub(cls._sub_link, part)
-                part = emojize(cls._unescape(part), use_aliases=True)
+                part = emojize(cls._unescape(part), language="alias")
             segments.append(immp.Segment(part, **formatting))
         return cls(segments)
 

@@ -222,7 +222,7 @@ class DiscordRichText(immp.RichText):
                 user = formatting["mention"]
                 part = "@{}".format(user.real_name or user.username)
             else:
-                part = emojize(plain[start:end], use_aliases=True)
+                part = emojize(plain[start:end], language="alias")
                 # Strip Discord channel/emoji tags, replace with a plain text representation.
                 part = cls._role_mention_regex.sub(partial(cls._sub_role_mention, roles), part)
                 part = cls._channel_regex.sub(partial(cls._sub_channel, discord), part)
