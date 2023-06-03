@@ -564,7 +564,7 @@ class _SyncHookBase(immp.Hook):
             if replace_emoji:
                 current = name or base
                 if current:
-                    name = re.sub("\s+", " ", replace_emoji(current))
+                    name = re.sub(r"\s+", " ", replace_emoji(current, " ")).strip()
             else:
                 log.warning("'emoji' module not installed, can't strip name emoji")
         if not name:
