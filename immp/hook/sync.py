@@ -459,8 +459,14 @@ class SyncPlug(immp.Plug):
     async def channel_members(self, channel):
         if channel.source not in self._hook.config["channels"]:
             return None
-        tasks = (synced.members() for synced in self._hook.channels[channel.source])
-        members = set(chain(*(await gather(*tasks))))
+        channels = self._hook.channels[channel.source]
+        tasks = (synced.members() for synced in channels)
+        members = set()
+        for channel, result in zip(channels, await gather(*tasks, return_exceptions=True)):
+            if isinstance(result, BaseException):
+                log.warning("Failed to retrieve synced channel %r members", channel, exc_info=result)
+            elif result:
+                members.update(result)
         return list(sorted(members, key=lambda u: (u.plug.name, u.username or u.real_name)))
 
     async def put(self, channel, msg):
