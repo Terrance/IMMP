@@ -272,9 +272,12 @@ class TelegramUser(immp.User):
             .TelegramUser:
                 Parsed user object.
         """
-        real_name = user.first_name
-        if user.last_name:
-            real_name = "{} {}".format(real_name, user.last_name)
+        if user.deleted:
+            real_name = "Deleted Account"
+        else:
+            real_name = user.first_name
+            if user.last_name:
+                real_name = "{} {}".format(real_name, user.last_name)
         avatar = None
         if user.username and user.photo:
             avatar = "https://t.me/i/userpic/320/{}.jpg".format(user.username)
