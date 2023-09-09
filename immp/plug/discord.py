@@ -238,7 +238,7 @@ class DiscordRichText(immp.RichText):
         return ":{}:".format(match.group(1))
 
     @classmethod
-    def to_markdown(cls, discord, rich, webhook=False):
+    def to_markdown(cls, discord, rich):
         """
         Convert a :class:`.RichText` instance into a Markdown string.
 
@@ -247,8 +247,6 @@ class DiscordRichText(immp.RichText):
                 Related plug instance to cross-reference users.
             rich (.DiscordRichText):
                 Parsed rich text container.
-            webhook (bool):
-                ``True`` if being sent via a webhook, which allows use of hyperlinks.
 
         Returns:
             str:
@@ -284,15 +282,7 @@ class DiscordRichText(immp.RichText):
                 else:
                     link = segment.mention.link
                 if link:
-                    if webhook:
-                        parsed = "[{}]({})".format(segment.text, link)
-                    elif segment.text == segment.link:
-                        pass
-                    elif segment.text_is_link:
-                        # Implicitly add the protocol to gain automatic linking.
-                        parsed = segment.link
-                    else:
-                        parsed = "{} [{}]".format(segment.text, link)
+                    parsed = "[{}]({})".format(segment.text, link)
             text += parsed
         for tag in reversed(active):
             # Close all remaining tags.
@@ -681,7 +671,7 @@ class DiscordPlug(immp.Plug, immp.HTTPOpenable):
                 rich.append(immp.Segment("(edited)", italic=True))
             text = None
             if rich:
-                mark = DiscordRichText.to_markdown(self, rich, True)
+                mark = DiscordRichText.to_markdown(self, rich)
                 chunks = immp.RichText.chunked_plain(mark, 2000)
                 if len(chunks) > 1:
                     # Multiple messages required to accommodate the text.
