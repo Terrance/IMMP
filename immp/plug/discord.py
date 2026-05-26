@@ -253,26 +253,24 @@ class DiscordRichText(immp.RichText):
                 Markdown formatted text.
         """
         text = ""
-        active = []
         for segment in rich.normalise():
-            for tag in reversed(active):
-                # Check all existing tags, and remove any that end at this segment.
-                attr = cls.base_tags[tag]
-                if not getattr(segment, attr):
-                    text += tag
-                    active.remove(tag)
+            parsed = ""
+            active = []
             for tag, attr in cls.base_tags.items():
                 # Skip duplicate form of italic.
                 if tag == "*":
                     continue
                 # Add any new tags that start at this segment.
-                if getattr(segment, attr) and tag not in active:
-                    text += tag
+                if getattr(segment, attr):
+                    parsed += tag
                     if tag == "```":
                         # First line of pre block would set the code language and be hidden.
-                        text += "\n"
+                        parsed += "\n"
                     active.append(tag)
-            parsed = segment.text
+            parsed += segment.text
+            for tag in reversed(active):
+                # Close all opened tags.
+                parsed += tag
             if not segment.code and not segment.pre:
                 link = None
                 if not segment.mention:
@@ -282,11 +280,8 @@ class DiscordRichText(immp.RichText):
                 else:
                     link = segment.mention.link
                 if link:
-                    parsed = "[{}]({})".format(segment.text, link)
+                    parsed = "[{}]({})".format(parsed, link)
             text += parsed
-        for tag in reversed(active):
-            # Close all remaining tags.
-            text += tag
         return re.sub(r":([^: ]+):", partial(cls._sub_emoji, discord), text)
 
 
