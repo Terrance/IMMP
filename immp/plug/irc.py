@@ -692,8 +692,9 @@ class IRCClient:
                     log.debug("Adding %s to %s member list", nick, channel)
                     self.members[channel].add(nick)
                 elif line.command in ("PART", "KICK"):
-                    log.debug("Removing %s from %s member list", nick, channel)
-                    self.members[channel].remove(nick)
+                    target = line.args[1] if line.command == "KICK" else nick
+                    log.debug("Removing %s from %s member list", target, channel)
+                    self.members[channel].remove(target)
         elif line.command == "QUIT":
             nick = line.source.split("!", 1)[0]
             for name, members in list(self.members.items()):
