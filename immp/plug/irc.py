@@ -888,7 +888,8 @@ class IRCClient:
         if channel in self.members and self._nick in self.members[channel]:
             return
         await self._regain_nick()
-        await self._wait(Line("JOIN", channel), success=("JOIN",))
+        await self._wait(Line("JOIN", channel),
+                         success=("JOIN",), fail=("403", "405", "473", "474"))
         await self.who(channel)
 
     async def part(self, channel):
@@ -902,7 +903,7 @@ class IRCClient:
         if self._nick not in self.members.get(channel, ()):
             return
         await self._regain_nick()
-        await self._wait(Line("PART", channel), success=("PART",))
+        await self._wait(Line("PART", channel), success=("PART",), fail=("403", "442"))
 
     async def invite(self, channel, nick):
         """
